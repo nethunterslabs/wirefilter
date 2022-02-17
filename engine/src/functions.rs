@@ -409,7 +409,7 @@ pub struct SimpleFunctionDefinition {
     /// List of mandatory arguments.
     pub params: Vec<SimpleFunctionParam>,
     /// List of optional arguments that can be specified after manatory ones.
-    pub opt_params: Vec<SimpleFunctionOptParam>,
+    pub opt_params: Option<Vec<SimpleFunctionOptParam>>,
     /// Function return type.
     pub return_type: Type,
     /// Actual implementation that will be called at runtime.
@@ -428,13 +428,46 @@ impl FunctionDefinition for SimpleFunctionDefinition {
             let param = &self.params[index];
             next_param.expect_arg_kind(param.arg_kind)?;
             next_param.expect_val_type(once(ExpectedType::Type(param.val_type.clone())))?;
-        } else if index < self.params.len() + self.opt_params.len() {
-            let opt_param = &self.opt_params[index - self.params.len()];
-            next_param.expect_arg_kind(opt_param.arg_kind)?;
-            next_param
-                .expect_val_type(once(ExpectedType::Type(opt_param.default_value.get_type())))?;
         } else {
-            unreachable!();
+            if let Some(opt_params) = &self.opt_params {
+                if index < self.params.len() + opt_params.len() {
+                    let opt_param = &opt_params[index - self.params.len()];
+                    next_param.expect_arg_kind(opt_param.arg_kind)?;
+                    next_param.expect_val_type(once(ExpectedType::Type(
+                        opt_param.default_value.get_type(),
+                    )))?;
+                }
+            } else {
+                next_param.expect_const_value(|x: &[u8]| {
+                    let lhs_value = &LhsValue::try_from(x).unwrap();
+                    let ty = lhs_value.get_type();
+                    let mut types = HashSet::new();
+                    for expected_type in [
+                        ExpectedType::Type(Type::Bytes),
+                        ExpectedType::Type(Type::Int),
+                        ExpectedType::Type(Type::Float),
+                        ExpectedType::Type(Type::Ip),
+                    ] {
+                        match (&expected_type, &ty) {
+                            (ExpectedType::Array, Type::Array(_)) => return Ok(()),
+                            (ExpectedType::Array, _) => {}
+                            (ExpectedType::Map, Type::Map(_)) => return Ok(()),
+                            (ExpectedType::Map, _) => {}
+                            (ExpectedType::Type(val_type), _) => {
+                                if ty == *val_type {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        types.insert(expected_type);
+                    }
+                    Err(FunctionParamError::TypeMismatch(TypeMismatchError {
+                        expected: types,
+                        actual: ty,
+                    })
+                    .to_string())
+                })?;
+            }
         }
         Ok(())
     }
@@ -448,7 +481,11 @@ impl FunctionDefinition for SimpleFunctionDefinition {
     }
 
     fn arg_count(&self) -> (usize, Option<usize>) {
-        (self.params.len(), Some(self.opt_params.len()))
+        if let Some(opt_params) = &self.opt_params {
+            (self.params.len(), Some(opt_params.len()))
+        } else {
+            (self.params.len(), None)
+        }
     }
 
     fn compile<'s>(
@@ -457,13 +494,17 @@ impl FunctionDefinition for SimpleFunctionDefinition {
         _: Option<FunctionDefinitionContext>,
     ) -> Box<dyn for<'a> Fn(FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 's> {
         Box::new(move |args| {
-            let opts_args = &self.opt_params[(args.len() - self.params.len())..];
-            self.implementation.execute(&mut ExactSizeChain::new(
-                args,
-                opts_args
-                    .iter()
-                    .map(|opt_arg| Ok(opt_arg.default_value.to_owned())),
-            ))
+            if let Some(opt_params) = &self.opt_params {
+                let opts_args = &opt_params[(args.len() - self.params.len())..];
+                self.implementation.execute(&mut ExactSizeChain::new(
+                    args,
+                    opts_args
+                        .iter()
+                        .map(|opt_arg| Ok(opt_arg.default_value.to_owned())),
+                ))
+            } else {
+                self.implementation.execute(args)
+            }
         })
     }
 }

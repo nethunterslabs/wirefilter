@@ -31,10 +31,10 @@ fn main() {
                     arg_kind: FunctionArgKind::Field,
                     val_type: Type::Bytes,
                 }],
-                opt_params: vec![SimpleFunctionOptParam {
+                opt_params: Some(vec![SimpleFunctionOptParam {
                     arg_kind: FunctionArgKind::Literal,
                     default_value: "".into(),
-                }],
+                }]),
                 return_type: Type::Bytes,
                 implementation: SimpleFunctionImpl::new(panic_function),
             },

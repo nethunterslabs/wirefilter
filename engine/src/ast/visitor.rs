@@ -256,7 +256,7 @@ mod tests {
                             arg_kind: FunctionArgKind::Field,
                             val_type: Type::Bytes,
                         }],
-                        opt_params: vec![],
+                        opt_params: Some(vec![]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(|args| args.next()?.ok()),
                     },

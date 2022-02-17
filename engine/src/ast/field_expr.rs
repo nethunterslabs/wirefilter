@@ -705,7 +705,7 @@ mod tests {
                             arg_kind: FunctionArgKind::Field,
                             val_type: Type::Array(Box::new(Type::Bool)),
                         }],
-                        opt_params: vec![],
+                        opt_params: Some(vec![]),
                         return_type: Type::Bool,
                         implementation: SimpleFunctionImpl::new(any_function),
                     },
@@ -719,7 +719,7 @@ mod tests {
                             arg_kind: FunctionArgKind::Field,
                             val_type: Type::Bytes,
                         }],
-                        opt_params: vec![],
+                        opt_params: Some(vec![]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(echo_function),
                     },
@@ -733,7 +733,7 @@ mod tests {
                             arg_kind: FunctionArgKind::Field,
                             val_type: Type::Bytes,
                         }],
-                        opt_params: vec![],
+                        opt_params: Some(vec![]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(lowercase_function),
                     },
@@ -744,7 +744,7 @@ mod tests {
                     "concat".into(),
                     SimpleFunctionDefinition {
                         params: vec![],
-                        opt_params: vec![
+                        opt_params: Some(vec![
                             SimpleFunctionOptParam {
                                 arg_kind: FunctionArgKind::Field,
                                 default_value: "".into(),
@@ -753,7 +753,7 @@ mod tests {
                                 arg_kind: FunctionArgKind::Literal,
                                 default_value: "".into(),
                             },
-                        ],
+                        ]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(concat_function),
                     },
@@ -770,7 +770,7 @@ mod tests {
                             arg_kind: FunctionArgKind::Field,
                             val_type: Type::Bytes,
                         }],
-                        opt_params: vec![],
+                        opt_params: Some(vec![]),
                         return_type: Type::Int,
                         implementation: SimpleFunctionImpl::new(len_function),
                     },
