@@ -20,6 +20,10 @@ hex_digits = { ASCII_HEX_DIGIT+ }
 // NOTE: we need to include 0, so i32::from_str_radix can parse it properly
 oct_digits = { "0" ~ ASCII_OCT_DIGIT+ }
 dec_digits = { ASCII_DIGIT+ }
+float_digits = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+float_lit = ${ "-"? ~ float_digits }
+
+float_range = ${ float_lit ~ ".." ~ float_lit }
 
 // Int range
 int_range = ${ int_lit ~ ".." ~ int_lit }

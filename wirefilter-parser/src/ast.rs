@@ -1,4 +1,5 @@
 use cidr::{Ipv4Cidr, Ipv6Cidr};
+use ordered_float::OrderedFloat;
 use regex::bytes::RegexBuilder;
 use std::borrow::Cow;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -13,6 +14,8 @@ pub struct Regex(regex::bytes::Regex);
 
 #[derive(Debug, PartialEq)]
 pub enum Rhs<'i> {
+    Float(OrderedFloat<f64>),
+    FloatRange(OrderedFloat<f64>),
     Int(i32),
     IntRange(RangeInclusive<i32>),
     String(Cow<'i, [u8]>),

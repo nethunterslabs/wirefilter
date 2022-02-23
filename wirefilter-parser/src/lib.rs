@@ -2,12 +2,14 @@ pub mod ast;
 mod semantics;
 
 use cidr::{Ipv4Cidr, Ipv6Cidr};
+use ordered_float::OrderedFloat;
 use pest::error::ErrorVariant;
 use pest_consume::{match_nodes, Error as ParseError, Parser as PestParser};
 use semantics::ValidateSemantics;
 use std::borrow::Cow;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ops::RangeInclusive;
+use std::str::FromStr;
 
 #[derive(PestParser)]
 #[grammar = "./grammar.pest"]
@@ -86,6 +88,19 @@ impl Parser {
         Ok(num)
     }
 
+    fn float_lit(node: Node) -> ParseResult<OrderedFloat<f64>> {
+        use Rule::*;
+
+        let digits_node = node.children().single().unwrap();
+        let mut num =
+            OrderedFloat(f64::from_str(digits_node.as_str()).into_parse_result(&digits_node)?);
+        if let Some('-') = node.as_str().chars().next() {
+            num = -num;
+        }
+
+        Ok(num)
+    }
+
     fn esc_alias(node: Node) -> ParseResult<u8> {
         Ok(match node.as_str() {
             "\"" => b'"',
@@ -123,6 +138,10 @@ impl Parser {
 
     fn int_range(node: Node) -> ParseResult<RangeInclusive<i32>> {
         parse_range!(node, int_lit)
+    }
+
+    fn float_range(node: Node) -> ParseResult<RangeInclusive<OrderedFloat<f64>>> {
+        parse_range!(node, float_lit)
     }
 
     #[inline]
@@ -287,6 +306,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_float_lit() {
+        ok! { float_lit "42.0" => OrderedFloat(42.0) }
+        ok! { float_lit "-42.0" => OrderedFloat(-42.0) }
+
+        err! { float_lit "-ab.c" =>
+            " --> 1:2
+            |
+          1 | -ab.c
+            |  ^---
+            |
+            = expected float_digits"
+        }
+    }
+
+    #[test]
     fn parse_int_range() {
         ok! { int_range "42..0x2b" => 42..=43 }
         ok! { int_range "-0x2a..0x2A" => -42..=42 }
@@ -317,6 +351,40 @@ mod tests {
             |     ^---
             |
             = expected int_lit"
+        }
+    }
+
+    #[test]
+    fn parse_float_range() {
+        ok! { float_range "42.0..43.0" => OrderedFloat(42.0)..=OrderedFloat(43.0) }
+        ok! { float_range "-42.0..42.0" => OrderedFloat(-42.0)..=OrderedFloat(42.0) }
+        ok! { float_range "42.0..42.0" => OrderedFloat(42.0)..=OrderedFloat(42.0) }
+
+        err! { float_range "42.0.. 43.0" =>
+            " --> 1:7
+            |
+          1 | 42.0.. 43.0
+            |       ^---
+            |
+            = expected float_digits"
+        }
+
+        err! { float_range "45.0..42.0" =>
+            " --> 1:1
+            |
+          1 | 45.0..42.0
+            | ^--------^
+            |
+            = start of the range is greater than the end"
+        }
+
+        err! { float_range "42.0..z" =>
+            " --> 1:7
+            |
+          1 | 42.0..z
+            |       ^---
+            |
+            = expected float_digits"
         }
     }
 
