@@ -168,7 +168,7 @@ impl<'s> IndexExpr<'s> {
                     CompiledOneExpr::new(move |ctx| {
                         index_access_one!(
                             indexes,
-                            (&call.execute(ctx)).as_ref().ok(),
+                            call.execute(ctx).as_ref().ok(),
                             default,
                             ctx,
                             func
@@ -208,7 +208,7 @@ impl<'s> IndexExpr<'s> {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
                 CompiledVecExpr::new(move |ctx| {
-                    index_access_vec!(indexes, (&call.execute(ctx)).as_ref().ok(), ctx, func)
+                    index_access_vec!(indexes, call.execute(ctx).as_ref().ok(), ctx, func)
                 })
             }
             LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx| {
@@ -385,10 +385,10 @@ impl<'s> GetType for IndexExpr<'s> {
         let mut ty = self.lhs.get_type();
         for index in &self.indexes {
             ty = match (ty, index) {
-                (Type::Array(idx), FieldIndex::ArrayIndex(_)) => (*idx),
-                (Type::Array(idx), FieldIndex::MapEach) => (*idx),
-                (Type::Map(child), FieldIndex::MapKey(_)) => (*child),
-                (Type::Map(child), FieldIndex::MapEach) => (*child),
+                (Type::Array(idx), FieldIndex::ArrayIndex(_)) => *idx,
+                (Type::Array(idx), FieldIndex::MapEach) => *idx,
+                (Type::Map(child), FieldIndex::MapKey(_)) => *child,
+                (Type::Map(child), FieldIndex::MapEach) => *child,
                 (_, _) => unreachable!(),
             }
         }
@@ -706,7 +706,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let err = IndexExpr::parse(&*SCHEME, "test[*]").unwrap_err();
+        let err = IndexExpr::parse(&SCHEME, "test[*]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
@@ -732,7 +732,7 @@ mod tests {
         );
 
         assert_eq!(
-            IndexExpr::parse(&*SCHEME, "test[42]"),
+            IndexExpr::parse(&SCHEME, "test[42]"),
             Ok(IndexExpr {
                 lhs: LhsFieldExpr::Field(SCHEME.get_field("test").unwrap()),
                 indexes: vec![FieldIndex::ArrayIndex(42)],

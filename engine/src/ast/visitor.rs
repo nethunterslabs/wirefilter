@@ -232,7 +232,7 @@ impl<'s> Visitor<'s> for UsesListVisitor<'s> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        AlwaysList, FunctionArgKind, Identifier, Scheme, SimpleFunctionDefinition,
+        list_matcher, FunctionArgKind, Identifier, Scheme, SimpleFunctionDefinition,
         SimpleFunctionImpl, SimpleFunctionParam, Type,
     };
     use lazy_static::lazy_static;
@@ -263,7 +263,7 @@ mod tests {
                 )
                 .unwrap();
             scheme
-                .add_list(Type::Bytes, Box::new(AlwaysList::default()))
+                .add_list(Type::Bytes, Box::<list_matcher::AlwaysList>::default())
                 .unwrap();
             scheme
         };

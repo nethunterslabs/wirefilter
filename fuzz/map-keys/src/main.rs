@@ -45,7 +45,7 @@ fn main() {
 fn first_impl<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
     let arg = args.next().expect("expected 1 argument, got 0");
     if args.next().is_some() {
-        panic!(format!("expected 1 argument, got {}", 2 + args.count()));
+        panic!("expected 1 argument, got {}", 2 + args.count());
     }
     match arg {
         Ok(LhsValue::Map(m)) => {
@@ -65,7 +65,7 @@ lazy_static! {
             arg_kind: FunctionArgKind::Field,
             val_type: Type::Map(Box::new(Type::Bytes)),
         }],
-        opt_params: vec![],
+        opt_params: Some(vec![]),
         return_type: Type::Bytes,
         implementation: SimpleFunctionImpl::new(first_impl)
     };

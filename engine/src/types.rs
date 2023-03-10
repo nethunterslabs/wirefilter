@@ -402,7 +402,7 @@ impl<'a> TryFrom<&'a LhsValue<'a>> for &'a [u8] {
 
     fn try_from(value: &'a LhsValue<'_>) -> Result<Self, TypeMismatchError> {
         match value {
-            LhsValue::Bytes(value) => Ok(&*value),
+            LhsValue::Bytes(value) => Ok(value),
             _ => Err(TypeMismatchError {
                 expected: Type::Bytes.into(),
                 actual: value.get_type(),

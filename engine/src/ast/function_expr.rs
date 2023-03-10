@@ -269,7 +269,7 @@ impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {
         let map_each_count = args.get(0).map_or(0, |arg| arg.map_each_count());
         let call = function
             .as_definition()
-            .compile(&mut (&args).iter().map(|arg| arg.into()), context);
+            .compile(&mut (args).iter().map(|arg| arg.into()), context);
         let args = args
             .into_iter()
             .map(|arg| compiler.compile_function_call_arg_expr(arg))
@@ -312,8 +312,8 @@ impl<'s> FunctionCallExpr<'s> {
         context: Option<FunctionDefinitionContext>,
     ) -> Self {
         let return_type = function.as_definition().return_type(
-            &mut (&args).iter().map(|arg| arg.into()),
-            (&context).as_ref(),
+            &mut args.iter().map(|arg| arg.into()),
+            context.as_ref(),
         );
         Self {
             function,
@@ -374,7 +374,7 @@ impl<'s> FunctionCallExpr<'s> {
 
             definition
                 .check_param(
-                    &mut (&args).iter().map(|arg| arg.into()),
+                    &mut args.iter().map(|arg| arg.into()),
                     &next_param,
                     ctx.as_mut(),
                 )
@@ -968,7 +968,7 @@ mod tests {
         );
 
         let expr = FunctionCallArgExpr::lex_with("lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(http.host)))))))))))))))))))))))))))))))) contains \"c\"", &SCHEME);
-        assert!(!expr.is_err());
+        assert!(expr.is_ok());
 
         let expr = assert_ok!(
             FunctionCallExpr::lex_with("len(http.request.headers.names[*])", &SCHEME),

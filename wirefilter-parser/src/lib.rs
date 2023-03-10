@@ -89,8 +89,6 @@ impl Parser {
     }
 
     fn float_lit(node: Node) -> ParseResult<OrderedFloat<f64>> {
-        use Rule::*;
-
         let digits_node = node.children().single().unwrap();
         let mut num =
             OrderedFloat(f64::from_str(digits_node.as_str()).into_parse_result(&digits_node)?);
@@ -234,7 +232,6 @@ impl Parser {
 #[allow(clippy::string_lit_as_bytes)]
 mod tests {
     use super::*;
-    use cidr::Cidr as _;
     use indoc::indoc;
 
     macro_rules! parse {

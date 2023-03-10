@@ -42,7 +42,7 @@ impl<'a> Deref for InnerMap<'a> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            InnerMap::Owned(ref map) => &map,
+            InnerMap::Owned(ref map) => map,
             InnerMap::Borrowed(ref_map) => ref_map,
         }
     }

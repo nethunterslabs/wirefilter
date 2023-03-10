@@ -330,7 +330,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), true);
+        assert!(expr.execute_one(ctx));
     }
 
     {
@@ -361,7 +361,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), false);
+        assert!(!expr.execute_one(ctx));
     }
 
     {
@@ -392,7 +392,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), true);
+        assert!(expr.execute_one(ctx));
     }
 
     {
@@ -406,7 +406,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), false);
+        assert!(!expr.execute_one(ctx));
     }
 
     {
@@ -437,7 +437,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), true);
+        assert!(expr.execute_one(ctx));
     }
 
     {
@@ -451,7 +451,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), false);
+        assert!(!expr.execute_one(ctx));
     }
 
     {
@@ -465,7 +465,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert_eq!(expr.execute_one(ctx), true);
+        assert!(expr.execute_one(ctx));
     }
 
     assert_ok!(

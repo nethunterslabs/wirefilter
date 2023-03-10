@@ -207,9 +207,9 @@ pub extern "C" fn wirefilter_free_string(s: RustAllocatedString) {
 }
 
 #[no_mangle]
-pub extern "C" fn wirefilter_parse_filter<'s, 'i>(
+pub extern "C" fn wirefilter_parse_filter<'s>(
     scheme: &'s Scheme,
-    input: ExternallyAllocatedStr<'i>,
+    input: ExternallyAllocatedStr<'_>,
 ) -> ParsingResult<'s> {
     catch_panic(std::panic::AssertUnwindSafe(|| {
         match scheme.parse(input.into_ref()) {
@@ -314,8 +314,8 @@ pub extern "C" fn wirefilter_create_execution_context<'e, 's: 'e>(
 }
 
 #[no_mangle]
-pub extern "C" fn wirefilter_serialize_execution_context_to_json<'a>(
-    exec_context: &mut ExecutionContext<'a>,
+pub extern "C" fn wirefilter_serialize_execution_context_to_json(
+    exec_context: &mut ExecutionContext<'_>,
 ) -> SerializingResult {
     match serde_json::to_string(exec_context) {
         Ok(ok) => SerializingResult::Ok(ok.into()),
@@ -644,8 +644,8 @@ pub extern "C" fn wirefilter_free_array(array: RustBox<LhsValue<'_>>) {
 }
 
 #[no_mangle]
-pub extern "C" fn wirefilter_compile_filter<'s>(
-    filter_ast: RustBox<FilterAst<'s>>,
+pub extern "C" fn wirefilter_compile_filter(
+    filter_ast: RustBox<FilterAst<'_>>,
 ) -> CompilingResult<'_, '_> {
     catch_panic(std::panic::AssertUnwindSafe(|| {
         let filter_ast = filter_ast.into_real_box();
@@ -983,7 +983,7 @@ mod ffi_test {
             let exec_context = create_execution_context(&scheme);
 
             assert!(match_filter(
-                r#"num1 > 41 && num2 == 1337 && float1 > 4 && float2 == 13.37 && ip1 != 192.168.0.1 && str2 ~ "yo\d+" && map2["key"] == "value""#,
+                r#"num1 > 41 && num2 == 1337 && float1 > 4.0 && float2 == 13.37 && ip1 != 192.168.0.1 && str2 ~ "yo\d+" && map2["key"] == "value""#,
                 &scheme,
                 &exec_context
             ));
@@ -1013,13 +1013,13 @@ mod ffi_test {
         {
             let filter1 = parse_filter(
                 &scheme,
-                r#"num1 > 41 && num2 == 1337 && float1 > 4 && float2 == 13.37 && ip1 != 192.168.0.1 && str2 ~ "yo\d+" && map1["key"] == 42"#,
+                r#"num1 > 41 && num2 == 1337 && float1 > 4.0 && float2 == 13.37 && ip1 != 192.168.0.1 && str2 ~ "yo\d+" && map1["key"] == 42"#,
             )
             .unwrap();
 
             let filter2 = parse_filter(
                 &scheme,
-                r#"num1 >     41 && num2 == 1337    && float1 > 4 &&  float2 == 13.37    && ip1 != 192.168.0.1 and str2 ~ "yo\d+"    && map1["key"] == 42   "#,
+                r#"num1 >     41 && num2 == 1337    && float1 > 4.0 &&  float2 == 13.37    && ip1 != 192.168.0.1 and str2 ~ "yo\d+"    && map1["key"] == 42   "#,
             )
             .unwrap();
 
@@ -1094,34 +1094,31 @@ mod ffi_test {
             )
             .unwrap();
 
-            assert_eq!(
+            assert!(
                 wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("num1")).unwrap(),
-                true,
             );
 
-            assert_eq!(
-                wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("num2")).unwrap(),
-                false,
+            assert!(
+                !wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("num2"))
+                    .unwrap(),
             );
 
-            assert_eq!(
-                wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("str1")).unwrap(),
-                false
+            assert!(
+                !wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("str1"))
+                    .unwrap()
             );
 
-            assert_eq!(
-                wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("str2")).unwrap(),
-                false,
+            assert!(
+                !wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("str2"))
+                    .unwrap()
             );
 
-            assert_eq!(
-                wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("ip1")).unwrap(),
-                false,
+            assert!(
+                !wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("ip1")).unwrap()
             );
 
-            assert_eq!(
-                wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("ip2")).unwrap(),
-                false,
+            assert!(
+                !wirefilter_filter_uses_list(&filter, ExternallyAllocatedStr::from("ip2")).unwrap()
             );
 
             wirefilter_free_parsed_filter(filter);

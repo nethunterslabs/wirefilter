@@ -2,7 +2,7 @@ use crate::{
     lex::{take_while, Lex, LexError, LexErrorKind, LexResult},
     strict_partial_ord::StrictPartialOrd,
 };
-use cidr::{Cidr, IpCidr, Ipv4Cidr, Ipv6Cidr, NetworkParseError};
+use cidr::{errors::NetworkParseError, IpCidr, Ipv4Cidr, Ipv6Cidr};
 use serde::Serialize;
 use std::{
     cmp::Ordering,
@@ -12,10 +12,7 @@ use std::{
 };
 
 fn match_addr_or_cidr(input: &str) -> LexResult<'_, &str> {
-    take_while(input, "IP address character", |c| match c {
-        '0'..='9' | 'a'..='f' | 'A'..='F' | ':' | '.' | '/' => true,
-        _ => false,
-    })
+    take_while(input, "IP address character", |c| matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F' | ':' | '.' | '/'))
 }
 
 fn parse_addr(input: &str) -> Result<IpAddr, LexError<'_>> {
@@ -79,7 +76,7 @@ impl<'i> Lex<'i> for IpRange {
             })
         } else {
             IpRange::Cidr(cidr::IpCidr::from_str(chunk).map_err(|err| {
-                let split_pos = chunk.find('/').unwrap_or_else(|| chunk.len());
+                let split_pos = chunk.find('/').unwrap_or(chunk.len());
                 let err_span = match err {
                     NetworkParseError::AddrParseError(_) | NetworkParseError::InvalidHostPart => {
                         &chunk[..split_pos]

@@ -379,7 +379,7 @@ impl fmt::Debug for SimpleFunctionImpl {
 
 impl PartialEq for SimpleFunctionImpl {
     fn eq(&self, other: &SimpleFunctionImpl) -> bool {
-        self.0 as *const () == other.0 as *const ()
+        std::ptr::eq(self.0 as *const (), other.0 as *const ())
     }
 }
 
@@ -428,46 +428,44 @@ impl FunctionDefinition for SimpleFunctionDefinition {
             let param = &self.params[index];
             next_param.expect_arg_kind(param.arg_kind)?;
             next_param.expect_val_type(once(ExpectedType::Type(param.val_type.clone())))?;
+        } else if let Some(opt_params) = &self.opt_params {
+            if index < self.params.len() + opt_params.len() {
+                let opt_param = &opt_params[index - self.params.len()];
+                next_param.expect_arg_kind(opt_param.arg_kind)?;
+                next_param.expect_val_type(once(ExpectedType::Type(
+                    opt_param.default_value.get_type(),
+                )))?;
+            }
         } else {
-            if let Some(opt_params) = &self.opt_params {
-                if index < self.params.len() + opt_params.len() {
-                    let opt_param = &opt_params[index - self.params.len()];
-                    next_param.expect_arg_kind(opt_param.arg_kind)?;
-                    next_param.expect_val_type(once(ExpectedType::Type(
-                        opt_param.default_value.get_type(),
-                    )))?;
-                }
-            } else {
-                next_param.expect_const_value(|x: &[u8]| {
-                    let lhs_value = &LhsValue::try_from(x).unwrap();
-                    let ty = lhs_value.get_type();
-                    let mut types = HashSet::new();
-                    for expected_type in [
-                        ExpectedType::Type(Type::Bytes),
-                        ExpectedType::Type(Type::Int),
-                        ExpectedType::Type(Type::Float),
-                        ExpectedType::Type(Type::Ip),
-                    ] {
-                        match (&expected_type, &ty) {
-                            (ExpectedType::Array, Type::Array(_)) => return Ok(()),
-                            (ExpectedType::Array, _) => {}
-                            (ExpectedType::Map, Type::Map(_)) => return Ok(()),
-                            (ExpectedType::Map, _) => {}
-                            (ExpectedType::Type(val_type), _) => {
-                                if ty == *val_type {
-                                    return Ok(());
-                                }
+            next_param.expect_const_value(|x: &[u8]| {
+                let lhs_value = &LhsValue::try_from(x).unwrap();
+                let ty = lhs_value.get_type();
+                let mut types = HashSet::new();
+                for expected_type in [
+                    ExpectedType::Type(Type::Bytes),
+                    ExpectedType::Type(Type::Int),
+                    ExpectedType::Type(Type::Float),
+                    ExpectedType::Type(Type::Ip),
+                ] {
+                    match (&expected_type, &ty) {
+                        (ExpectedType::Array, Type::Array(_)) => return Ok(()),
+                        (ExpectedType::Array, _) => {}
+                        (ExpectedType::Map, Type::Map(_)) => return Ok(()),
+                        (ExpectedType::Map, _) => {}
+                        (ExpectedType::Type(val_type), _) => {
+                            if ty == *val_type {
+                                return Ok(());
                             }
                         }
-                        types.insert(expected_type);
                     }
-                    Err(FunctionParamError::TypeMismatch(TypeMismatchError {
-                        expected: types,
-                        actual: ty,
-                    })
-                    .to_string())
-                })?;
-            }
+                    types.insert(expected_type);
+                }
+                Err(FunctionParamError::TypeMismatch(TypeMismatchError {
+                    expected: types,
+                    actual: ty,
+                })
+                .to_string())
+            })?;
         }
         Ok(())
     }

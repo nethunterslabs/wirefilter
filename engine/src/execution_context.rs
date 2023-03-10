@@ -122,7 +122,7 @@ impl<'e, U> ExecutionContext<'e, U> {
     }
 
     #[inline]
-    pub(crate) fn get_field_value_unchecked<'s>(&self, field: Field<'s>) -> &LhsValue<'_> {
+    pub(crate) fn get_field_value_unchecked(&self, field: Field<'_>) -> &LhsValue<'_> {
         // This is safe because this code is reachable only from Filter::execute
         // which already performs the scheme compatibility check, but check that
         // invariant holds in the future at least in the debug mode.
@@ -140,7 +140,7 @@ impl<'e, U> ExecutionContext<'e, U> {
     }
 
     /// Get the value of a field.
-    pub fn get_field_value<'s>(&self, field: Field<'s>) -> Option<&LhsValue<'_>> {
+    pub fn get_field_value(&self, field: Field<'_>) -> Option<&LhsValue<'_>> {
         assert!(self.scheme() == field.scheme());
 
         self.values[field.index()].as_ref()
@@ -148,7 +148,7 @@ impl<'e, U> ExecutionContext<'e, U> {
 
     /// Get the `ListMatcher` for the specified type.
     #[inline]
-    pub(crate) fn get_list_matcher_unchecked<'s>(&self, list: List<'s>) -> &ListMatcherWrapper {
+    pub(crate) fn get_list_matcher_unchecked(&self, list: List<'_>) -> &ListMatcherWrapper {
         debug_assert!(self.scheme() == list.scheme());
 
         self.list_data[list.index()]
@@ -295,7 +295,7 @@ impl<'e> Serialize for ExecutionContext<'e> {
         }
 
         if self.list_data.iter().any(|list_data| list_data.is_some()) {
-            map.serialize_entry("$lists", &ListDataSlice(self.scheme, &*self.list_data))?;
+            map.serialize_entry("$lists", &ListDataSlice(self.scheme, &self.list_data))?;
         }
         map.end()
     }

@@ -7,7 +7,7 @@ use std::ops::RangeInclusive;
 
 fn lex_digits(input: &str) -> LexResult<'_, &str> {
     // Lex any supported digits (up to radix 16) for better error locations.
-    take_while(input, "digit", |c| c.is_digit(16))
+    take_while(input, "digit", |c| c.is_ascii_hexdigit())
 }
 
 fn parse_number<'i>((input, rest): (&'i str, &'i str), radix: u32) -> LexResult<'_, i32> {

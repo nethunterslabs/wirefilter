@@ -16,14 +16,11 @@ impl fmt::Display for ParseFloatError {
 }
 
 fn lex_floats(input: &str) -> LexResult<'_, &str> {
-    take_while(input, "float", |c| match c {
-        '0'..='9' | '.' => true,
-        _ => false,
-    })
+    take_while(input, "float", |c| matches!(c, '0'..='9' | '.'))
 }
 
-fn parse_float<'i>(input: &'i str) -> Result<OrderedFloat<f64>, LexError<'_>> {
-    if input.contains(".") {
+fn parse_float(input: &str) -> Result<OrderedFloat<f64>, LexError<'_>> {
+    if input.contains('.') {
         match f64::from_str(input) {
             Ok(res) => Ok(OrderedFloat(res)),
             Err(err) => Err((LexErrorKind::ParseFloat { err }, input)),

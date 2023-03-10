@@ -121,7 +121,7 @@ impl<'a> Array<'a> {
             },
             data: match self.data {
                 InnerArray::Owned(ref vec) => InnerArray::Borrowed(&vec[..]),
-                InnerArray::Borrowed(ref slice) => InnerArray::Borrowed(slice),
+                InnerArray::Borrowed(slice) => InnerArray::Borrowed(slice),
             },
         }
     }
@@ -213,7 +213,7 @@ impl<'a> IntoIterator for &'a Array<'a> {
     type Item = &'a LhsValue<'a>;
     type IntoIter = std::slice::Iter<'a, LhsValue<'a>>;
     fn into_iter(self) -> Self::IntoIter {
-        (&self.data).iter()
+        self.data.iter()
     }
 }
 
