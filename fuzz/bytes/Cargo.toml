@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-afl = "0.12.15"
+afl = "0.12.17"
 
 [dependencies.wirefilter-engine]
 path = "../../engine"
