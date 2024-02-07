@@ -4,8 +4,8 @@ use super::{
     visitor::{Visitor, VisitorMut},
     Expr,
 };
-use crate::compiler::Compiler;
 use crate::{
+    compiler::Compiler,
     filter::{CompiledExpr, CompiledOneExpr, CompiledVecExpr},
     lex::{expect, skip_space, Lex, LexResult, LexWith},
     scheme::Scheme,
@@ -19,7 +19,8 @@ lex_enum!(UnaryOp {
 
 /// SimpleExpr is a "generic" expression. It can be either a comparison
 /// expression with [`SimpleExpr::Comparison`], a parenthesized expression
-/// with [`SimpleExpr::Parenthesized`] or a unary expression with [`SimpleExpr::Unary`].
+/// with [`SimpleExpr::Parenthesized`] or a unary expression with
+/// [`SimpleExpr::Unary`].
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
 #[serde(untagged)]
 pub enum SimpleExpr<'s> {
@@ -119,7 +120,9 @@ impl<'s> Expr<'s> for SimpleExpr<'s> {
 #[allow(clippy::cognitive_complexity)]
 fn test() {
     use crate::{
-        execution_context::ExecutionContext, lex::complete, lex::LexErrorKind, lhs_types::Array,
+        execution_context::ExecutionContext,
+        lex::{complete, LexErrorKind},
+        lhs_types::Array,
     };
 
     let scheme = &Scheme! {

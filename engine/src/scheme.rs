@@ -6,8 +6,7 @@ use crate::{
 };
 use fnv::FnvBuildHasher;
 use indexmap::map::{Entry, IndexMap};
-use serde::ser::SerializeMap;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cmp::{max, min},
     collections::HashMap,
@@ -184,7 +183,8 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for Function<'s> {
 }
 
 impl<'s> Function<'s> {
-    /// Returns the function's name as recorded in the [`Scheme`](struct@Scheme).
+    /// Returns the function's name as recorded in the
+    /// [`Scheme`](struct@Scheme).
     pub fn name(&self) -> &'s str {
         self.scheme.items.get_index(self.index).unwrap().0
     }
@@ -203,7 +203,8 @@ impl<'s> Function<'s> {
 }
 
 /// An enum to represent an entry inside a [`Scheme`](struct@Scheme).
-/// It can be either a [`Field`](struct@Field) or a [`Function`](struct@Function).
+/// It can be either a [`Field`](struct@Field) or a
+/// [`Function`](struct@Function).
 #[derive(Debug)]
 pub enum Identifier<'s> {
     /// Identifier is a [`Field`](struct@Field)
@@ -221,7 +222,8 @@ impl<'s> Identifier<'s> {
         }
     }
 
-    /// Converts the identifier into a [`Function`](struct@Function) if possible.
+    /// Converts the identifier into a [`Function`](struct@Function) if
+    /// possible.
     pub fn into_function(self) -> Option<Function<'s>> {
         match self {
             Self::Function(f) => Some(f),
@@ -477,7 +479,7 @@ impl<'de> Deserialize<'de> for Scheme {
         D: Deserializer<'de>,
     {
         let map: HashMap<String, Type> = HashMap::<String, Type>::deserialize(deserializer)?;
-        Ok(Self::try_from_iter(map.into_iter()).unwrap())
+        Ok(Self::try_from_iter(map).unwrap())
     }
 }
 
@@ -629,7 +631,8 @@ impl<'s> Scheme {
             })
     }
 
-    /// Registers a new [`list`](trait.ListDefinition.html) for a given [`type`](enum.Type.html).
+    /// Registers a new [`list`](trait.ListDefinition.html) for a given
+    /// [`type`](enum.Type.html).
     pub fn add_list(
         &mut self,
         ty: Type,
@@ -644,7 +647,8 @@ impl<'s> Scheme {
         }
     }
 
-    /// Returns the [`list`](struct.List.html) for a given [`type`](enum.Type.html).
+    /// Returns the [`list`](struct.List.html) for a given
+    /// [`type`](enum.Type.html).
     pub fn get_list(&self, ty: &Type) -> Option<List<'_>> {
         self.lists.get_index_of(ty).map(move |index| List {
             scheme: self,

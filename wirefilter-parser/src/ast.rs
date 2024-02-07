@@ -1,10 +1,12 @@
 use cidr::{Ipv4Cidr, Ipv6Cidr};
 use ordered_float::OrderedFloat;
 use regex::bytes::RegexBuilder;
-use std::borrow::Cow;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::ops::{Deref, RangeInclusive};
-use std::str::FromStr;
+use std::{
+    borrow::Cow,
+    net::{Ipv4Addr, Ipv6Addr},
+    ops::{Deref, RangeInclusive},
+    str::FromStr,
+};
 
 #[derive(Debug, PartialEq)]
 pub struct Var<'i>(pub Cow<'i, str>);

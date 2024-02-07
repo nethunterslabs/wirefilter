@@ -171,6 +171,7 @@ impl<'a> Array<'a> {
         }
     }
 
+    /// Returns the array as a slice
     pub fn as_slice(&self) -> &[LhsValue<'a>] {
         &self.data
     }

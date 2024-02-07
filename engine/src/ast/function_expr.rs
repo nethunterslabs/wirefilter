@@ -266,7 +266,7 @@ impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {
             context,
             ..
         } = self;
-        let map_each_count = args.get(0).map_or(0, |arg| arg.map_each_count());
+        let map_each_count = args.first().map_or(0, |arg| arg.map_each_count());
         let call = function
             .as_definition()
             .compile(&mut (args).iter().map(|arg| arg.into()), context);
@@ -311,10 +311,9 @@ impl<'s> FunctionCallExpr<'s> {
         args: Vec<FunctionCallArgExpr<'s>>,
         context: Option<FunctionDefinitionContext>,
     ) -> Self {
-        let return_type = function.as_definition().return_type(
-            &mut args.iter().map(|arg| arg.into()),
-            context.as_ref(),
-        );
+        let return_type = function
+            .as_definition()
+            .return_type(&mut args.iter().map(|arg| arg.into()), context.as_ref());
         Self {
             function,
             args,
@@ -663,7 +662,8 @@ mod tests {
             }
         );
 
-        // test that adjacent single digit int literals are parsed properly (without spaces)
+        // test that adjacent single digit int literals are parsed properly (without
+        // spaces)
         let expr = assert_ok!(
             FunctionCallExpr::lex_with(r#"echo (http.host,1,2);"#, &SCHEME),
             FunctionCallExpr {

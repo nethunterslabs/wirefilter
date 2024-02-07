@@ -23,19 +23,22 @@ pub trait Compiler<'s, U: 's = ()>: Sized + 's {
         self.compile_expr(node)
     }
 
-    /// Compiles a [`ComparisonExpr`] node into a [`CompiledExpr`] (boxed closure).
+    /// Compiles a [`ComparisonExpr`] node into a [`CompiledExpr`] (boxed
+    /// closure).
     #[inline]
     fn compile_comparison_expr(&mut self, node: ComparisonExpr<'s>) -> CompiledExpr<'s, U> {
         self.compile_expr(node)
     }
 
-    /// Compiles a [`ValueExpr`] node into a [`CompiledValueExpr`] (boxed closure).
+    /// Compiles a [`ValueExpr`] node into a [`CompiledValueExpr`] (boxed
+    /// closure).
     #[inline]
     fn compile_value_expr(&mut self, node: impl ValueExpr<'s>) -> CompiledValueExpr<'s, U> {
         node.compile_with_compiler(self)
     }
 
-    /// Compiles a [`FunctionCallExpr`] node into a [`CompiledValueExpr`] (boxed closure).
+    /// Compiles a [`FunctionCallExpr`] node into a [`CompiledValueExpr`] (boxed
+    /// closure).
     #[inline]
     fn compile_function_call_expr(
         &mut self,
@@ -44,7 +47,8 @@ pub trait Compiler<'s, U: 's = ()>: Sized + 's {
         self.compile_value_expr(node)
     }
 
-    /// Compiles a [`FunctionCallArgExpr`] node into a [`CompiledValueExpr`] (boxed closure).
+    /// Compiles a [`FunctionCallArgExpr`] node into a [`CompiledValueExpr`]
+    /// (boxed closure).
     #[inline]
     fn compile_function_call_arg_expr(
         &mut self,
@@ -53,7 +57,8 @@ pub trait Compiler<'s, U: 's = ()>: Sized + 's {
         self.compile_value_expr(node)
     }
 
-    /// Compiles a [`IndexExpr`] node into a [`CompiledValueExpr`] (boxed closure).
+    /// Compiles a [`IndexExpr`] node into a [`CompiledValueExpr`] (boxed
+    /// closure).
     #[inline]
     fn compile_index_expr(&mut self, node: IndexExpr<'s>) -> CompiledValueExpr<'s, U> {
         self.compile_value_expr(node)

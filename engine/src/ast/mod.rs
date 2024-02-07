@@ -17,7 +17,8 @@ use serde::Serialize;
 use std::fmt::{self, Debug};
 use visitor::{UsesListVisitor, UsesVisitor, Visitor, VisitorMut};
 
-/// Trait used to represent node that evaluates to a [`bool`] (or a [`Vec<bool>`]).
+/// Trait used to represent node that evaluates to a [`bool`] (or a
+/// [`Vec<bool>`]).
 pub trait Expr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + Serialize {
     /// Recursively visit all nodes in the AST using a [`Visitor`].
     fn walk<V: Visitor<'s>>(&self, visitor: &mut V);
@@ -46,7 +47,8 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + 
         self,
         compiler: &mut C,
     ) -> CompiledValueExpr<'s, U>;
-    /// Compiles current node into a [`CompiledValueExpr`] using [`DefaultCompiler`].
+    /// Compiles current node into a [`CompiledValueExpr`] using
+    /// [`DefaultCompiler`].
     fn compile(self) -> CompiledValueExpr<'s> {
         let mut compiler = DefaultCompiler::new();
         self.compile_with_compiler(&mut compiler)
@@ -133,7 +135,8 @@ impl<'s> FilterAst<'s> {
         })
     }
 
-    /// Compiles a [`FilterAst`] into a [`Filter`] using a specific [`Compiler`].
+    /// Compiles a [`FilterAst`] into a [`Filter`] using a specific
+    /// [`Compiler`].
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,

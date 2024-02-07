@@ -12,7 +12,11 @@ use std::{
 };
 
 fn match_addr_or_cidr(input: &str) -> LexResult<'_, &str> {
-    take_while(input, "IP address character", |c| matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F' | ':' | '.' | '/'))
+    take_while(
+        input,
+        "IP address character",
+        |c| matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F' | ':' | '.' | '/'),
+    )
 }
 
 fn parse_addr(input: &str) -> Result<IpAddr, LexError<'_>> {

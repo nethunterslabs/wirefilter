@@ -1,8 +1,6 @@
-use crate::LhsValue;
-use crate::Type;
+use crate::{LhsValue, Type};
 use serde_json::Value;
-use std::any::Any;
-use std::fmt::Debug;
+use std::{any::Any, fmt::Debug};
 
 /// Defines a new list to match against.
 ///
@@ -28,7 +26,8 @@ pub trait ListMatcher {
     /// Returns true if `val` is in the given list.
     fn match_value(&self, list_name: &str, val: &LhsValue<'_>) -> bool;
 
-    /// Convert the list matcher to a serde_json::Value in order to serialize it.
+    /// Convert the list matcher to a serde_json::Value in order to serialize
+    /// it.
     fn to_json_value(&self) -> Value;
 }
 
@@ -73,7 +72,8 @@ impl ListMatcherWrapper {
         t.downcast_ref::<T>().unwrap().to_json_value()
     }
 
-    /// Creates a new ListMatcherWrapper object containing user-defined  object of type `T`
+    /// Creates a new ListMatcherWrapper object containing user-defined  object
+    /// of type `T`
     pub fn new<T: Any + Clone + Debug + PartialEq + ListMatcher + Send + Sync>(t: T) -> Self {
         Self {
             inner: Box::new(t),

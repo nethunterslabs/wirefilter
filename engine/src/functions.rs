@@ -2,10 +2,10 @@ use crate::{
     filter::CompiledValueResult,
     types::{ExpectedType, GetType, LhsValue, Type, TypeMismatchError},
 };
-use std::any::Any;
-use std::convert::TryFrom;
 use std::{
+    any::Any,
     collections::HashSet,
+    convert::TryFrom,
     fmt::{self, Debug},
     iter::once,
     sync::Arc,
@@ -340,8 +340,8 @@ pub trait FunctionDefinition: Debug + Send + Sync {
     /// (N, Some(0)) means N mandatory arguments and no optional arguments
     /// (N, None) means N mandatory arguments and unlimited optional arguments
     fn arg_count(&self) -> (usize, Option<usize>);
-    /// Compile the function definition down to a closure that is going to be called
-    /// during filter execution.
+    /// Compile the function definition down to a closure that is going to be
+    /// called during filter execution.
     fn compile<'s>(
         &'s self,
         params: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
@@ -438,7 +438,7 @@ impl FunctionDefinition for SimpleFunctionDefinition {
             }
         } else {
             next_param.expect_const_value(|x: &[u8]| {
-                let lhs_value = &LhsValue::try_from(x).unwrap();
+                let lhs_value = &LhsValue::from(x);
                 let ty = lhs_value.get_type();
                 let mut types = HashSet::new();
                 for expected_type in [

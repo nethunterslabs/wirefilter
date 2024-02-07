@@ -20,7 +20,8 @@ pub trait ExternPtrRepr {
     ///
     /// # Safety
     ///
-    /// This function should not be called for objects allocated outside of Rust code.
+    /// This function should not be called for objects allocated outside of Rust
+    /// code.
     unsafe fn from_extern_repr_unchecked(repr: Self::Repr) -> *mut Self;
 
     /// This method will be used for pointers to data allocated by the FFI

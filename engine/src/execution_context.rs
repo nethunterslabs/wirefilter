@@ -4,23 +4,25 @@ use crate::{
     types::{GetType, LhsValue, LhsValueSeed, Type, TypeMismatchError},
     ListMatcher,
 };
-use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor};
-use serde::ser::{SerializeMap, SerializeSeq, Serializer};
-use serde::{Deserialize, Serialize};
-use std::any::Any;
-use std::borrow::Cow;
-use std::fmt;
-use std::fmt::Debug;
+use serde::{
+    de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor},
+    ser::{SerializeMap, SerializeSeq, Serializer},
+    Deserialize, Serialize,
+};
+use std::{any::Any, borrow::Cow, fmt, fmt::Debug};
 use thiserror::Error;
 
-/// An error that occurs when setting the field value in the [`ExecutionContext`](struct@ExecutionContext)
+/// An error that occurs when setting the field value in the
+/// [`ExecutionContext`](struct@ExecutionContext)
 #[derive(Debug, PartialEq, Error)]
 pub enum SetFieldValueError {
-    /// An error that occurs when trying to assign a value of the wrong type to a field.
+    /// An error that occurs when trying to assign a value of the wrong type to
+    /// a field.
     #[error("{0}")]
     TypeMismatchError(#[source] TypeMismatchError),
 
-    /// An error that occurs when trying to set the value of a field from a different scheme.
+    /// An error that occurs when trying to set the value of a field from a
+    /// different scheme.
     #[error("{0}")]
     SchemeMismatchError(#[source] SchemeMismatchError),
 }
@@ -336,10 +338,11 @@ fn test_scheme_mismatch() {
 
 #[test]
 fn test_serde() {
-    use crate::lhs_types::{Array, Map};
-    use crate::types::Type;
-    use std::net::IpAddr;
-    use std::str::FromStr;
+    use crate::{
+        lhs_types::{Array, Map},
+        types::Type,
+    };
+    use std::{net::IpAddr, str::FromStr};
 
     let mut scheme = Scheme::new();
     scheme.add_field("bool".to_string(), Type::Bool).unwrap();

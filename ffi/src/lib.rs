@@ -3,10 +3,12 @@
 pub mod panic;
 pub mod transfer_types;
 
-use crate::panic::catch_panic;
-use crate::transfer_types::{
-    ExternallyAllocatedByteArr, ExternallyAllocatedStr, RustAllocatedString, RustBox,
-    StaticRustAllocatedString,
+use crate::{
+    panic::catch_panic,
+    transfer_types::{
+        ExternallyAllocatedByteArr, ExternallyAllocatedStr, RustAllocatedString, RustBox,
+        StaticRustAllocatedString,
+    },
 };
 use fnv::FnvHasher;
 use num_enum::{IntoPrimitive, TryFromPrimitive};

@@ -517,8 +517,10 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 mod tests {
     use super::*;
     use crate::{
-        ast::function_expr::{FunctionCallArgExpr, FunctionCallExpr},
-        ast::simple_expr::SimpleExpr,
+        ast::{
+            function_expr::{FunctionCallArgExpr, FunctionCallExpr},
+            simple_expr::SimpleExpr,
+        },
         execution_context::ExecutionContext,
         functions::{
             FunctionArgKind, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,

@@ -1,11 +1,12 @@
-use crate::transfer_types::RustAllocatedString;
-use crate::CResult;
+use crate::{transfer_types::RustAllocatedString, CResult};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::cell::{Cell, RefCell};
-use std::convert::TryFrom;
-use std::io::{self, Write};
-use std::panic::UnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    cell::{Cell, RefCell},
+    convert::TryFrom,
+    io::{self, Write},
+    panic::UnwindSafe,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 #[repr(u8)]
 #[derive(Clone, Copy, IntoPrimitive, TryFromPrimitive)]

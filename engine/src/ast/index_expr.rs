@@ -28,6 +28,7 @@ pub struct IndexExpr<'s> {
 
 macro_rules! index_access_one {
     ($indexes:ident, $first:expr, $default:expr, $ctx:ident, $func:expr) => {
+        #[allow(clippy::redundant_closure_call)]
         $indexes
             .iter()
             .fold($first, |value, idx| {
@@ -94,8 +95,8 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                 LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx| {
                     indexes[..last]
                         .iter()
-                        .fold(Some(ctx.get_field_value_unchecked(f)), |value, index| {
-                            value.and_then(|val| val.get(index).unwrap())
+                        .try_fold(ctx.get_field_value_unchecked(f), |value, index| {
+                            value.get(index).unwrap()
                         })
                         .map(LhsValue::as_ref)
                         .ok_or_else(|| ty.clone())
@@ -106,9 +107,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                         let result = call.execute(ctx)?;
                         indexes[..last]
                             .iter()
-                            .fold(Some(result), |value, index| {
-                                value.and_then(|val| val.extract(index).unwrap())
-                            })
+                            .try_fold(result, |value, index| value.extract(index).unwrap())
                             .ok_or_else(|| ty.clone())
                     })
                 }
@@ -257,8 +256,8 @@ impl<'s> IndexExpr<'s> {
         }
     }
 
-    /// Compiles an [`IndexExpr`] node into a [`CompiledExpr`] (boxed closure) using the
-    /// provided comparison function that returns a boolean.
+    /// Compiles an [`IndexExpr`] node into a [`CompiledExpr`] (boxed closure)
+    /// using the provided comparison function that returns a boolean.
     pub fn compile_with<F: 's, U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
