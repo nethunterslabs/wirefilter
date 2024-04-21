@@ -105,20 +105,27 @@ impl AsRef<[u8]> for Bytes {
     }
 }
 
-fn fixed_byte(input: &str, digits: usize, radix: u32) -> LexResult<'_, u8> {
+fn fixed_byte(input: &str, digits: usize, radix: u32, limit: Option<u8>) -> LexResult<'_, u8> {
     let (digits, rest) = take(input, digits)?;
     match u8::from_str_radix(digits, radix) {
-        Ok(b) => Ok((b, rest)),
+        Ok(b) => {
+            if let Some(limit) = limit {
+                if b > limit {
+                    return Err((LexErrorKind::InvalidCharacterEscape, digits));
+                }
+            }
+            Ok((b, rest))
+        }
         Err(err) => Err((LexErrorKind::ParseInt { err, radix }, digits)),
     }
 }
 
-fn hex_byte(input: &str) -> LexResult<'_, u8> {
-    fixed_byte(input, 2, 16)
+fn hex_byte(input: &str, ascii_only: bool) -> LexResult<'_, u8> {
+    fixed_byte(input, 2, 16, if ascii_only { Some(0x7F) } else { None })
 }
 
 fn oct_byte(input: &str) -> LexResult<'_, u8> {
-    fixed_byte(input, 3, 8)
+    fixed_byte(input, 3, 8, None)
 }
 
 lex_enum!(ByteSeparator {
@@ -148,7 +155,7 @@ impl<'i> Lex<'i> for Bytes {
                         res.push(match c {
                             '"' | '\\' => c,
                             'x' => {
-                                let (b, input) = hex_byte(iter.as_str())?;
+                                let (b, input) = hex_byte(iter.as_str(), true)?;
                                 iter = input.chars();
                                 b as char
                             }
@@ -172,7 +179,7 @@ impl<'i> Lex<'i> for Bytes {
         } else {
             let mut res = Vec::new();
             loop {
-                let (b, rest) = hex_byte(input)?;
+                let (b, rest) = hex_byte(input, false)?;
                 res.push(b);
                 input = rest;
                 if let Ok((_, rest)) = ByteSeparator::lex(input) {
@@ -219,6 +226,12 @@ fn test() {
         Bytes::lex(r#""\n""#),
         LexErrorKind::InvalidCharacterEscape,
         "n"
+    );
+
+    assert_err!(
+        Bytes::lex(r#""\xff""#),
+        LexErrorKind::InvalidCharacterEscape,
+        "ff"
     );
 
     assert_err!(
