@@ -164,6 +164,9 @@ impl<'i> Lex<'i> for Bytes {
                                 iter = input.chars();
                                 b as char
                             }
+                            'n' => '\n',
+                            'r' => '\r',
+                            't' => '\t',
                             _ => {
                                 return Err((
                                     LexErrorKind::InvalidCharacterEscape,
@@ -203,8 +206,8 @@ fn test() {
     );
 
     assert_ok!(
-        Bytes::lex(r#""s\\t\"r\x0A\000t""#),
-        Bytes::from("s\\t\"r\n\0t".to_owned())
+        Bytes::lex(r#""s\\a\t\r\"r\n\000t""#),
+        Bytes::from("s\\a\t\r\"r\n\0t".to_owned())
     );
 
     assert_err!(
@@ -223,9 +226,9 @@ fn test() {
     assert_err!(Bytes::lex("\"1"), LexErrorKind::MissingEndingQuote, "1");
 
     assert_err!(
-        Bytes::lex(r#""\n""#),
+        Bytes::lex(r#""\a""#),
         LexErrorKind::InvalidCharacterEscape,
-        "n"
+        "a"
     );
 
     assert_err!(
