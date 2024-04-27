@@ -50,6 +50,14 @@ pub enum LexErrorKind {
     #[error("expected \", xHH or OOO after \\")]
     InvalidCharacterEscape,
 
+    /// Expected the next token to be a starting quote
+    #[error("could not find a starting quote")]
+    MissingStartingQuote,
+
+    /// Too many `#` characters - up to 255 are allowed
+    #[error("too many `#` characters - up to 255 are allowed")]
+    TooManyHashes,
+
     /// Expected the next token to be an ending quote
     #[error("could not find an ending quote")]
     MissingEndingQuote,

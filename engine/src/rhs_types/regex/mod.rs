@@ -103,4 +103,10 @@ fn test() {
         LexErrorKind::MissingEndingQuote,
         "abcd\\"
     );
+
+    assert_ok!(
+        Regex::lex(r#""[\"'\xb4\xe2\x80\x98\xe2\x80\x99`<>]{1,3}""#),
+        Regex::from_str(r#"[\"'\xb4\xe2\x80\x98\xe2\x80\x99`<>]{1,3}"#).unwrap(),
+        ""
+    );
 }

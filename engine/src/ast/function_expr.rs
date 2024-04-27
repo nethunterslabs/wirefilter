@@ -135,11 +135,20 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for FunctionCallArgExpr<'s> {
         // This will provide better error reporting in most cases
         let mut chars = input.chars();
         if let Some(c) = chars.next() {
-            // check up to 3 next chars because third char of a hex-string is either ':'
+            // check up to 5 next chars because third char of a hex-string is either ':'
             // or '-'
             let c2 = chars.next();
             let c3 = chars.next();
-            if c == '"' {
+            let c4 = chars.next();
+            let c5 = chars.next();
+            if c == '"'
+                || (c == 'r' && (c2 == Some('"') || c2 == Some('#')))
+                || (c.is_ascii_hexdigit()
+                    && (c2.is_some() && c2.unwrap().is_ascii_hexdigit())
+                    && (c3 == Some(':') || c3 == Some('-'))
+                    && (c4.is_some() && c4.unwrap().is_ascii_hexdigit())
+                    && (c5.is_some() && c5.unwrap().is_ascii_hexdigit()))
+            {
                 return RhsValue::lex_with(input, Type::Bytes)
                     .map(|(literal, input)| (FunctionCallArgExpr::Literal(literal), input));
             } else if c == '(' || UnaryOp::lex(input).is_ok() {
@@ -555,6 +564,10 @@ mod tests {
                                 arg_kind: FunctionArgKind::Literal,
                                 default_value: LhsValue::Int(1),
                             },
+                            SimpleFunctionOptParam {
+                                arg_kind: FunctionArgKind::Literal,
+                                default_value: LhsValue::Bytes(b"test".into()),
+                            },
                         ]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(echo_function),
@@ -597,7 +610,7 @@ mod tests {
     fn test_lex_function_call_expr() {
         // test that adjacent single digit int literals are parsed properly
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2 );"#, &SCHEME),
+            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, "test" );"#, &SCHEME),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![
@@ -607,6 +620,7 @@ mod tests {
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Int(1)),
                     FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
                 ],
                 return_type: Type::Bytes,
                 context: None,
@@ -630,6 +644,142 @@ mod tests {
                     {
                         "kind": "Literal",
                         "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, r"test" );"#, &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(1)),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(r##"echo ( http.host, 1, 2, r#"test"# );"##, &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(1)),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, 74:65:73:74 );"#, &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(1)),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes(vec![116, 101, 115, 116].into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": vec![116, 101, 115, 116]
                     }
                 ]
             }
@@ -665,7 +815,7 @@ mod tests {
         // test that adjacent single digit int literals are parsed properly (without
         // spaces)
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with(r#"echo (http.host,1,2);"#, &SCHEME),
+            FunctionCallExpr::lex_with(r#"echo (http.host,1,2,"test");"#, &SCHEME),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![
@@ -675,6 +825,7 @@ mod tests {
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Int(1)),
                     FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
                 ],
                 return_type: Type::Bytes,
                 context: None,
@@ -698,6 +849,10 @@ mod tests {
                     {
                         "kind": "Literal",
                         "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
                     }
                 ]
             }
@@ -707,7 +862,7 @@ mod tests {
             FunctionCallExpr::lex_with("echo ( );", &SCHEME),
             LexErrorKind::InvalidArgumentsCount {
                 expected_min: 1,
-                expected_max: Some(3),
+                expected_max: Some(4),
             },
             ");"
         );
@@ -1148,12 +1303,12 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with("echo ( http.host, 10, 2, \"test\" );", &SCHEME),
+            FunctionCallExpr::lex_with("echo ( http.host, 10, 2, \"test\", 4.0 );", &SCHEME),
             LexErrorKind::InvalidArgumentsCount {
                 expected_min: 1,
-                expected_max: Some(3),
+                expected_max: Some(4),
             },
-            "\"test\" );"
+            "4.0 );"
         );
 
         assert_err!(

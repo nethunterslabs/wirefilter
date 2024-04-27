@@ -179,6 +179,64 @@ impl<'i> Lex<'i> for Bytes {
                     c => res.push(c),
                 };
             }
+        } else if let Ok(mut input) = expect(input, "r") {
+            let full_input = input;
+            let mut start_hash_count = 0;
+            while let Ok(new_input) = expect(input, "#") {
+                start_hash_count += 1;
+
+                if start_hash_count > 255 {
+                    return Err((LexErrorKind::TooManyHashes, input));
+                }
+
+                input = new_input;
+            }
+
+            if let Ok(mut input) = expect(input, "\"") {
+                let mut raw_string = String::new();
+                loop {
+                    if let Ok(mut rest) = expect(input, "\"") {
+                        let mut end_hash_count = 0;
+
+                        while let Ok(new_rest) = expect(rest, "#") {
+                            end_hash_count += 1;
+
+                            if end_hash_count > 255 {
+                                return Err((LexErrorKind::TooManyHashes, rest));
+                            }
+
+                            rest = new_rest;
+                        }
+
+                        #[allow(clippy::comparison_chain)]
+                        if end_hash_count == start_hash_count {
+                            return Ok((Bytes::Str(raw_string.into_boxed_str()), rest));
+                        } else if end_hash_count > start_hash_count {
+                            return Err((
+                                LexErrorKind::CountMismatch {
+                                    name: "#",
+                                    actual: end_hash_count,
+                                    expected: start_hash_count,
+                                },
+                                full_input,
+                            ));
+                        } else {
+                            raw_string.push('"');
+                            raw_string.push_str("#".repeat(end_hash_count).as_str());
+                            input = rest;
+                        }
+                    } else if let Some((c, rest)) =
+                        input.chars().next().map(|c| (c, &input[c.len_utf8()..]))
+                    {
+                        raw_string.push(c);
+                        input = rest;
+                    } else {
+                        return Err((LexErrorKind::MissingEndingQuote, full_input));
+                    }
+                }
+            } else {
+                return Err((LexErrorKind::MissingStartingQuote, input));
+            }
         } else {
             let mut res = Vec::new();
             loop {
@@ -268,5 +326,39 @@ fn test() {
             radix: 16,
         },
         "3😢"
+    );
+
+    assert_ok!(Bytes::lex(r#"r"ab""#), Bytes::from("ab".to_owned()));
+
+    assert_ok!(
+        Bytes::lex(r##"r#"a"b\x51"#"##),
+        Bytes::from("a\"b\\x51".to_owned())
+    );
+
+    assert_ok!(
+        Bytes::lex(r###"r##"foo #"# bar"##"###),
+        Bytes::from("foo #\"# bar".to_owned())
+    );
+
+    assert_err!(
+        Bytes::lex(r#"r"ab"#),
+        LexErrorKind::MissingEndingQuote,
+        r#""ab"#
+    );
+
+    assert_err!(
+        Bytes::lex(r#"r#"ab"#),
+        LexErrorKind::MissingEndingQuote,
+        r#"#"ab"#
+    );
+
+    assert_err!(
+        Bytes::lex(r###"r#"ab"##"###),
+        LexErrorKind::CountMismatch {
+            name: "#",
+            actual: 2,
+            expected: 1
+        },
+        r###"#"ab"##"###
     );
 }

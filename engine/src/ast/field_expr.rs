@@ -303,20 +303,8 @@ impl<'s> ComparisonExpr<'s> {
             match (&lhs_type, op) {
                 (Type::Ip, ComparisonOp::In)
                 | (Type::Bytes, ComparisonOp::In)
-                | (Type::Int, ComparisonOp::In) => {
-                    if expect(input, "$").is_ok() {
-                        let (name, input) = ListName::lex(input)?;
-                        let list = scheme.get_list(&lhs_type).ok_or((
-                            LexErrorKind::UnsupportedOp { lhs_type },
-                            span(initial_input, input),
-                        ))?;
-                        (ComparisonOpExpr::InList { name, list }, input)
-                    } else {
-                        let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
-                        (ComparisonOpExpr::OneOf(rhs), input)
-                    }
-                }
-                (Type::Float, ComparisonOp::In) => {
+                | (Type::Int, ComparisonOp::In)
+                | (Type::Float, ComparisonOp::In) => {
                     if expect(input, "$").is_ok() {
                         let (name, input) = ListName::lex(input)?;
                         let list = scheme.get_list(&lhs_type).ok_or((
@@ -331,11 +319,8 @@ impl<'s> ComparisonExpr<'s> {
                 }
                 (Type::Ip, ComparisonOp::Ordering(op))
                 | (Type::Bytes, ComparisonOp::Ordering(op))
-                | (Type::Int, ComparisonOp::Ordering(op)) => {
-                    let (rhs, input) = RhsValue::lex_with(input, lhs_type)?;
-                    (ComparisonOpExpr::Ordering { op, rhs }, input)
-                }
-                (Type::Float, ComparisonOp::Ordering(op)) => {
+                | (Type::Int, ComparisonOp::Ordering(op))
+                | (Type::Float, ComparisonOp::Ordering(op)) => {
                     let (rhs, input) = RhsValue::lex_with(input, lhs_type)?;
                     (ComparisonOpExpr::Ordering { op, rhs }, input)
                 }
