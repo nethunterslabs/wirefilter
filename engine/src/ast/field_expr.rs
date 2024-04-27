@@ -16,6 +16,7 @@ use crate::{
     strict_partial_ord::StrictPartialOrd,
     types::{GetType, LhsValue, RhsValue, RhsValues, Type},
 };
+use aho_corasick::AhoCorasickBuilder;
 use fnv::FnvBuildHasher;
 use indexmap::IndexSet;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -92,6 +93,8 @@ lex_enum!(BytesOp {
 
 lex_enum!(ComparisonOp {
     "in" => In,
+    "has_any" => HasAny,
+    "has_all" => HasAll,
     OrderingOp => Ordering,
     IntOp => Int,
     BytesOp => Bytes,
@@ -141,9 +144,13 @@ pub enum ComparisonOpExpr<'s> {
     #[serde(serialize_with = "serialize_one_of")]
     OneOf(RhsValues),
 
-    /// "contains {...}" comparison
-    #[serde(serialize_with = "serialize_contains_one_of")]
-    ContainsOneOf(Vec<Bytes>),
+    /// "has_any {...}" comparison
+    #[serde(serialize_with = "serialize_has_any")]
+    HasAny(RhsValues),
+
+    /// "has_all {...}" comparison
+    #[serde(serialize_with = "serialize_has_all")]
+    HasAll(RhsValues),
 
     /// "in $..." comparison
     #[serde(serialize_with = "serialize_list")]
@@ -188,8 +195,12 @@ fn serialize_one_of<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::
     serialize_op_rhs("OneOf", rhs, ser)
 }
 
-fn serialize_contains_one_of<S: Serializer>(rhs: &[Bytes], ser: S) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("ContainsOneOf", rhs, ser)
+fn serialize_has_any<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
+    serialize_op_rhs("HasAny", rhs, ser)
+}
+
+fn serialize_has_all<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
+    serialize_op_rhs("HasAll", rhs, ser)
 }
 
 fn serialize_list<S: Serializer>(_: &List<'_>, name: &ListName, ser: S) -> Result<S::Ok, S::Error> {
@@ -316,6 +327,17 @@ impl<'s> ComparisonExpr<'s> {
                         let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
                         (ComparisonOpExpr::OneOf(rhs), input)
                     }
+                }
+                (Type::Bytes, ComparisonOp::HasAny) | (Type::Bytes, ComparisonOp::HasAll) => {
+                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                    (
+                        match op {
+                            ComparisonOp::HasAny => ComparisonOpExpr::HasAny(rhs),
+                            ComparisonOp::HasAll => ComparisonOpExpr::HasAll(rhs),
+                            _ => unreachable!(),
+                        },
+                        input,
+                    )
                 }
                 (Type::Ip, ComparisonOp::Ordering(op))
                 | (Type::Bytes, ComparisonOp::Ordering(op))
@@ -485,9 +507,49 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
             },
-            ComparisonOpExpr::ContainsOneOf(_values) => {
-                unreachable!("Node should not be constructed as there is no syntax to do so")
-            }
+            ComparisonOpExpr::HasAny(values) => match values {
+                RhsValues::Bytes(values) => {
+                    if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
+                        lhs.compile_with(compiler, false, move |x, _ctx| {
+                            searcher.is_match(cast_value!(x, Bytes))
+                        })
+                    } else {
+                        lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    }
+                }
+                RhsValues::Ip(_) => unreachable!(),
+                RhsValues::Int(_) => unreachable!(),
+                RhsValues::Float(_) => unreachable!(),
+                RhsValues::Bool(_) => unreachable!(),
+                RhsValues::Map(_) => unreachable!(),
+                RhsValues::Array(_) => unreachable!(),
+            },
+            ComparisonOpExpr::HasAll(values) => match values {
+                RhsValues::Bytes(values) => {
+                    if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
+                        lhs.compile_with(compiler, false, move |x, _ctx| {
+                            let text = cast_value!(x, Bytes);
+                            let mut found = vec![false; values.len()];
+                            if let Ok(find_iter) = searcher.try_find_iter(text) {
+                                for mat in find_iter {
+                                    found[mat.pattern()] = true;
+                                }
+                                found.into_iter().all(|f| f)
+                            } else {
+                                false
+                            }
+                        })
+                    } else {
+                        lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    }
+                }
+                RhsValues::Ip(_) => unreachable!(),
+                RhsValues::Int(_) => unreachable!(),
+                RhsValues::Float(_) => unreachable!(),
+                RhsValues::Bool(_) => unreachable!(),
+                RhsValues::Map(_) => unreachable!(),
+                RhsValues::Array(_) => unreachable!(),
+            },
             ComparisonOpExpr::InList { name, list } => {
                 lhs.compile_with(compiler, false, move |val, ctx| {
                     ctx.get_list_matcher_unchecked(list)
@@ -1049,6 +1111,97 @@ mod tests {
                 "rhs": [
                     "example.org",
                     "example.com",
+                ]
+            }
+        );
+
+        let expr = expr.compile();
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.com")
+            .unwrap();
+        assert!(expr.execute_one(ctx));
+
+        ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(expr.execute_one(ctx));
+
+        ctx.set_field_value(field("http.host"), "example.net")
+            .unwrap();
+        assert!(!expr.execute_one(ctx));
+    }
+
+    #[test]
+    fn test_bytes_has_all() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with(r#"http.host has_all { "exam" "ple" }"#, &SCHEME),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("http.host")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::HasAll(RhsValues::Bytes(
+                    ["exam", "ple",]
+                        .iter()
+                        .map(|s| (*s).to_string().into())
+                        .collect()
+                )),
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "http.host",
+                "op": "HasAll",
+                "rhs": [
+                    "exam",
+                    "ple",
+                ]
+            }
+        );
+
+        let expr = expr.compile();
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.com")
+            .unwrap();
+        assert!(expr.execute_one(ctx));
+
+        ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(expr.execute_one(ctx));
+
+        ctx.set_field_value(field("http.host"), "test.net").unwrap();
+        assert!(!expr.execute_one(ctx));
+    }
+
+    #[test]
+    fn test_bytes_has_any() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with(r#"http.host has_any { "com" "org" }"#, &SCHEME),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("http.host")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::HasAny(RhsValues::Bytes(
+                    ["com", "org",]
+                        .iter()
+                        .map(|s| (*s).to_string().into())
+                        .collect()
+                )),
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "http.host",
+                "op": "HasAny",
+                "rhs": [
+                    "com",
+                    "org",
                 ]
             }
         );
