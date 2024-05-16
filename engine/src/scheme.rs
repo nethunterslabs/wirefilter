@@ -1,5 +1,5 @@
 use crate::{
-    ast::FilterAst,
+    ast::{FilterAst, SingleValueExprAst},
     functions::FunctionDefinition,
     lex::{complete, expect, span, take_while, Lex, LexErrorKind, LexResult, LexWith},
     types::{GetType, RhsValue, Type},
@@ -606,6 +606,15 @@ impl<'s> Scheme {
     /// Parses a filter into an AST form.
     pub fn parse<'i>(&'s self, input: &'i str) -> Result<FilterAst<'s>, ParseError<'i>> {
         complete(FilterAst::lex_with(input.trim(), self)).map_err(|err| ParseError::new(input, err))
+    }
+
+    /// Parses a single value expression into an AST form.
+    pub fn parse_single_value_expr<'i>(
+        &'s self,
+        input: &'i str,
+    ) -> Result<SingleValueExprAst<'s>, ParseError<'i>> {
+        complete(SingleValueExprAst::lex_with(input.trim(), self))
+            .map_err(|err| ParseError::new(input, err))
     }
 
     /// Iterates over all items.

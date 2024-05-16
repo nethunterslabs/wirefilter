@@ -5,12 +5,13 @@ pub mod logical_expr;
 pub mod simple_expr;
 pub mod visitor;
 
-use self::logical_expr::LogicalExpr;
+use self::{field_expr::LhsFieldExpr, logical_expr::LogicalExpr};
 use crate::{
     compiler::{Compiler, DefaultCompiler},
     filter::{CompiledExpr, CompiledValueExpr, Filter},
     lex::{LexErrorKind, LexResult, LexWith},
     scheme::{Scheme, UnknownFieldError},
+    single_value_expr::SingleValueExpr,
     types::{GetType, Type, TypeMismatchError},
 };
 use serde::Serialize;
@@ -50,6 +51,51 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + 
     /// Compiles current node into a [`CompiledValueExpr`] using
     /// [`DefaultCompiler`].
     fn compile(self) -> CompiledValueExpr<'s> {
+        let mut compiler = DefaultCompiler::new();
+        self.compile_with_compiler(&mut compiler)
+    }
+}
+
+/// A parsed single value expression AST. Used to parse a LhsFieldExpr which is compiled then to a SingleValueExprAst.
+///
+/// It's attached to its corresponding [`Scheme`](struct@Scheme) because all
+/// parsed fields are represented as indices and are valid only when
+/// [`ExecutionContext`](::ExecutionContext) is created from the same scheme.
+#[derive(PartialEq, Eq, Serialize, Clone, Hash)]
+#[serde(transparent)]
+pub struct SingleValueExprAst<'s> {
+    #[serde(skip)]
+    scheme: &'s Scheme,
+
+    op: LhsFieldExpr<'s>,
+}
+
+impl<'s> Debug for SingleValueExprAst<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.op.fmt(f)
+    }
+}
+
+impl<'i, 's> LexWith<'i, &'s Scheme> for SingleValueExprAst<'s> {
+    fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
+        let (op, input) = LhsFieldExpr::lex_with(input, scheme)?;
+        Ok((SingleValueExprAst { scheme, op }, input))
+    }
+}
+
+impl<'s> SingleValueExprAst<'s> {
+    /// Compiles a [`SingleValueExprAst`] into a [`SingleValueExpr`] using a specific
+    /// [`Compiler`].
+    pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
+        self,
+        compiler: &mut C,
+    ) -> SingleValueExpr<'s, U> {
+        let compiled = self.op.compile_with_compiler(compiler);
+        SingleValueExpr::new(compiled, self.scheme)
+    }
+
+    /// Compiles a [`SingleValueExprAst`] into a [`SingleValueExpr`] using [`DefaultCompiler`].
+    pub fn compile(self) -> SingleValueExpr<'s> {
         let mut compiler = DefaultCompiler::new();
         self.compile_with_compiler(&mut compiler)
     }

@@ -72,6 +72,7 @@ mod list_matcher;
 mod range_set;
 mod rhs_types;
 mod searcher;
+mod single_value_expr;
 mod strict_partial_ord;
 mod types;
 
@@ -106,5 +107,6 @@ pub use self::{
         IdentifierRedefinitionError, List, ParseError, Scheme, SchemeMismatchError,
         UnknownFieldError,
     },
+    single_value_expr::{SingleValueExpr, SingleValueExprError},
     types::{ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError},
 };
