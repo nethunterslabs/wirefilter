@@ -145,15 +145,16 @@ fn simplify_indexes(mut indexes: Vec<FieldIndex>) -> Box<[FieldIndex]> {
 }
 
 impl<'s> IndexExpr<'s> {
-    fn compile_one_with<F: 's, U: 's, C: Compiler<'s, U> + 's>(
+    fn compile_one_with<
+        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        U: 's,
+        C: Compiler<'s, U> + 's,
+    >(
         self,
         compiler: &mut C,
         default: bool,
         func: F,
-    ) -> CompiledOneExpr<'s, U>
-    where
-        F: Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
-    {
+    ) -> CompiledOneExpr<'s, U> {
         let Self { lhs, indexes } = self;
         let indexes = simplify_indexes(indexes);
         match lhs {
@@ -193,14 +194,15 @@ impl<'s> IndexExpr<'s> {
         }
     }
 
-    pub(crate) fn compile_vec_with<F: 's, U: 's, C: Compiler<'s, U> + 's>(
+    pub(crate) fn compile_vec_with<
+        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        U: 's,
+        C: Compiler<'s, U> + 's,
+    >(
         self,
         compiler: &mut C,
         func: F,
-    ) -> CompiledVecExpr<'s, U>
-    where
-        F: Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
-    {
+    ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         let indexes = simplify_indexes(indexes);
         match lhs {
@@ -216,14 +218,15 @@ impl<'s> IndexExpr<'s> {
         }
     }
 
-    pub(crate) fn compile_iter_with<F: 's, U: 's, C: Compiler<'s, U> + 's>(
+    pub(crate) fn compile_iter_with<
+        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        U: 's,
+        C: Compiler<'s, U> + 's,
+    >(
         self,
         compiler: &mut C,
         func: F,
-    ) -> CompiledVecExpr<'s, U>
-    where
-        F: Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
-    {
+    ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         match lhs {
             LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx| {
@@ -258,15 +261,16 @@ impl<'s> IndexExpr<'s> {
 
     /// Compiles an [`IndexExpr`] node into a [`CompiledExpr`] (boxed closure)
     /// using the provided comparison function that returns a boolean.
-    pub fn compile_with<F: 's, U: 's, C: Compiler<'s, U> + 's>(
+    pub fn compile_with<
+        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        U: 's,
+        C: Compiler<'s, U> + 's,
+    >(
         self,
         compiler: &mut C,
         default: bool,
         func: F,
-    ) -> CompiledExpr<'s, U>
-    where
-        F: Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
-    {
+    ) -> CompiledExpr<'s, U> {
         match self.map_each_count() {
             0 => CompiledExpr::One(self.compile_one_with(compiler, default, func)),
             1 if self.indexes.last() == Some(&FieldIndex::MapEach) => {
