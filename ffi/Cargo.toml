@@ -18,9 +18,9 @@ bench = false
 [dependencies]
 backtrace = "0.3.71"
 fnv = "1.0.7"
-libc = "0.2.153"
+libc = "0.2.154"
 num_enum = "0.5.11"
-serde_json = "1.0.116"
+serde_json = "1.0.117"
 
 [dependencies.wirefilter-engine]
 path = "../engine"
