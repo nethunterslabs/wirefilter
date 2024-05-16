@@ -84,7 +84,7 @@ pub use self::{
         logical_expr::{LogicalExpr, LogicalOp},
         simple_expr::SimpleExpr,
         visitor::{Visitor, VisitorMut},
-        Expr, FilterAst, ValueExpr,
+        Expr, FilterAst, SingleValueExprAst, ValueExpr,
     },
     compiler::{Compiler, DefaultCompiler},
     execution_context::{ExecutionContext, InvalidListMatcherError},
