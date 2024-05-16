@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::{fmt, ops::RangeInclusive, str::FromStr};
 
 #[derive(Debug, Clone)]
-struct ParseFloatError;
+pub struct ParseFloatError;
 
 impl fmt::Display for ParseFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
