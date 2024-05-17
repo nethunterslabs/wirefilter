@@ -439,35 +439,35 @@ impl FunctionDefinition for SimpleFunctionDefinition {
                 )))?;
             }
         } else {
-            next_param.expect_const_value(|x: &[u8]| {
-                let lhs_value = &LhsValue::from(x);
-                let ty = lhs_value.get_type();
-                let mut types = HashSet::new();
-                for expected_type in [
-                    ExpectedType::Type(Type::Bytes),
-                    ExpectedType::Type(Type::Int),
-                    ExpectedType::Type(Type::Float),
-                    ExpectedType::Type(Type::Ip),
-                ] {
-                    match (&expected_type, &ty) {
-                        (ExpectedType::Array, Type::Array(_)) => return Ok(()),
-                        (ExpectedType::Array, _) => {}
-                        (ExpectedType::Map, Type::Map(_)) => return Ok(()),
-                        (ExpectedType::Map, _) => {}
-                        (ExpectedType::Type(val_type), _) => {
-                            if ty == *val_type {
-                                return Ok(());
-                            }
-                        }
-                    }
-                    types.insert(expected_type);
-                }
-                Err(FunctionParamError::TypeMismatch(TypeMismatchError {
-                    expected: types,
-                    actual: ty,
-                })
-                .to_string())
-            })?;
+            // next_param.expect_const_value(|x: &[u8]| {
+            //     let lhs_value = &LhsValue::from(x);
+            //     let ty = lhs_value.get_type();
+            //     let mut types = HashSet::new();
+            //     for expected_type in [
+            //         ExpectedType::Type(Type::Bytes),
+            //         ExpectedType::Type(Type::Int),
+            //         ExpectedType::Type(Type::Float),
+            //         ExpectedType::Type(Type::Ip),
+            //     ] {
+            //         match (&expected_type, &ty) {
+            //             (ExpectedType::Array, Type::Array(_)) => return Ok(()),
+            //             (ExpectedType::Array, _) => {}
+            //             (ExpectedType::Map, Type::Map(_)) => return Ok(()),
+            //             (ExpectedType::Map, _) => {}
+            //             (ExpectedType::Type(val_type), _) => {
+            //                 if ty == *val_type {
+            //                     return Ok(());
+            //                 }
+            //             }
+            //         }
+            //         types.insert(expected_type);
+            //     }
+            //     Err(FunctionParamError::TypeMismatch(TypeMismatchError {
+            //         expected: types,
+            //         actual: ty,
+            //     })
+            //     .to_string())
+            // })?;
         }
         Ok(())
     }
