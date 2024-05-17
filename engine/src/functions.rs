@@ -83,6 +83,8 @@ pub enum FunctionArgKind {
     Literal,
     /// Allow only field as argument.
     Field,
+    /// Allows either literal or field as argument.
+    Any,
 }
 
 /// An error that occurs on a kind mismatch.
@@ -150,7 +152,7 @@ impl<'a> FunctionParam<'a> {
         expected_arg_kind: FunctionArgKind,
     ) -> Result<(), FunctionParamError> {
         let kind = self.into();
-        if kind == expected_arg_kind {
+        if expected_arg_kind == FunctionArgKind::Any || kind == expected_arg_kind {
             Ok(())
         } else {
             Err(FunctionParamError::KindMismatch(

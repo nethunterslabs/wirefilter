@@ -509,6 +509,20 @@ mod tests {
         }
     }
 
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+        use std::borrow::Cow;
+
+        match args.next()? {
+            Ok(LhsValue::Bytes(mut b)) => {
+                let mut text: Vec<u8> = b.to_mut().to_vec();
+                text.make_ascii_uppercase();
+                Some(LhsValue::Bytes(Cow::Owned(text)))
+            }
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
+        }
+    }
+
     fn echo_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
@@ -585,6 +599,20 @@ mod tests {
                         opt_params: Some(vec![]),
                         return_type: Type::Bytes,
                         implementation: SimpleFunctionImpl::new(lower_function),
+                    },
+                )
+                .unwrap();
+            scheme
+                .add_function(
+                    "upper".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
+                            arg_kind: FunctionArgKind::Any,
+                            val_type: Type::Bytes,
+                        }],
+                        opt_params: Some(vec![]),
+                        return_type: Type::Bytes,
+                        implementation: SimpleFunctionImpl::new(upper_function),
                     },
                 )
                 .unwrap();
@@ -1260,6 +1288,113 @@ mod tests {
                         }
                     }
                 ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_lex_function_with_any_arg_kind() {
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(
+                "any(upper(http.request.headers.names[*])[*] contains \"C\")",
+                &SCHEME
+            ),
+            FunctionCallExpr {
+                function: SCHEME.get_function("any").unwrap(),
+                args: vec![FunctionCallArgExpr::SimpleExpr(SimpleExpr::Comparison(
+                    ComparisonExpr {
+                        lhs: IndexExpr {
+                            lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
+                                function: SCHEME.get_function("upper").unwrap(),
+                                args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
+                                    lhs: LhsFieldExpr::Field(
+                                        SCHEME.get_field("http.request.headers.names").unwrap()
+                                    ),
+                                    indexes: vec![FieldIndex::MapEach],
+                                })],
+                                return_type: Type::Bytes,
+                                context: None,
+                            }),
+                            indexes: vec![FieldIndex::MapEach],
+                        },
+                        op: ComparisonOpExpr::Contains("C".to_string().into(),)
+                    }
+                ))],
+                return_type: Type::Bool,
+                context: None,
+            },
+            ""
+        );
+
+        assert_json!(
+            expr,
+            {
+                "args": [
+                    {
+                        "kind": "SimpleExpr",
+                        "value": {
+                            "lhs": [
+                                {
+                                    "args": [
+                                        {
+                                            "kind": "IndexExpr",
+                                            "value": ["http.request.headers.names", {"kind": "MapEach"}]
+                                        }
+                                    ],
+                                    "name": "upper"
+                                },{
+                                    "kind": "MapEach"
+                                }
+                            ],
+                            "op": "Contains",
+                            "rhs": "C"
+                        }
+                    }
+                ],
+                "name": "any"
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with("echo(upper(\"abc\"))", &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: [FunctionCallArgExpr::IndexExpr(IndexExpr {
+                    lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
+                        function: SCHEME.get_function("upper").unwrap(),
+                        args: vec![FunctionCallArgExpr::Literal(RhsValue::Bytes(
+                            "abc".to_owned().into()
+                        ))],
+                        return_type: Type::Bytes,
+                        context: None,
+                    }),
+                    indexes: vec![],
+                })]
+                .to_vec(),
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ""
+        );
+
+        assert_json!(
+            expr,
+            {
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": {
+                            "args": [
+                                {
+                                    "kind": "Literal",
+                                    "value": "abc"
+                                }
+                            ],
+                            "name": "upper"
+                        }
+                    }
+                ],
+                "name": "echo"
             }
         );
     }
