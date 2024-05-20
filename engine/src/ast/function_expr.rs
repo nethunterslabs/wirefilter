@@ -237,10 +237,13 @@ impl<'a, 's> From<&'a FunctionCallArgExpr<'s>> for FunctionParam<'a> {
 #[derivative(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct FunctionCallExpr<'s> {
     #[serde(rename = "name")]
-    pub(crate) function: Function<'s>,
+    /// Function being called.
+    pub function: Function<'s>,
     #[serde(skip)]
-    pub(crate) return_type: Type,
-    pub(crate) args: Vec<FunctionCallArgExpr<'s>>,
+    /// Return type of the function.
+    pub return_type: Type,
+    /// Arguments of the function.
+    pub args: Vec<FunctionCallArgExpr<'s>>,
     #[serde(skip)]
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub(crate) context: Option<FunctionDefinitionContext>,
@@ -431,6 +434,16 @@ impl<'s> FunctionCallExpr<'s> {
     /// Returns the function being called.
     pub fn function(&self) -> Function<'s> {
         self.function
+    }
+
+    /// Returns the return type of the function.
+    pub fn return_type(&self) -> &Type {
+        &self.return_type
+    }
+
+    /// Returns the arguments of the function.
+    pub fn args(&self) -> &[FunctionCallArgExpr<'s>] {
+        &self.args
     }
 }
 
