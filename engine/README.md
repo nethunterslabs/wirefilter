@@ -47,12 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ctx.set_field_value(scheme.get_field("port").unwrap(), 443)?;
 
     // Execute the filter with given runtime values.
-    println!("Filter matches: {:?}", filter.execute(&ctx)?); // true
+    println!("Filter matches: {:?}", filter.execute(&ctx, &Default::default())?); // true
 
     // Amend one of the runtime values and execute the filter again.
     ctx.set_field_value(scheme.get_field("port").unwrap(), 8080)?;
 
-    println!("Filter matches: {:?}", filter.execute(&ctx)?); // false
+    println!("Filter matches: {:?}", filter.execute(&ctx, &Default::default())?); // false
 
     Ok(())
 }

@@ -8,13 +8,16 @@ static A: System = System;
 use criterion::{
     criterion_group, criterion_main, Bencher, Benchmark, Criterion, ParameterizedBenchmark,
 };
-use std::{borrow::Cow, clone::Clone, fmt::Debug, net::IpAddr};
+use std::{borrow::Cow, clone::Clone, collections::HashMap, fmt::Debug, net::IpAddr};
 use wirefilter::{
     ExecutionContext, FilterAst, FunctionArgKind, FunctionArgs, GetType, LhsValue, Scheme,
     SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam, Type,
 };
 
-fn lowercase<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+fn lowercase<'a>(
+    args: FunctionArgs<'_, 'a>,
+    _: &HashMap<&'_ str, LhsValue<'a>>,
+) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {
@@ -31,7 +34,10 @@ fn lowercase<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
     }
 }
 
-fn uppercase<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+fn uppercase<'a>(
+    args: FunctionArgs<'_, 'a>,
+    _: &HashMap<&'_ str, LhsValue<'a>>,
+) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {
@@ -133,8 +139,9 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
                             exec_ctx
                                 .set_field_value(scheme.get_field(field).unwrap(), *value)
                                 .unwrap();
+                            let state = Default::default();
 
-                            b.iter(|| filter.execute(&exec_ctx));
+                            b.iter(|| filter.execute(&exec_ctx, &state));
                         }
                     },
                     values.iter().cloned(),

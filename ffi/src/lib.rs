@@ -666,7 +666,7 @@ pub extern "C" fn wirefilter_match<'e, 's: 'e>(
     exec_context: &ExecutionContext<'e>,
 ) -> MatchingResult {
     catch_panic(std::panic::AssertUnwindSafe(|| {
-        match filter.execute(exec_context) {
+        match filter.execute(exec_context, &Default::default()) {
             Ok(ok) => MatchingResult::Ok(ok),
             Err(err) => MatchingResult::Err(RustAllocatedString::from(err.to_string())),
         }

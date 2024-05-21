@@ -92,7 +92,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
         } else if let Some(last) = last {
             // Average path
             match lhs {
-                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx| {
+                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _| {
                     indexes[..last]
                         .iter()
                         .try_fold(ctx.get_field_value_unchecked(f), |value, index| {
@@ -103,8 +103,8 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
                     let call = compiler.compile_function_call_expr(call);
-                    CompiledValueExpr::new(move |ctx| {
-                        let result = call.execute(ctx)?;
+                    CompiledValueExpr::new(move |ctx, state| {
+                        let result = call.execute(ctx, state)?;
                         indexes[..last]
                             .iter()
                             .try_fold(result, |value, index| value.extract(index).unwrap())
@@ -115,7 +115,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
         } else {
             // Slow path
             match lhs {
-                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx| {
+                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _| {
                     let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                     iter.reset(ctx.get_field_value_unchecked(f).as_ref());
                     let mut arr = Array::new(ty.clone());
@@ -124,9 +124,9 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
                     let call = compiler.compile_function_call_expr(call);
-                    CompiledValueExpr::new(move |ctx| {
+                    CompiledValueExpr::new(move |ctx, state| {
                         let mut iter = MapEachIterator::from_indexes(&indexes[..]);
-                        iter.reset(call.execute(ctx)?);
+                        iter.reset(call.execute(ctx, state)?);
                         let mut arr = Array::new(ty.clone());
                         arr.extend(iter);
                         Ok(LhsValue::Array(arr))
@@ -161,14 +161,15 @@ impl<'s> IndexExpr<'s> {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
                 if indexes.is_empty() {
-                    CompiledOneExpr::new(move |ctx| {
-                        call.execute(ctx).map_or(default, |val| func(&val, ctx))
+                    CompiledOneExpr::new(move |ctx, state| {
+                        call.execute(ctx, state)
+                            .map_or(default, |val| func(&val, ctx))
                     })
                 } else {
-                    CompiledOneExpr::new(move |ctx| {
+                    CompiledOneExpr::new(move |ctx, state| {
                         index_access_one!(
                             indexes,
-                            call.execute(ctx).as_ref().ok(),
+                            call.execute(ctx, state).as_ref().ok(),
                             default,
                             ctx,
                             func
@@ -178,9 +179,9 @@ impl<'s> IndexExpr<'s> {
             }
             LhsFieldExpr::Field(f) => {
                 if indexes.is_empty() {
-                    CompiledOneExpr::new(move |ctx| func(ctx.get_field_value_unchecked(f), ctx))
+                    CompiledOneExpr::new(move |ctx, _| func(ctx.get_field_value_unchecked(f), ctx))
                 } else {
-                    CompiledOneExpr::new(move |ctx| {
+                    CompiledOneExpr::new(move |ctx, _| {
                         index_access_one!(
                             indexes,
                             Some(ctx.get_field_value_unchecked(f)),
@@ -208,11 +209,11 @@ impl<'s> IndexExpr<'s> {
         match lhs {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
-                CompiledVecExpr::new(move |ctx| {
-                    index_access_vec!(indexes, call.execute(ctx).as_ref().ok(), ctx, func)
+                CompiledVecExpr::new(move |ctx, state| {
+                    index_access_vec!(indexes, call.execute(ctx, state).as_ref().ok(), ctx, func)
                 })
             }
-            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx| {
+            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, _| {
                 index_access_vec!(indexes, Some(ctx.get_field_value_unchecked(f)), ctx, func)
             }),
         }
@@ -229,7 +230,7 @@ impl<'s> IndexExpr<'s> {
     ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         match lhs {
-            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx| {
+            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, _| {
                 let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                 iter.reset(ctx.get_field_value_unchecked(f).as_ref());
 
@@ -241,9 +242,9 @@ impl<'s> IndexExpr<'s> {
             }),
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
-                CompiledVecExpr::new(move |ctx| {
+                CompiledVecExpr::new(move |ctx, state| {
                     let mut iter = MapEachIterator::from_indexes(&indexes[..]);
-                    if let Ok(val) = call.execute(ctx) {
+                    if let Ok(val) = call.execute(ctx, state) {
                         iter.reset(val);
                     } else {
                         return Vec::new().into_boxed_slice();

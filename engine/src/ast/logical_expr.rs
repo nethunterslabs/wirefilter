@@ -178,17 +178,25 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                             .collect::<Vec<_>>()
                             .into_boxed_slice();
                         match op {
-                            LogicalOp::And => CompiledExpr::One(CompiledOneExpr::new(move |ctx| {
-                                first.execute(ctx) && items.iter().all(|item| item.execute(ctx))
-                            })),
-                            LogicalOp::Or => CompiledExpr::One(CompiledOneExpr::new(move |ctx| {
-                                first.execute(ctx) || items.iter().any(|item| item.execute(ctx))
-                            })),
-                            LogicalOp::Xor => CompiledExpr::One(CompiledOneExpr::new(move |ctx| {
-                                items
-                                    .iter()
-                                    .fold(first.execute(ctx), |acc, item| acc ^ item.execute(ctx))
-                            })),
+                            LogicalOp::And => {
+                                CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
+                                    first.execute(ctx, state)
+                                        && items.iter().all(|item| item.execute(ctx, state))
+                                }))
+                            }
+                            LogicalOp::Or => {
+                                CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
+                                    first.execute(ctx, state)
+                                        || items.iter().any(|item| item.execute(ctx, state))
+                                }))
+                            }
+                            LogicalOp::Xor => {
+                                CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
+                                    items.iter().fold(first.execute(ctx, state), |acc, item| {
+                                        acc ^ item.execute(ctx, state)
+                                    })
+                                }))
+                            }
                         }
                     }
                     CompiledExpr::Vec(first) => {
@@ -200,51 +208,57 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                             .collect::<Vec<_>>()
                             .into_boxed_slice();
                         match op {
-                            LogicalOp::And => CompiledExpr::Vec(CompiledVecExpr::new(move |ctx| {
-                                let items = items.iter().map(|item| item.execute(ctx));
-                                let mut output = first.execute(ctx).into_vec();
-                                for values in items {
-                                    for (idx, val) in values.iter().enumerate() {
-                                        if idx < output.len() {
-                                            output[idx] = output[idx] && *val;
+                            LogicalOp::And => {
+                                CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
+                                    let items = items.iter().map(|item| item.execute(ctx, state));
+                                    let mut output = first.execute(ctx, state).into_vec();
+                                    for values in items {
+                                        for (idx, val) in values.iter().enumerate() {
+                                            if idx < output.len() {
+                                                output[idx] = output[idx] && *val;
+                                            }
+                                        }
+                                        if values.len() < output.len() {
+                                            output.truncate(values.len());
                                         }
                                     }
-                                    if values.len() < output.len() {
-                                        output.truncate(values.len());
-                                    }
-                                }
-                                output.into_boxed_slice()
-                            })),
-                            LogicalOp::Or => CompiledExpr::Vec(CompiledVecExpr::new(move |ctx| {
-                                let items = items.iter().map(|item| item.execute(ctx));
-                                let mut output = first.execute(ctx).into_vec();
-                                for values in items {
-                                    for (idx, val) in values.iter().enumerate() {
-                                        if idx < output.len() {
-                                            output[idx] = output[idx] || *val;
+                                    output.into_boxed_slice()
+                                }))
+                            }
+                            LogicalOp::Or => {
+                                CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
+                                    let items = items.iter().map(|item| item.execute(ctx, state));
+                                    let mut output = first.execute(ctx, state).into_vec();
+                                    for values in items {
+                                        for (idx, val) in values.iter().enumerate() {
+                                            if idx < output.len() {
+                                                output[idx] = output[idx] || *val;
+                                            }
+                                        }
+                                        if values.len() < output.len() {
+                                            output.truncate(values.len());
                                         }
                                     }
-                                    if values.len() < output.len() {
-                                        output.truncate(values.len());
-                                    }
-                                }
-                                output.into_boxed_slice()
-                            })),
-                            LogicalOp::Xor => CompiledExpr::Vec(CompiledVecExpr::new(move |ctx| {
-                                let items = items.iter().map(|item| item.execute(ctx));
-                                let mut output = first.execute(ctx).into_vec();
-                                for values in items {
-                                    for (idx, val) in values.iter().enumerate() {
-                                        if idx < output.len() {
-                                            output[idx] ^= *val;
+                                    output.into_boxed_slice()
+                                }))
+                            }
+                            LogicalOp::Xor => {
+                                CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
+                                    let items = items.iter().map(|item| item.execute(ctx, state));
+                                    let mut output = first.execute(ctx, state).into_vec();
+                                    for values in items {
+                                        for (idx, val) in values.iter().enumerate() {
+                                            if idx < output.len() {
+                                                output[idx] ^= *val;
+                                            }
+                                        }
+                                        if values.len() < output.len() {
+                                            output.truncate(values.len());
                                         }
                                     }
-                                    if values.len() < output.len() {
-                                        output.truncate(values.len());
-                                    }
-                                }
-                                output.into_boxed_slice()
-                            })),
+                                    output.into_boxed_slice()
+                                }))
+                            }
                         }
                     }
                 }
@@ -330,7 +344,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -361,7 +375,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(!expr.execute_one(ctx));
+        assert!(!expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -392,7 +406,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -406,7 +420,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(!expr.execute_one(ctx));
+        assert!(!expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -437,7 +451,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -451,7 +465,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(!expr.execute_one(ctx));
+        assert!(!expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -465,7 +479,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     assert_ok!(
@@ -505,7 +519,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![false, false, true].into_boxed_slice()
         );
     }
@@ -522,7 +536,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, true].into_boxed_slice()
         );
     }
@@ -539,7 +553,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, false].into_boxed_slice()
         );
     }

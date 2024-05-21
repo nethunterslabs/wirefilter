@@ -105,11 +105,15 @@ impl<'s> Expr<'s> for SimpleExpr<'s> {
                 let arg = compiler.compile_simple_expr(*arg);
                 match arg {
                     CompiledExpr::One(one) => {
-                        CompiledExpr::One(CompiledOneExpr::new(move |ctx| !one.execute(ctx)))
+                        CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
+                            !one.execute(ctx, state)
+                        }))
                     }
-                    CompiledExpr::Vec(vec) => CompiledExpr::Vec(CompiledVecExpr::new(move |ctx| {
-                        vec.execute(ctx).iter().map(|item| !item).collect()
-                    })),
+                    CompiledExpr::Vec(vec) => {
+                        CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
+                            vec.execute(ctx, state).iter().map(|item| !item).collect()
+                        }))
+                    }
                 }
             }
         }
@@ -164,7 +168,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -183,7 +187,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, true].into_boxed_slice()
         );
     }
@@ -204,7 +208,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, true].into_boxed_slice()
         );
     }
@@ -237,7 +241,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     {
@@ -257,7 +261,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, true].into_boxed_slice()
         );
     }
@@ -283,7 +287,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(!expr.execute_one(ctx));
+        assert!(!expr.execute_one(ctx, &Default::default()));
     }
 
     assert_ok!(SimpleExpr::lex_with("!t", scheme), not_expr(t_expr()));
@@ -305,7 +309,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![false, true, false].into_boxed_slice()
         );
     }
@@ -334,7 +338,7 @@ fn test() {
 
         let expr = expr.compile();
 
-        assert!(expr.execute_one(ctx));
+        assert!(expr.execute_one(ctx, &Default::default()));
     }
 
     assert_ok!(
@@ -365,7 +369,7 @@ fn test() {
         let expr = expr.compile();
 
         assert_eq!(
-            expr.execute_vec(ctx),
+            expr.execute_vec(ctx, &Default::default()),
             vec![true, false, true].into_boxed_slice()
         );
     }

@@ -64,7 +64,7 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
         match self {
             FunctionCallArgExpr::IndexExpr(index_expr) => compiler.compile_index_expr(index_expr),
             FunctionCallArgExpr::Literal(literal) => {
-                CompiledValueExpr::new(move |_| LhsValue::from(literal.clone()).into())
+                CompiledValueExpr::new(move |_, _| LhsValue::from(literal.clone()).into())
             }
             // The function argument is an expression compiled as either an
             // CompiledExpr::One or CompiledExpr::Vec.
@@ -73,11 +73,11 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::SimpleExpr(simple_expr) => {
                 let compiled_expr = compiler.compile_simple_expr(simple_expr);
                 match compiled_expr {
-                    CompiledExpr::One(expr) => {
-                        CompiledValueExpr::new(move |ctx| LhsValue::from(expr.execute(ctx)).into())
-                    }
-                    CompiledExpr::Vec(expr) => CompiledValueExpr::new(move |ctx| {
-                        let result = expr.execute(ctx);
+                    CompiledExpr::One(expr) => CompiledValueExpr::new(move |ctx, state| {
+                        LhsValue::from(expr.execute(ctx, state)).into()
+                    }),
+                    CompiledExpr::Vec(expr) => CompiledValueExpr::new(move |ctx, state| {
+                        let result = expr.execute(ctx, state);
                         LhsValue::Array({
                             let mut arr = Array::new(Type::Bool);
                             for next in result.iter() {
@@ -288,25 +288,30 @@ impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {
             .collect::<Vec<_>>()
             .into_boxed_slice();
         if map_each_count > 0 {
-            CompiledValueExpr::new(move |ctx| {
+            CompiledValueExpr::new(move |ctx, state| {
                 // Create the output array
                 let mut output = Array::new(return_type.clone());
                 // Compute value of first argument
-                if let Ok(first) = args[0].execute(ctx) {
+                if let Ok(first) = args[0].execute(ctx, state) {
                     // Apply the function for each element contained
                     // in the first argument and extend output array
                     output.extend(first.into_iter().filter_map(|elem| {
-                        call(&mut ExactSizeChain::new(
-                            once(Ok(elem)),
-                            args[1..].iter().map(|arg| arg.execute(ctx)),
-                        ))
+                        call(
+                            &mut ExactSizeChain::new(
+                                once(Ok(elem)),
+                                args[1..].iter().map(|arg| arg.execute(ctx, state)),
+                            ),
+                            state,
+                        )
                     }));
                 }
                 Ok(LhsValue::Array(output))
             })
         } else {
-            CompiledValueExpr::new(move |ctx| {
-                if let Some(value) = call(&mut args.iter().map(|arg| arg.execute(ctx))) {
+            CompiledValueExpr::new(move |ctx, state| {
+                if let Some(value) =
+                    call(&mut args.iter().map(|arg| arg.execute(ctx, state)), state)
+                {
                     debug_assert!(value.get_type() == ty);
                     Ok(value)
                 } else {
@@ -493,9 +498,12 @@ mod tests {
         types::{RhsValues, Type, TypeMismatchError},
     };
     use lazy_static::lazy_static;
-    use std::convert::TryFrom;
+    use std::{collections::HashMap, convert::TryFrom};
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(
+        args: FunctionArgs<'_, 'a>,
+        _: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -508,7 +516,10 @@ mod tests {
         }
     }
 
-    fn lower_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(
+        args: FunctionArgs<'_, 'a>,
+        _: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -522,7 +533,10 @@ mod tests {
         }
     }
 
-    fn upper_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn upper_function<'a>(
+        args: FunctionArgs<'_, 'a>,
+        _: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -536,11 +550,17 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(
+        args: FunctionArgs<'_, 'a>,
+        _: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(
+        args: FunctionArgs<'_, 'a>,
+        _: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,

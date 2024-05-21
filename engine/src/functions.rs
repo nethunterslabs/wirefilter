@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{
     any::Any,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     convert::TryFrom,
     fmt::{self, Debug},
     iter::once,
@@ -348,12 +348,20 @@ pub trait FunctionDefinition: Debug + Send + Sync {
         &'s self,
         params: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
         ctx: Option<FunctionDefinitionContext>,
-    ) -> Box<dyn for<'a> Fn(FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 's>;
+    ) -> BoxedFunction<'s>;
 }
+
+type BoxedFunction<'s> = Box<
+    dyn for<'a> Fn(FunctionArgs<'_, 'a>, &HashMap<&'_ str, LhsValue<'a>>) -> Option<LhsValue<'a>>
+        + Sync
+        + Send
+        + 's,
+>;
 
 /// Simple function API
 
-type FunctionPtr = for<'a> fn(FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>>;
+type FunctionPtr =
+    for<'a> fn(FunctionArgs<'_, 'a>, &HashMap<&'_ str, LhsValue<'a>>) -> Option<LhsValue<'a>>;
 
 /// Wrapper around a function pointer providing the runtime implementation.
 #[derive(Clone)]
@@ -366,8 +374,12 @@ impl SimpleFunctionImpl {
     }
 
     /// Calls the wrapped function pointer.
-    pub fn execute<'a>(&self, args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
-        (self.0)(args)
+    pub fn execute<'a>(
+        &self,
+        args: FunctionArgs<'_, 'a>,
+        state: &HashMap<&'_ str, LhsValue<'a>>,
+    ) -> Option<LhsValue<'a>> {
+        (self.0)(args, state)
     }
 }
 
@@ -492,18 +504,21 @@ impl FunctionDefinition for SimpleFunctionDefinition {
         &'s self,
         _: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
         _: Option<FunctionDefinitionContext>,
-    ) -> Box<dyn for<'a> Fn(FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 's> {
-        Box::new(move |args| {
+    ) -> BoxedFunction<'s> {
+        Box::new(move |args, state| {
             if let Some(opt_params) = &self.opt_params {
                 let opts_args = &opt_params[(args.len() - self.params.len())..];
-                self.implementation.execute(&mut ExactSizeChain::new(
-                    args,
-                    opts_args
-                        .iter()
-                        .map(|opt_arg| Ok(opt_arg.default_value.to_owned())),
-                ))
+                self.implementation.execute(
+                    &mut ExactSizeChain::new(
+                        args,
+                        opts_args
+                            .iter()
+                            .map(|opt_arg| Ok(opt_arg.default_value.to_owned())),
+                    ),
+                    state,
+                )
             } else {
-                self.implementation.execute(args)
+                self.implementation.execute(args, state)
             }
         })
     }

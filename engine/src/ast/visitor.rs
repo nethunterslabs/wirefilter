@@ -258,7 +258,7 @@ mod tests {
                         }],
                         opt_params: Some(vec![]),
                         return_type: Type::Bytes,
-                        implementation: SimpleFunctionImpl::new(|args| args.next()?.ok()),
+                        implementation: SimpleFunctionImpl::new(|args, _| args.next()?.ok()),
                     },
                 )
                 .unwrap();
