@@ -8,16 +8,13 @@ static A: System = System;
 use criterion::{
     criterion_group, criterion_main, Bencher, Benchmark, Criterion, ParameterizedBenchmark,
 };
-use std::{borrow::Cow, clone::Clone, collections::HashMap, fmt::Debug, net::IpAddr};
+use std::{borrow::Cow, clone::Clone, fmt::Debug, net::IpAddr};
 use wirefilter::{
     ExecutionContext, FilterAst, FunctionArgKind, FunctionArgs, GetType, LhsValue, Scheme,
-    SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam, Type,
+    SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam, State, Type,
 };
 
-fn lowercase<'a>(
-    args: FunctionArgs<'_, 'a>,
-    _: &HashMap<&'_ str, LhsValue<'a>>,
-) -> Option<LhsValue<'a>> {
+fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {
@@ -34,10 +31,7 @@ fn lowercase<'a>(
     }
 }
 
-fn uppercase<'a>(
-    args: FunctionArgs<'_, 'a>,
-    _: &HashMap<&'_ str, LhsValue<'a>>,
-) -> Option<LhsValue<'a>> {
+fn uppercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {

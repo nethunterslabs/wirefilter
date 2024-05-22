@@ -87,7 +87,7 @@ pub use self::{
         Expr, FilterAst, SingleValueExprAst, ValueExpr,
     },
     compiler::{Compiler, DefaultCompiler},
-    execution_context::{ExecutionContext, InvalidListMatcherError},
+    execution_context::{ExecutionContext, InvalidListMatcherError, State},
     filter::{CompiledExpr, CompiledOneExpr, CompiledValueExpr, CompiledVecExpr, Filter},
     functions::{
         FunctionArgInvalidConstantError, FunctionArgKind, FunctionArgKindMismatchError,

@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use std::collections::HashMap;
 use wirefilter::{
     FunctionArgKind, FunctionArgs, LhsValue, SimpleFunctionDefinition, SimpleFunctionImpl,
-    SimpleFunctionParam, Type,
+    SimpleFunctionParam, State, Type,
 };
 
 #[cfg(fuzzing)]
@@ -38,10 +37,7 @@ fn main() {
 ///
 /// It expects one argument and will panic if given an incorrect number of
 /// arguments or an incorrect LhsValue.
-fn first_impl<'a>(
-    args: FunctionArgs<'_, 'a>,
-    _: &HashMap<&'_ str, LhsValue<'a>>,
-) -> Option<LhsValue<'a>> {
+fn first_impl<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
     let arg = args.next().expect("expected 1 argument, got 0");
     if args.next().is_some() {
         panic!("expected 1 argument, got {}", 2 + args.count());

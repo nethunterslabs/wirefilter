@@ -5,20 +5,14 @@
 //! values to its leafs by recursively calling their `execute` methods and
 //! aggregating results into a single boolean value as recursion unwinds.
 
-use std::collections::HashMap;
-
 use crate::{
-    execution_context::ExecutionContext,
+    execution_context::{ExecutionContext, State},
     scheme::{Scheme, SchemeMismatchError},
     types::{LhsValue, Type},
 };
 
-type BoxedClosureToOneBool<'s, U> = Box<
-    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &HashMap<&'s str, LhsValue<'e>>) -> bool
-        + Sync
-        + Send
-        + 's,
->;
+type BoxedClosureToOneBool<'s, U> =
+    Box<dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> bool + Sync + Send + 's>;
 
 /// Boxed closure for [`Expr`] AST node that evaluates to a simple [`bool`].
 pub struct CompiledOneExpr<'s, U = ()>(BoxedClosureToOneBool<'s, U>);
@@ -26,20 +20,13 @@ pub struct CompiledOneExpr<'s, U = ()>(BoxedClosureToOneBool<'s, U>);
 impl<'s, U> CompiledOneExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &HashMap<&'s str, LhsValue<'e>>) -> bool
-            + Sync
-            + Send
-            + 's,
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> bool + Sync + Send + 's,
     ) -> Self {
         CompiledOneExpr(Box::new(closure))
     }
 
     /// Executes the closure against a provided context with values.
-    pub fn execute<'e>(
-        &self,
-        ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
-    ) -> bool {
+    pub fn execute<'e>(&self, ctx: &'e ExecutionContext<'e, U>, state: &State<'s, 'e>) -> bool {
         self.0(ctx, state)
     }
 
@@ -52,10 +39,7 @@ impl<'s, U> CompiledOneExpr<'s, U> {
 pub(crate) type CompiledVecExprResult = Box<[bool]>;
 
 type BoxedClosureToVecBool<'s, U> = Box<
-    dyn for<'e> Fn(
-            &'e ExecutionContext<'e, U>,
-            &HashMap<&'s str, LhsValue<'e>>,
-        ) -> CompiledVecExprResult
+    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> CompiledVecExprResult
         + Sync
         + Send
         + 's,
@@ -67,10 +51,7 @@ pub struct CompiledVecExpr<'s, U = ()>(BoxedClosureToVecBool<'s, U>);
 impl<'s, U> CompiledVecExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(
-                &'e ExecutionContext<'e, U>,
-                &HashMap<&'s str, LhsValue<'e>>,
-            ) -> CompiledVecExprResult
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> CompiledVecExprResult
             + Sync
             + Send
             + 's,
@@ -82,7 +63,7 @@ impl<'s, U> CompiledVecExpr<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> CompiledVecExprResult {
         self.0(ctx, state)
     }
@@ -106,7 +87,7 @@ impl<'s, U> CompiledExpr<'s, U> {
     pub(crate) fn execute_one<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> bool {
         match self {
             CompiledExpr::One(one) => one.execute(ctx, state),
@@ -118,7 +99,7 @@ impl<'s, U> CompiledExpr<'s, U> {
     pub(crate) fn execute_vec<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> CompiledVecExprResult {
         match self {
             CompiledExpr::One(_) => unreachable!(),
@@ -142,10 +123,7 @@ impl<'a> From<Type> for CompiledValueResult<'a> {
 }
 
 type BoxedClosureToValue<'s, U> = Box<
-    dyn for<'e> Fn(
-            &'e ExecutionContext<'e, U>,
-            &HashMap<&'s str, LhsValue<'e>>,
-        ) -> CompiledValueResult<'e>
+    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> CompiledValueResult<'e>
         + Sync
         + Send
         + 's,
@@ -157,10 +135,7 @@ pub struct CompiledValueExpr<'s, U = ()>(BoxedClosureToValue<'s, U>);
 impl<'s, U> CompiledValueExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(
-                &'e ExecutionContext<'e, U>,
-                &HashMap<&'s str, LhsValue<'e>>,
-            ) -> CompiledValueResult<'e>
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &State<'s, 'e>) -> CompiledValueResult<'e>
             + Sync
             + Send
             + 's,
@@ -172,7 +147,7 @@ impl<'s, U> CompiledValueExpr<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> CompiledValueResult<'e> {
         self.0(ctx, state)
     }
@@ -213,7 +188,7 @@ impl<'s, U> Filter<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> Result<bool, SchemeMismatchError> {
         if ctx.scheme() == self.scheme {
             Ok(self.root_expr.execute(ctx, state))
@@ -225,9 +200,9 @@ impl<'s, U> Filter<'s, U> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Filter, HashMap, LhsValue, SchemeMismatchError};
+    use super::{Filter, LhsValue, SchemeMismatchError};
     use crate::{
-        execution_context::ExecutionContext,
+        execution_context::{ExecutionContext, State},
         functions::{
             FunctionArgKind, SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam,
         },
@@ -290,7 +265,7 @@ mod tests {
         ctx.set_field_value(scheme.get_field("foo").unwrap(), LhsValue::Int(42))
             .unwrap();
 
-        let mut state = HashMap::new();
+        let mut state = State::new();
         state.insert("secret-number", LhsValue::Int(42));
 
         assert_eq!(

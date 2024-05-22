@@ -1,13 +1,10 @@
-use std::{collections::HashMap, env::args};
+use std::env::args;
 use wirefilter::{
     FunctionArgKind, FunctionArgs, LhsValue, Scheme, SimpleFunctionDefinition, SimpleFunctionImpl,
-    SimpleFunctionOptParam, SimpleFunctionParam, Type,
+    SimpleFunctionOptParam, SimpleFunctionParam, State, Type,
 };
 
-fn panic_function<'a>(
-    _: FunctionArgs<'_, 'a>,
-    _: &HashMap<&'_ str, LhsValue<'a>>,
-) -> Option<LhsValue<'a>> {
+fn panic_function<'a>(_: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
     panic!();
 }
 

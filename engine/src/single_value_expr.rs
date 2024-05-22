@@ -5,12 +5,10 @@
 //! values to its leafs by recursively calling their `execute` methods and
 //! aggregating results into a single value as recursion unwinds.
 
-use std::collections::HashMap;
-
 use thiserror::Error;
 
 use crate::{
-    execution_context::ExecutionContext,
+    execution_context::{ExecutionContext, State},
     filter::CompiledValueExpr,
     scheme::Scheme,
     types::{LhsValue, Type},
@@ -47,7 +45,7 @@ impl<'s, U> SingleValueExpr<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &HashMap<&'s str, LhsValue<'e>>,
+        state: &State<'s, 'e>,
     ) -> Result<LhsValue<'e>, SingleValueExprError> {
         if ctx.scheme() == self.scheme {
             self.root_expr
@@ -76,18 +74,15 @@ pub enum SingleValueExprError {
 mod tests {
     use crate::execution_context::ExecutionContext;
     use crate::{
+        execution_context::State,
         functions::{
             FunctionArgKind, FunctionArgs, SimpleFunctionDefinition, SimpleFunctionImpl,
             SimpleFunctionParam,
         },
         types::{LhsValue, Type},
     };
-    use std::collections::HashMap;
 
-    fn lower_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
-    ) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {

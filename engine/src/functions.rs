@@ -1,10 +1,11 @@
 use crate::{
+    execution_context::State,
     filter::CompiledValueResult,
     types::{ExpectedType, GetType, LhsValue, Type, TypeMismatchError},
 };
 use std::{
     any::Any,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     convert::TryFrom,
     fmt::{self, Debug},
     iter::once,
@@ -352,16 +353,12 @@ pub trait FunctionDefinition: Debug + Send + Sync {
 }
 
 type BoxedFunction<'s> = Box<
-    dyn for<'a> Fn(FunctionArgs<'_, 'a>, &HashMap<&'_ str, LhsValue<'a>>) -> Option<LhsValue<'a>>
-        + Sync
-        + Send
-        + 's,
+    dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 's,
 >;
 
 /// Simple function API
 
-type FunctionPtr =
-    for<'a> fn(FunctionArgs<'_, 'a>, &HashMap<&'_ str, LhsValue<'a>>) -> Option<LhsValue<'a>>;
+type FunctionPtr = for<'a> fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>>;
 
 /// Wrapper around a function pointer providing the runtime implementation.
 #[derive(Clone)]
@@ -377,7 +374,7 @@ impl SimpleFunctionImpl {
     pub fn execute<'a>(
         &self,
         args: FunctionArgs<'_, 'a>,
-        state: &HashMap<&'_ str, LhsValue<'a>>,
+        state: &State<'_, 'a>,
     ) -> Option<LhsValue<'a>> {
         (self.0)(args, state)
     }

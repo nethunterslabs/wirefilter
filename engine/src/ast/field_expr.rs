@@ -568,7 +568,7 @@ mod tests {
             function_expr::{FunctionCallArgExpr, FunctionCallExpr},
             simple_expr::SimpleExpr,
         },
-        execution_context::ExecutionContext,
+        execution_context::{ExecutionContext, State},
         functions::{
             FunctionArgKind, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,
             FunctionParam, FunctionParamError, SimpleFunctionDefinition, SimpleFunctionImpl,
@@ -582,12 +582,9 @@ mod tests {
     };
     use cidr::IpCidr;
     use lazy_static::lazy_static;
-    use std::{any::Any, collections::HashMap, convert::TryFrom, iter::once, net::IpAddr};
+    use std::{any::Any, convert::TryFrom, iter::once, net::IpAddr};
 
-    fn any_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
-    ) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -600,16 +597,13 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
-    ) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
     fn lowercase_function<'a>(
         args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
+        _: &State<'_, 'a>,
     ) -> Option<LhsValue<'a>> {
         let input = args.next()?.ok()?;
         match input {
@@ -618,10 +612,7 @@ mod tests {
         }
     }
 
-    fn concat_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
-    ) -> Option<LhsValue<'a>> {
+    fn concat_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
         let mut output = Vec::new();
         for (index, arg) in args.enumerate() {
             match arg.unwrap() {
@@ -687,10 +678,7 @@ mod tests {
             _: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
             _: Option<FunctionDefinitionContext>,
         ) -> Box<
-            dyn for<'a> Fn(
-                    FunctionArgs<'_, 'a>,
-                    &HashMap<&'_ str, LhsValue<'a>>,
-                ) -> Option<LhsValue<'a>>
+            dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>>
                 + Sync
                 + Send
                 + 's,
@@ -711,10 +699,7 @@ mod tests {
         }
     }
 
-    fn len_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &HashMap<&'_ str, LhsValue<'a>>,
-    ) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,
