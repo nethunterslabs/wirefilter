@@ -4,7 +4,7 @@ use wirefilter::{
     SimpleFunctionOptParam, SimpleFunctionParam, State, Type,
 };
 
-fn panic_function<'a>(_: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+fn panic_function<'a>(_: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
     panic!();
 }
 

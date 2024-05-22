@@ -584,7 +584,7 @@ mod tests {
     use lazy_static::lazy_static;
     use std::{any::Any, convert::TryFrom, iter::once, net::IpAddr};
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -597,14 +597,11 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn lowercase_function<'a>(
-        args: FunctionArgs<'_, 'a>,
-        _: &State<'_, 'a>,
-    ) -> Option<LhsValue<'a>> {
+    fn lowercase_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         let input = args.next()?.ok()?;
         match input {
             LhsValue::Bytes(bytes) => Some(LhsValue::Bytes(bytes.to_ascii_lowercase().into())),
@@ -612,7 +609,7 @@ mod tests {
         }
     }
 
-    fn concat_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn concat_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         let mut output = Vec::new();
         for (index, arg) in args.enumerate() {
             match arg.unwrap() {
@@ -678,7 +675,7 @@ mod tests {
             _: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
             _: Option<FunctionDefinitionContext>,
         ) -> Box<
-            dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>>
+            dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'a>) -> Option<LhsValue<'a>>
                 + Sync
                 + Send
                 + 's,
@@ -699,7 +696,7 @@ mod tests {
         }
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,

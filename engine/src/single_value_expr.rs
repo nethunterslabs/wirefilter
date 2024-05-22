@@ -45,7 +45,7 @@ impl<'s, U> SingleValueExpr<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
-        state: &State<'s, 'e>,
+        state: &State<'e>,
     ) -> Result<LhsValue<'e>, SingleValueExprError> {
         if ctx.scheme() == self.scheme {
             self.root_expr
@@ -82,7 +82,7 @@ mod tests {
         types::{LhsValue, Type},
     };
 
-    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {

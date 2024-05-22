@@ -14,7 +14,7 @@ use wirefilter::{
     SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam, State, Type,
 };
 
-fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {
@@ -31,7 +31,7 @@ fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsVal
     }
 }
 
-fn uppercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+fn uppercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {

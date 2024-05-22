@@ -40,11 +40,11 @@ pub struct InvalidListMatcherError {
 /// It is a map of keys to [`LhsValue`](::LhsValue) that can be used to pass data
 /// to functions that aren't part of the execution context.
 #[derive(Debug, Default, PartialEq)]
-pub struct State<'s, 'e> {
-    map: HashMap<&'s str, LhsValue<'e>>,
+pub struct State<'e> {
+    map: HashMap<String, LhsValue<'e>>,
 }
 
-impl<'s, 'e> State<'s, 'e> {
+impl<'e> State<'e> {
     /// Creates a new state.
     pub fn new() -> Self {
         State {
@@ -53,18 +53,18 @@ impl<'s, 'e> State<'s, 'e> {
     }
 
     /// Inserts a value into the state.
-    pub fn insert(&mut self, key: &'s str, value: LhsValue<'e>) {
+    pub fn insert(&mut self, key: String, value: LhsValue<'e>) {
         self.map.insert(key, value);
     }
 
     /// Gets a value from the state.
-    pub fn get(&self, key: &'s str) -> Option<&LhsValue<'e>> {
+    pub fn get(&self, key: &str) -> Option<&LhsValue<'e>> {
         self.map.get(key)
     }
 
     /// Removes a value from the state.
     /// Returns the value if it was present in the state.
-    pub fn remove(&mut self, key: &'s str) -> Option<LhsValue<'e>> {
+    pub fn remove(&mut self, key: &str) -> Option<LhsValue<'e>> {
         self.map.remove(key)
     }
 
@@ -74,12 +74,12 @@ impl<'s, 'e> State<'s, 'e> {
     }
 
     /// Get the inner map.
-    pub fn inner(&self) -> &HashMap<&'s str, LhsValue<'e>> {
+    pub fn inner(&self) -> &HashMap<String, LhsValue<'e>> {
         &self.map
     }
 
     /// Get the mutable inner map.
-    pub fn inner_mut(&mut self) -> &mut HashMap<&'s str, LhsValue<'e>> {
+    pub fn inner_mut(&mut self) -> &mut HashMap<String, LhsValue<'e>> {
         &mut self.map
     }
 }

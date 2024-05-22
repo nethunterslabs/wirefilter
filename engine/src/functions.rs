@@ -353,12 +353,12 @@ pub trait FunctionDefinition: Debug + Send + Sync {
 }
 
 type BoxedFunction<'s> = Box<
-    dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 's,
+    dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'a>) -> Option<LhsValue<'a>> + Sync + Send + 's,
 >;
 
 /// Simple function API
 
-type FunctionPtr = for<'a> fn(FunctionArgs<'_, 'a>, &State<'_, 'a>) -> Option<LhsValue<'a>>;
+type FunctionPtr = for<'a> fn(FunctionArgs<'_, 'a>, &State<'a>) -> Option<LhsValue<'a>>;
 
 /// Wrapper around a function pointer providing the runtime implementation.
 #[derive(Clone)]
@@ -374,7 +374,7 @@ impl SimpleFunctionImpl {
     pub fn execute<'a>(
         &self,
         args: FunctionArgs<'_, 'a>,
-        state: &State<'_, 'a>,
+        state: &State<'a>,
     ) -> Option<LhsValue<'a>> {
         (self.0)(args, state)
     }

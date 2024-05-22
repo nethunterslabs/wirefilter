@@ -501,7 +501,7 @@ mod tests {
     use lazy_static::lazy_static;
     use std::convert::TryFrom;
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -514,7 +514,7 @@ mod tests {
         }
     }
 
-    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -528,7 +528,7 @@ mod tests {
         }
     }
 
-    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -542,11 +542,11 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'_, 'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,
