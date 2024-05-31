@@ -21,7 +21,10 @@ use crate::{
 };
 use derivative::Derivative;
 use serde::Serialize;
-use std::iter::once;
+use std::{
+    fmt::{self, Display},
+    iter::once,
+};
 
 /// FunctionCallArgExpr is a function argument. It can be a sub-expression with
 /// [`SimpleExpr`], a field with [`IndexExpr`] or a literal with [`Literal`].
@@ -36,6 +39,16 @@ pub enum FunctionCallArgExpr<'s> {
     /// or a list of true/false. It compiles to a CompiledExpr and is coerced
     /// into a CompiledValueExpr.
     SimpleExpr(SimpleExpr<'s>),
+}
+
+impl<'s> Display for FunctionCallArgExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FunctionCallArgExpr::IndexExpr(index_expr) => write!(f, "{}", index_expr),
+            FunctionCallArgExpr::Literal(literal) => write!(f, "{}", literal),
+            FunctionCallArgExpr::SimpleExpr(simple_expr) => write!(f, "{}", simple_expr.fmt(0)),
+        }
+    }
 }
 
 impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
@@ -247,6 +260,19 @@ pub struct FunctionCallExpr<'s> {
     #[serde(skip)]
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub(crate) context: Option<FunctionDefinitionContext>,
+}
+
+impl<'s> Display for FunctionCallExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}(", self.function.name())?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ")")
+    }
 }
 
 impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {

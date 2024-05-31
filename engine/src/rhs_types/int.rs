@@ -3,7 +3,10 @@ use crate::{
     strict_partial_ord::StrictPartialOrd,
 };
 use serde::Serialize;
-use std::ops::RangeInclusive;
+use std::{
+    fmt::{self, Display},
+    ops::RangeInclusive,
+};
 
 fn lex_digits(input: &str) -> LexResult<'_, &str> {
     // Lex any supported digits (up to radix 16) for better error locations.
@@ -50,6 +53,17 @@ impl From<i32> for IntRange {
 impl From<RangeInclusive<i32>> for IntRange {
     fn from(r: RangeInclusive<i32>) -> Self {
         IntRange(r)
+    }
+}
+
+impl Display for IntRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let range = &self.0;
+        if range.start() == range.end() {
+            write!(f, "{}", range.start())
+        } else {
+            write!(f, "{}..{}", range.start(), range.end())
+        }
     }
 }
 

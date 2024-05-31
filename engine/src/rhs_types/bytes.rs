@@ -1,24 +1,70 @@
 use crate::{
     lex::{expect, take, Lex, LexErrorKind, LexResult},
     strict_partial_ord::StrictPartialOrd,
+    utils,
 };
 use serde::Serialize;
 use std::{
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
     ops::Deref,
     str,
 };
 
+/// Type of string literal.
+#[derive(Clone, Copy)]
+pub enum StrType {
+    Raw {
+        /// Number of `#` characters in the opening and closing delimiter.
+        hash_count: usize,
+    },
+    Escaped,
+}
+
 /// Bytes literal represented either by a string or raw bytes.
-#[derive(PartialEq, Eq, Clone, Serialize)]
-#[serde(untagged)]
+#[derive(Clone)]
 pub enum Bytes {
     /// String representation of bytes
-    Str(Box<str>),
+    Str {
+        /// String value.
+        value: Box<str>,
+        /// Type of string literal.
+        ty: StrType,
+    },
     /// Raw representation of bytes.
-    Raw(Box<[u8]>),
+    Raw {
+        /// Raw bytes.
+        value: Box<[u8]>,
+        /// Separator between bytes.
+        separator: ByteSeparator,
+    },
 }
+
+impl Serialize for Bytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Bytes::Str { value, .. } => serializer.serialize_str(value),
+            Bytes::Raw { value, .. } => serializer.serialize_bytes(value),
+        }
+    }
+}
+
+impl PartialEq for Bytes {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Bytes::Str { value: a, .. }, Bytes::Str { value: b, .. }) => a == b,
+            (Bytes::Raw { value: a, .. }, Bytes::Raw { value: b, .. }) => a == b,
+            (Bytes::Str { value: a, .. }, Bytes::Raw { value: b, .. }) => {
+                a.as_bytes() == b.as_ref()
+            }
+            (Bytes::Raw { value: a, .. }, Bytes::Str { value: b, .. }) => {
+                a.as_ref() == b.as_bytes()
+            }
+        }
+    }
+}
+
+impl Eq for Bytes {}
 
 // We need custom `Hash` consistent with `Borrow` invariants.
 // We can get away with `Eq` invariant though because we do want
@@ -33,21 +79,27 @@ impl Hash for Bytes {
 
 impl From<Vec<u8>> for Bytes {
     fn from(src: Vec<u8>) -> Self {
-        Bytes::Raw(src.into_boxed_slice())
+        Bytes::Raw {
+            value: src.into_boxed_slice(),
+            separator: ByteSeparator::Colon,
+        }
     }
 }
 
 impl From<String> for Bytes {
     fn from(src: String) -> Self {
-        Bytes::Str(src.into_boxed_str())
+        Bytes::Str {
+            value: src.into_boxed_str(),
+            ty: StrType::Escaped,
+        }
     }
 }
 
 impl From<Bytes> for Box<[u8]> {
     fn from(bytes: Bytes) -> Self {
         match bytes {
-            Bytes::Str(s) => s.into_boxed_bytes(),
-            Bytes::Raw(b) => b,
+            Bytes::Str { value, .. } => value.into_boxed_bytes(),
+            Bytes::Raw { value, .. } => value,
         }
     }
 }
@@ -55,8 +107,8 @@ impl From<Bytes> for Box<[u8]> {
 impl From<Bytes> for Vec<u8> {
     fn from(bytes: Bytes) -> Self {
         match bytes {
-            Bytes::Str(s) => s.into_boxed_bytes().into_vec(),
-            Bytes::Raw(b) => b.into_vec(),
+            Bytes::Str { value, .. } => value.into_boxed_bytes().into_vec(),
+            Bytes::Raw { value, .. } => value.into_vec(),
         }
     }
 }
@@ -65,8 +117,8 @@ impl Bytes {
     /// Converts into a `Box<[u8]>` without copying or allocating.
     pub fn into_boxed_bytes(self) -> Box<[u8]> {
         match self {
-            Bytes::Str(s) => s.into_boxed_bytes(),
-            Bytes::Raw(b) => b,
+            Bytes::Str { value, .. } => value.into_boxed_bytes(),
+            Bytes::Raw { value, .. } => value,
         }
     }
 }
@@ -74,11 +126,37 @@ impl Bytes {
 impl Debug for Bytes {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Bytes::Str(s) => s.fmt(f),
-            Bytes::Raw(b) => {
-                for (i, b) in b.iter().cloned().enumerate() {
+            Bytes::Str { value, .. } => Debug::fmt(&value, f),
+            Bytes::Raw { value, separator } => {
+                for (i, b) in value.iter().cloned().enumerate() {
                     if i != 0 {
-                        write!(f, ":")?;
+                        write!(f, "{}", separator.as_char())?;
+                    }
+                    write!(f, "{:02X}", b)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Display for Bytes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Bytes::Str { value, ty } => match ty {
+                StrType::Raw { hash_count } => {
+                    write!(f, "r{}", "#".repeat(*hash_count))?;
+                    write!(f, "\"{}\"", value)?;
+                    write!(f, "{}", "#".repeat(*hash_count))
+                }
+                StrType::Escaped => {
+                    write!(f, "\"{}\"", utils::escape_hex_and_oct(value))
+                }
+            },
+            Bytes::Raw { value, separator } => {
+                for (i, b) in value.iter().cloned().enumerate() {
+                    if i != 0 {
+                        write!(f, "{}", separator.as_char())?;
                     }
                     write!(f, "{:02X}", b)?;
                 }
@@ -93,8 +171,8 @@ impl Deref for Bytes {
 
     fn deref(&self) -> &[u8] {
         match self {
-            Bytes::Str(s) => s.as_bytes(),
-            Bytes::Raw(b) => b,
+            Bytes::Str { value, .. } => value.as_bytes(),
+            Bytes::Raw { value, .. } => value,
         }
     }
 }
@@ -133,6 +211,16 @@ lex_enum!(ByteSeparator {
     "-" => Dash,
     "." => Dot,
 });
+
+impl ByteSeparator {
+    fn as_char(&self) -> char {
+        match self {
+            ByteSeparator::Colon => ':',
+            ByteSeparator::Dash => '-',
+            ByteSeparator::Dot => '.',
+        }
+    }
+}
 
 impl<'i> Lex<'i> for Bytes {
     fn lex(mut input: &str) -> LexResult<'_, Self> {
@@ -175,7 +263,15 @@ impl<'i> Lex<'i> for Bytes {
                             }
                         });
                     }
-                    '"' => return Ok((res.into(), iter.as_str())),
+                    '"' => {
+                        return Ok((
+                            Self::Str {
+                                value: res.into(),
+                                ty: StrType::Escaped,
+                            },
+                            iter.as_str(),
+                        ))
+                    }
                     c => res.push(c),
                 };
             }
@@ -210,7 +306,15 @@ impl<'i> Lex<'i> for Bytes {
 
                         #[allow(clippy::comparison_chain)]
                         if end_hash_count == start_hash_count {
-                            return Ok((Bytes::Str(raw_string.into_boxed_str()), rest));
+                            return Ok((
+                                Self::Str {
+                                    value: raw_string.into_boxed_str(),
+                                    ty: StrType::Raw {
+                                        hash_count: start_hash_count,
+                                    },
+                                },
+                                rest,
+                            ));
                         } else if end_hash_count > start_hash_count {
                             return Err((
                                 LexErrorKind::CountMismatch {
@@ -239,14 +343,22 @@ impl<'i> Lex<'i> for Bytes {
             }
         } else {
             let mut res = Vec::new();
+            let mut separator = ByteSeparator::Colon;
             loop {
                 let (b, rest) = hex_byte(input, false)?;
                 res.push(b);
                 input = rest;
-                if let Ok((_, rest)) = ByteSeparator::lex(input) {
+                if let Ok((bytes_separator, rest)) = ByteSeparator::lex(input) {
                     input = rest;
+                    separator = bytes_separator;
                 } else {
-                    return Ok((res.into(), input));
+                    return Ok((
+                        Bytes::Raw {
+                            value: res.into(),
+                            separator,
+                        },
+                        input,
+                    ));
                 }
             }
         }

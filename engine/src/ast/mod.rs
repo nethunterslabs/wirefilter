@@ -1,4 +1,5 @@
 pub mod field_expr;
+pub mod fmt;
 pub mod function_expr;
 pub mod index_expr;
 pub mod logical_expr;
@@ -15,7 +16,7 @@ use crate::{
     types::{GetType, Type, TypeMismatchError},
 };
 use serde::Serialize;
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 use visitor::{UsesListVisitor, UsesVisitor, Visitor, VisitorMut};
 
 /// Trait used to represent node that evaluates to a [`bool`] (or a
@@ -71,8 +72,8 @@ pub struct SingleValueExprAst<'s> {
 }
 
 impl<'s> Debug for SingleValueExprAst<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.op.fmt(f)
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.op, f)
     }
 }
 
@@ -116,8 +117,8 @@ pub struct FilterAst<'s> {
 }
 
 impl<'s> Debug for FilterAst<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.op.fmt(f)
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.op, f)
     }
 }
 

@@ -75,6 +75,7 @@ mod searcher;
 mod single_value_expr;
 mod strict_partial_ord;
 mod types;
+mod utils;
 
 pub use self::{
     ast::{

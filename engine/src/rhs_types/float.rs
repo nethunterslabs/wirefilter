@@ -4,7 +4,11 @@ use crate::{
 };
 use ordered_float::OrderedFloat;
 use serde::Serialize;
-use std::{fmt, ops::RangeInclusive, str::FromStr};
+use std::{
+    fmt::{self, Display},
+    ops::RangeInclusive,
+    str::FromStr,
+};
 
 #[derive(Debug, Clone)]
 pub struct ParseFloatError;
@@ -66,6 +70,17 @@ impl From<RangeInclusive<f64>> for FloatRange {
     fn from(r: RangeInclusive<f64>) -> Self {
         let (y, z) = r.into_inner();
         FloatRange(OrderedFloat(y)..=OrderedFloat(z))
+    }
+}
+
+impl Display for FloatRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let range = &self.0;
+        if range.start() == range.end() {
+            write!(f, "{}", range.start())
+        } else {
+            write!(f, "{}..{}", range.start(), range.end())
+        }
     }
 }
 

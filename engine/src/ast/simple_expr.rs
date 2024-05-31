@@ -37,6 +37,26 @@ pub enum SimpleExpr<'s> {
     },
 }
 
+impl<'s> SimpleExpr<'s> {
+    /// Format the expression as a string.
+    pub(crate) fn fmt(&self, indent: usize) -> String {
+        match self {
+            SimpleExpr::Comparison(node) => node.to_string(),
+            SimpleExpr::Parenthesized(node) => {
+                if node.is_combining() {
+                    let indent_str = " ".repeat(indent);
+                    format!("{}(\n{}\n{})", indent_str, node.fmt(indent + 2), indent_str,)
+                } else {
+                    format!("( {} )", node.fmt(indent))
+                }
+            }
+            SimpleExpr::Unary { op, arg } => match op {
+                UnaryOp::Not => format!("!{}", arg.fmt(indent)),
+            },
+        }
+    }
+}
+
 impl<'s> GetType for SimpleExpr<'s> {
     fn get_type(&self) -> Type {
         match &self {

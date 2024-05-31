@@ -17,7 +17,7 @@ use std::{
     cmp::Ordering,
     collections::HashSet,
     convert::TryFrom,
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     iter::once,
     net::IpAddr,
 };
@@ -693,6 +693,70 @@ declare_types!(
     /// A Map of string to [`Type`].
     Map[Box<Type>](#[serde(skip_deserializing)] Map<'a> | UninhabitedMap | UninhabitedMap),
 );
+
+impl Display for RhsValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RhsValue::Ip(ip) => write!(f, "{}", ip),
+            RhsValue::Bytes(bytes) => write!(f, "{}", bytes),
+            RhsValue::Int(num) => write!(f, "{}", num),
+            RhsValue::Float(float_num) => write!(f, "{}", float_num),
+            RhsValue::Bool(_) => unreachable!(),
+            RhsValue::Array(_) => unreachable!(),
+            RhsValue::Map(_) => unreachable!(),
+        }
+    }
+}
+
+impl Display for RhsValues {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RhsValues::Ip(ips) => {
+                write!(f, "{{")?;
+                for (i, ip) in ips.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", ip)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Bytes(bytes) => {
+                write!(f, "{{")?;
+                for (i, byte) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{:?}", byte)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Int(ints) => {
+                write!(f, "{{")?;
+                for (i, int) in ints.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", int)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Float(floats) => {
+                write!(f, "{{")?;
+                for (i, float) in floats.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", float)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Bool(_) => unreachable!(),
+            RhsValues::Array(_) => unreachable!(),
+            RhsValues::Map(_) => unreachable!(),
+        }
+    }
+}
 
 #[test]
 fn test_lhs_value_deserialize() {

@@ -6,6 +6,7 @@ use cidr::{errors::NetworkParseError, IpCidr, Ipv4Cidr, Ipv6Cidr};
 use serde::Serialize;
 use std::{
     cmp::Ordering,
+    fmt::{self, Display},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     ops::RangeInclusive,
     str::FromStr,
@@ -47,6 +48,18 @@ pub enum ExplicitIpRange {
 pub enum IpRange {
     Explicit(ExplicitIpRange),
     Cidr(IpCidr),
+}
+
+impl Display for IpRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IpRange::Explicit(range) => match range {
+                ExplicitIpRange::V4(range) => write!(f, "{}..{}", range.start(), range.end()),
+                ExplicitIpRange::V6(range) => write!(f, "{}..{}", range.start(), range.end()),
+            },
+            IpRange::Cidr(cidr) => write!(f, "{}", cidr),
+        }
+    }
 }
 
 impl From<IpAddr> for IpRange {

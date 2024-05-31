@@ -23,7 +23,11 @@ use indexmap::IndexSet;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 use sliceslice::MemchrSearcher;
-use std::{cmp::Ordering, net::IpAddr};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Display},
+    net::IpAddr,
+};
 
 const LESS: u8 = 0b001;
 const GREATER: u8 = 0b010;
@@ -214,6 +218,15 @@ pub(crate) enum LhsFieldExpr<'s> {
     FunctionCallExpr(FunctionCallExpr<'s>),
 }
 
+impl<'s> Display for LhsFieldExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LhsFieldExpr::Field(field) => write!(f, "{}", field.name()),
+            LhsFieldExpr::FunctionCallExpr(call) => write!(f, "{}", call),
+        }
+    }
+}
+
 impl<'s> LhsFieldExpr<'s> {
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
@@ -257,6 +270,35 @@ pub struct ComparisonExpr<'s> {
     /// Operator + right-hand side of the comparison expression
     #[serde(flatten)]
     pub op: ComparisonOpExpr<'s>,
+}
+
+impl<'s> Display for ComparisonExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.op {
+            ComparisonOpExpr::IsTrue => write!(f, "{}", self.lhs),
+            ComparisonOpExpr::Ordering { op, ref rhs } => match op {
+                OrderingOp::Equal => write!(f, "{} == {}", self.lhs, rhs),
+                OrderingOp::NotEqual => write!(f, "{} != {}", self.lhs, rhs),
+                OrderingOp::GreaterThanEqual => write!(f, "{} >= {}", self.lhs, rhs),
+                OrderingOp::LessThanEqual => write!(f, "{} <= {}", self.lhs, rhs),
+                OrderingOp::GreaterThan => write!(f, "{} > {}", self.lhs, rhs),
+                OrderingOp::LessThan => write!(f, "{} < {}", self.lhs, rhs),
+            },
+            ComparisonOpExpr::Int { op, rhs } => match op {
+                IntOp::BitwiseAnd => write!(f, "{} & {}", self.lhs, rhs),
+            },
+            ComparisonOpExpr::Contains(ref bytes) => write!(f, "{} contains {}", self.lhs, bytes),
+            ComparisonOpExpr::Matches(ref regex) => {
+                write!(f, "{} matches {}", self.lhs, regex.as_str())
+            }
+            ComparisonOpExpr::OneOf(ref values) => write!(f, "{} in {}", self.lhs, values),
+            ComparisonOpExpr::HasAny(ref values) => write!(f, "{} has_any {}", self.lhs, values),
+            ComparisonOpExpr::HasAll(ref values) => write!(f, "{} has_all {}", self.lhs, values),
+            ComparisonOpExpr::InList { name, list: _ } => {
+                write!(f, "{} in ${}", self.lhs, name.as_str())
+            }
+        }
+    }
 }
 
 impl<'s> GetType for ComparisonExpr<'s> {
