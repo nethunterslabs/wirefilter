@@ -5,7 +5,6 @@ use crate::{
     FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
     SimpleExpr, SingleValueExprAst,
 };
-use std::fmt::{self, Display, Formatter};
 use thiserror::Error;
 
 /// Error formatting, mismatched AST.
@@ -20,23 +19,27 @@ pub enum FormatError {
     ParseError(String),
 }
 
-impl Display for FieldIndex {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl Fmt for FieldIndex {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
-            FieldIndex::ArrayIndex(i) => write!(f, "{}", i),
-            FieldIndex::MapKey(k) => write!(f, "\"{}\"", utils::escape_hex_and_oct(k)),
-            FieldIndex::MapEach => write!(f, "*"),
+            FieldIndex::ArrayIndex(i) => output.push_str(&i.to_string()),
+            FieldIndex::MapKey(k) => {
+                output.push('"');
+                output.push_str(&utils::escape_hex_and_oct(k));
+                output.push('"');
+            }
+            FieldIndex::MapEach => output.push('*'),
         }
     }
 }
 
-impl Display for RhsValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl Fmt for RhsValue {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
-            RhsValue::Ip(ip) => write!(f, "{}", ip),
-            RhsValue::Bytes(bytes) => write!(f, "{}", bytes),
-            RhsValue::Int(num) => write!(f, "{}", num),
-            RhsValue::Float(float_num) => write!(f, "{}", float_num),
+            RhsValue::Ip(ip) => output.push_str(&ip.to_string()),
+            RhsValue::Bytes(bytes) => bytes.fmt(0, output),
+            RhsValue::Int(num) => output.push_str(&num.to_string()),
+            RhsValue::Float(float_num) => output.push_str(&float_num.to_string()),
             RhsValue::Bool(_) => unreachable!(),
             RhsValue::Array(_) => unreachable!(),
             RhsValue::Map(_) => unreachable!(),
@@ -44,116 +47,125 @@ impl Display for RhsValue {
     }
 }
 
-impl Display for RhsValues {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl Fmt for RhsValues {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        output.push('{');
         match self {
             RhsValues::Ip(ips) => {
-                write!(f, "{{")?;
                 for (i, ip) in ips.iter().enumerate() {
                     if i > 0 {
-                        write!(f, " ")?;
+                        output.push(' ');
                     }
-                    write!(f, "{}", ip)?;
+                    ip.fmt(0, output);
                 }
-                write!(f, "}}")
             }
             RhsValues::Bytes(bytes) => {
-                write!(f, "{{")?;
                 for (i, byte) in bytes.iter().enumerate() {
                     if i > 0 {
-                        write!(f, " ")?;
+                        output.push(' ');
                     }
-                    write!(f, "{:?}", byte)?;
+                    byte.fmt(0, output);
                 }
-                write!(f, "}}")
             }
             RhsValues::Int(ints) => {
-                write!(f, "{{")?;
                 for (i, int) in ints.iter().enumerate() {
                     if i > 0 {
-                        write!(f, " ")?;
+                        output.push(' ');
                     }
-                    write!(f, "{}", int)?;
+                    int.fmt(0, output);
                 }
-                write!(f, "}}")
             }
             RhsValues::Float(floats) => {
-                write!(f, "{{")?;
                 for (i, float) in floats.iter().enumerate() {
                     if i > 0 {
-                        write!(f, " ")?;
+                        output.push(' ');
                     }
-                    write!(f, "{}", float)?;
+                    float.fmt(0, output);
                 }
-                write!(f, "}}")
             }
             RhsValues::Bool(_) => unreachable!(),
             RhsValues::Array(_) => unreachable!(),
             RhsValues::Map(_) => unreachable!(),
         }
+        output.push('}');
     }
 }
 
-impl<'s> Display for LhsFieldExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+trait Fmt {
+    fn fmt(&self, indent: usize, output: &mut String);
+}
+
+impl<'s> Fmt for LhsFieldExpr<'s> {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
-            LhsFieldExpr::Field(field) => write!(f, "{}", field.name()),
-            LhsFieldExpr::FunctionCallExpr(call) => write!(f, "{}", call),
+            LhsFieldExpr::Field(field) => output.push_str(field.name()),
+            LhsFieldExpr::FunctionCallExpr(call) => call.fmt(0, output),
         }
     }
 }
 
-impl<'s> Display for FunctionCallArgExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FunctionCallArgExpr::IndexExpr(index_expr) => write!(f, "{}", index_expr),
-            FunctionCallArgExpr::Literal(literal) => write!(f, "{}", literal),
-            FunctionCallArgExpr::SimpleExpr(simple_expr) => write!(f, "{}", simple_expr.fmt(0)),
-        }
-    }
-}
+impl<'s> Fmt for ComparisonExpr<'s> {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        self.lhs.fmt(0, output);
 
-impl<'s> Display for ComparisonExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.op {
-            ComparisonOpExpr::IsTrue => write!(f, "{}", self.lhs),
-            ComparisonOpExpr::Ordering { op, ref rhs } => match op {
-                OrderingOp::Equal => write!(f, "{} == {}", self.lhs, rhs),
-                OrderingOp::NotEqual => write!(f, "{} != {}", self.lhs, rhs),
-                OrderingOp::GreaterThanEqual => write!(f, "{} >= {}", self.lhs, rhs),
-                OrderingOp::LessThanEqual => write!(f, "{} <= {}", self.lhs, rhs),
-                OrderingOp::GreaterThan => write!(f, "{} > {}", self.lhs, rhs),
-                OrderingOp::LessThan => write!(f, "{} < {}", self.lhs, rhs),
-            },
-            ComparisonOpExpr::Int { op, rhs } => match op {
-                IntOp::BitwiseAnd => write!(f, "{} & {}", self.lhs, rhs),
-            },
-            ComparisonOpExpr::Contains(ref bytes) => write!(f, "{} contains {}", self.lhs, bytes),
-            ComparisonOpExpr::Matches(ref regex) => {
-                write!(f, "{} matches {}", self.lhs, regex.as_str())
+            ComparisonOpExpr::IsTrue => {}
+            ComparisonOpExpr::Ordering { op, rhs } => {
+                match op {
+                    OrderingOp::Equal => output.push_str(" == "),
+                    OrderingOp::NotEqual => output.push_str(" != "),
+                    OrderingOp::GreaterThanEqual => output.push_str(" >= "),
+                    OrderingOp::LessThanEqual => output.push_str(" <= "),
+                    OrderingOp::GreaterThan => output.push_str(" > "),
+                    OrderingOp::LessThan => output.push_str(" < "),
+                }
+
+                rhs.fmt(0, output);
             }
-            ComparisonOpExpr::OneOf(ref values) => write!(f, "{} in {}", self.lhs, values),
-            ComparisonOpExpr::HasAny(ref values) => write!(f, "{} has_any {}", self.lhs, values),
-            ComparisonOpExpr::HasAll(ref values) => write!(f, "{} has_all {}", self.lhs, values),
+            ComparisonOpExpr::Int { op, rhs } => match op {
+                IntOp::BitwiseAnd => {
+                    output.push_str(" & ");
+                    output.push_str(&rhs.to_string());
+                }
+            },
+            ComparisonOpExpr::Contains(bytes) => {
+                output.push_str(" contains ");
+                bytes.fmt(0, output);
+            }
+            ComparisonOpExpr::Matches(regex) => {
+                output.push_str(" matches ");
+                output.push_str(regex.as_str());
+            }
+            ComparisonOpExpr::OneOf(values) => {
+                output.push_str(" in ");
+                values.fmt(0, output);
+            }
+            ComparisonOpExpr::HasAny(values) => {
+                output.push_str(" has_any ");
+                values.fmt(0, output);
+            }
+            ComparisonOpExpr::HasAll(values) => {
+                output.push_str(" has_all ");
+                values.fmt(0, output);
+            }
             ComparisonOpExpr::InList { name, list: _ } => {
-                write!(f, "{} in ${}", self.lhs, name.as_str())
+                output.push_str(" in $");
+                output.push_str(name.as_str());
             }
         }
     }
 }
 
-impl<'s> LogicalExpr<'s> {
-    pub(crate) fn fmt(&self, indent: usize) -> String {
+impl<'s> Fmt for LogicalExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
         match self {
-            LogicalExpr::Simple(expr) => expr.fmt(indent),
+            LogicalExpr::Simple(expr) => expr.fmt(indent, output),
             LogicalExpr::Combining { op, items } => {
-                let mut output = String::new();
-
                 if let Some(item) = items.first() {
                     let indent_str = " ".repeat(indent);
 
                     output.push_str(&indent_str);
-                    output.push_str(&item.fmt(indent));
+                    item.fmt(indent, output);
 
                     for item in items.iter().skip(1) {
                         output.push('\n');
@@ -163,113 +175,153 @@ impl<'s> LogicalExpr<'s> {
                             LogicalOp::Or => output.push_str("|| "),
                             LogicalOp::Xor => output.push_str("^^ "),
                         }
-                        output.push_str(&item.fmt(indent + 2));
+                        item.fmt(indent + 2, output);
                     }
                 }
-                output
             }
         }
     }
 }
 
-impl<'s> SimpleExpr<'s> {
-    pub(crate) fn fmt(&self, indent: usize) -> String {
+impl<'s> Fmt for SimpleExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
         match self {
-            SimpleExpr::Comparison(node) => node.to_string(),
+            SimpleExpr::Comparison(node) => node.fmt(indent, output),
             SimpleExpr::Parenthesized(node) => {
                 if node.is_combining() {
                     let indent_str = " ".repeat(indent);
-                    format!("{}(\n{}\n{})", indent_str, node.fmt(indent + 2), indent_str,)
+                    output.push_str(&indent_str);
+                    output.push_str("(\n");
+                    node.fmt(indent + 2, output);
+                    output.push('\n');
+                    output.push_str(&indent_str);
+                    output.push(')');
                 } else {
-                    format!("( {} )", node.fmt(indent))
+                    output.push_str("( ");
+                    node.fmt(indent, output);
+                    output.push_str(" )");
                 }
             }
             SimpleExpr::Unary { op, arg } => match op {
-                UnaryOp::Not => format!("!{}", arg.fmt(indent)),
+                UnaryOp::Not => {
+                    output.push('!');
+                    arg.fmt(indent, output);
+                }
             },
         }
     }
 }
 
-impl<'s> Display for FunctionCallExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}(", self.function.name())?;
+impl<'s> Fmt for FunctionCallExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
+        output.push_str(self.function.name());
+        output.push('(');
         for (i, arg) in self.args.iter().enumerate() {
             if i > 0 {
-                write!(f, ", ")?;
+                output.push_str(", ");
             }
-            write!(f, "{}", arg)?;
+            arg.fmt(indent, output);
         }
-        write!(f, ")")
+        output.push(')');
     }
 }
 
-impl<'s> Display for IndexExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.lhs)?;
+impl<'s> Fmt for FunctionCallArgExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
+        match self {
+            FunctionCallArgExpr::IndexExpr(index_expr) => index_expr.fmt(indent, output),
+            FunctionCallArgExpr::Literal(literal) => literal.fmt(indent, output),
+            FunctionCallArgExpr::SimpleExpr(simple_expr) => simple_expr.fmt(indent, output),
+        }
+    }
+}
+
+impl<'s> Fmt for IndexExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
+        self.lhs.fmt(indent, output);
         for index in &self.indexes {
-            write!(f, "[{}]", index)?;
+            output.push('[');
+            index.fmt(indent, output);
+            output.push(']');
         }
-        Ok(())
     }
 }
 
-impl Display for Bytes {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl Fmt for Bytes {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
             Bytes::Str { value, ty } => match ty {
                 StrType::Raw { hash_count } => {
-                    write!(f, "r{}", "#".repeat(*hash_count))?;
-                    write!(f, "\"{}\"", value)?;
-                    write!(f, "{}", "#".repeat(*hash_count))
+                    let hashes = "#".repeat(*hash_count);
+                    output.push('r');
+                    output.push_str(&hashes);
+                    output.push('"');
+                    output.push_str(value);
+                    output.push('"');
+                    output.push_str(&hashes);
                 }
                 StrType::Escaped => {
-                    write!(f, "\"{}\"", utils::escape_hex_and_oct(value))
+                    output.push('"');
+                    output.push_str(&utils::escape_hex_and_oct(value));
+                    output.push('"');
                 }
             },
             Bytes::Raw { value, separator } => {
                 for (i, b) in value.iter().cloned().enumerate() {
                     if i != 0 {
-                        write!(f, "{}", separator.as_char())?;
+                        output.push_str(&separator.as_char().to_string());
                     }
-                    write!(f, "{:02X}", b)?;
+                    output.push_str(&format!("{:02X}", b));
                 }
-                Ok(())
             }
         }
     }
 }
 
-impl Display for FloatRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Fmt for FloatRange {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         let range = &self.0;
         if range.start() == range.end() {
-            write!(f, "{}", range.start())
+            output.push_str(&range.start().to_string());
         } else {
-            write!(f, "{}..{}", range.start(), range.end())
+            output.push_str(&range.start().to_string());
+            output.push_str("..");
+            output.push_str(&range.end().to_string());
         }
     }
 }
 
-impl Display for IntRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Fmt for IntRange {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         let range = &self.0;
         if range.start() == range.end() {
-            write!(f, "{}", range.start())
+            output.push_str(&range.start().to_string());
         } else {
-            write!(f, "{}..{}", range.start(), range.end())
+            output.push_str(&range.start().to_string());
+            output.push_str("..");
+            output.push_str(&range.end().to_string());
         }
     }
 }
 
-impl Display for IpRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Fmt for IpRange {
+    fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
             IpRange::Explicit(range) => match range {
-                ExplicitIpRange::V4(range) => write!(f, "{}..{}", range.start(), range.end()),
-                ExplicitIpRange::V6(range) => write!(f, "{}..{}", range.start(), range.end()),
+                ExplicitIpRange::V4(range) => {
+                    output.push_str(&range.start().to_string());
+                    output.push_str("..");
+                    output.push_str(&range.end().to_string());
+                }
+                ExplicitIpRange::V6(range) => {
+                    output.push_str(&range.start().to_string());
+                    output.push_str("..");
+                    output.push_str(&range.end().to_string());
+                }
             },
-            IpRange::Cidr(cidr) => write!(f, "{}", cidr),
+            IpRange::Cidr(cidr) => {
+                output.push_str(&cidr.to_string());
+            }
         }
     }
 }
@@ -277,7 +329,9 @@ impl Display for IpRange {
 impl<'s> SingleValueExprAst<'s> {
     /// Format a [`SingleValueExprAst`] in an opinionated way.
     pub fn fmt(&self) -> Result<String, FormatError> {
-        let formatted = self.op.to_string();
+        let mut formatted = String::new();
+        self.op.fmt(0, &mut formatted);
+
         let formatted_ast = self
             .scheme
             .parse_single_value_expr(&formatted)
@@ -293,7 +347,9 @@ impl<'s> SingleValueExprAst<'s> {
 impl<'s> FilterAst<'s> {
     /// Format a [`FilterAst`] in an opinionated way.
     pub fn fmt(&self) -> Result<String, FormatError> {
-        let formatted = self.op.fmt(0);
+        let mut formatted = String::new();
+        self.op.fmt(0, &mut formatted);
+
         let formatted_ast = self
             .scheme
             .parse(&formatted)
