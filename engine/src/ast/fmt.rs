@@ -340,7 +340,7 @@ impl<'s> SingleValueExprAst<'s> {
             .parse_single_value_expr(&formatted)
             .map_err(|e| FormatError::ParseError(e.to_string()))?;
         if self == &formatted_ast {
-            Ok(formatted)
+            Ok(formatted.trim().to_owned())
         } else {
             Err(FormatError::MismatchedAst)
         }
@@ -363,7 +363,7 @@ impl<'s> FilterAst<'s> {
             .parse(&formatted)
             .map_err(|e| FormatError::ParseError(e.to_string()))?;
         if self == &formatted_ast {
-            Ok(formatted)
+            Ok(formatted.trim().to_owned())
         } else {
             Err(FormatError::MismatchedAst)
         }
