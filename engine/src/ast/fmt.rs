@@ -1,9 +1,9 @@
 use crate::{
     ast::{field_expr::IntOp, simple_expr::UnaryOp, LhsFieldExpr},
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
-    utils, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
-    FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
-    SimpleExpr, SingleValueExprAst,
+    ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr, FunctionCallExpr,
+    IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues, SimpleExpr,
+    SingleValueExprAst,
 };
 use thiserror::Error;
 
@@ -25,7 +25,7 @@ impl Fmt for FieldIndex {
             FieldIndex::ArrayIndex(i) => output.push_str(&i.to_string()),
             FieldIndex::MapKey(k) => {
                 output.push('"');
-                output.push_str(&utils::escape(k, true));
+                output.push_str(&escape(k, true));
                 output.push('"');
             }
             FieldIndex::MapEach => output.push('*'),
@@ -112,19 +112,59 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             ComparisonOpExpr::IsTrue => {}
             ComparisonOpExpr::Ordering { op, rhs } => {
                 match op {
-                    OrderingOp::Equal => output.push_str(" == "),
-                    OrderingOp::NotEqual => output.push_str(" != "),
-                    OrderingOp::GreaterThanEqual => output.push_str(" >= "),
-                    OrderingOp::LessThanEqual => output.push_str(" <= "),
-                    OrderingOp::GreaterThan => output.push_str(" > "),
-                    OrderingOp::LessThan => output.push_str(" < "),
+                    OrderingOp::Equal(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" eq ");
+                        } else {
+                            output.push_str(" == ");
+                        }
+                    }
+                    OrderingOp::NotEqual(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" ne ");
+                        } else {
+                            output.push_str(" != ");
+                        }
+                    }
+                    OrderingOp::GreaterThanEqual(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" ge ");
+                        } else {
+                            output.push_str(" >= ");
+                        }
+                    }
+                    OrderingOp::LessThanEqual(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" le ");
+                        } else {
+                            output.push_str(" <= ");
+                        }
+                    }
+                    OrderingOp::GreaterThan(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" gt ");
+                        } else {
+                            output.push_str(" > ");
+                        }
+                    }
+                    OrderingOp::LessThan(variant) => {
+                        if *variant == 0 {
+                            output.push_str(" lt ");
+                        } else {
+                            output.push_str(" < ");
+                        }
+                    }
                 }
 
                 rhs.fmt(0, output);
             }
             ComparisonOpExpr::Int { op, rhs } => match op {
-                IntOp::BitwiseAnd => {
-                    output.push_str(" & ");
+                IntOp::BitwiseAnd(variant) => {
+                    if *variant == 0 {
+                        output.push_str(" & ");
+                    } else {
+                        output.push_str(" bitwise_and ");
+                    }
                     output.push_str(&rhs.to_string());
                 }
             },
@@ -132,10 +172,14 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 output.push_str(" contains ");
                 bytes.fmt(0, output);
             }
-            ComparisonOpExpr::Matches(regex) => {
-                output.push_str(" matches ");
+            ComparisonOpExpr::Matches((regex, variant)) => {
+                if *variant == 0 {
+                    output.push_str(" ~ ");
+                } else {
+                    output.push_str(" matches ");
+                }
                 output.push('"');
-                output.push_str(&utils::escape(regex.as_str(), false));
+                output.push_str(&escape(regex.as_str(), false));
                 output.push('"');
             }
             ComparisonOpExpr::OneOf(values) => {
@@ -170,9 +214,27 @@ impl<'s> Fmt for LogicalExpr<'s> {
                         output.push('\n');
                         output.push_str(&indent_str);
                         match op {
-                            LogicalOp::And => output.push_str("&& "),
-                            LogicalOp::Or => output.push_str("|| "),
-                            LogicalOp::Xor => output.push_str("^^ "),
+                            LogicalOp::And(variant) => {
+                                if *variant == 0 {
+                                    output.push_str("and ")
+                                } else {
+                                    output.push_str("&& ")
+                                }
+                            }
+                            LogicalOp::Or(variant) => {
+                                if *variant == 0 {
+                                    output.push_str("or ")
+                                } else {
+                                    output.push_str("|| ")
+                                }
+                            }
+                            LogicalOp::Xor(variant) => {
+                                if *variant == 0 {
+                                    output.push_str("xor ")
+                                } else {
+                                    output.push_str("^^ ")
+                                }
+                            }
                         }
                     }
                     item.fmt(indent, output);
@@ -201,7 +263,7 @@ impl<'s> Fmt for SimpleExpr<'s> {
                 }
             }
             SimpleExpr::Unary { op, arg } => match op {
-                UnaryOp::Not => {
+                UnaryOp::Not(_) => {
                     output.push('!');
                     arg.fmt(indent, output);
                 }
@@ -260,7 +322,7 @@ impl Fmt for Bytes {
                 }
                 StrType::Escaped => {
                     output.push('"');
-                    output.push_str(&utils::escape(value, true));
+                    output.push_str(&escape(value, true));
                     output.push('"');
                 }
             },
@@ -322,6 +384,35 @@ impl Fmt for IpRange {
             }
         }
     }
+}
+
+fn escape(string: &str, hex_and_oct: bool) -> String {
+    let mut res = String::new();
+    for c in string.chars() {
+        match c {
+            '\n' => res.push(c),
+            '\x00'..='\x1f' | '\x7f' if hex_and_oct => {
+                res.push('\\');
+                res.push('x');
+                res.push_str(&format!("{:02x}", c as u8));
+            }
+            '\x20'..='\x7e' => match c {
+                '\\' if hex_and_oct => {
+                    res.push_str(r"\\");
+                }
+                '"' => {
+                    res.push_str(r#"\""#);
+                }
+                _ => {
+                    res.push(c);
+                }
+            },
+            _ => {
+                res.push(c);
+            }
+        }
+    }
+    res
 }
 
 impl<'s> SingleValueExprAst<'s> {
@@ -539,6 +630,33 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme
+            .parse(r#" http.host  eq   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host eq "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  !=   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host != "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  ne   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host ne "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme.parse(r#"http.host == "example\".com""#).unwrap();
         assert_eq!(
             ast.fmt(),
@@ -577,6 +695,76 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"tcp.port == 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         bitwise_and  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port bitwise_and 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         &  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port & 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         >  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port > 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         gt  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port gt 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         >=  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port >= 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         ge  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port ge 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         <  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port < 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         lt  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port lt 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         <=  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port <= 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         le  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port le 80"#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -690,6 +878,13 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host matches "\.[a-z]{3}""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#" http.host  ~   "\.[a-z]{3}"    "#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host ~ "\.[a-z]{3}""#.to_string()),
             "Unable to format single field expression"
         );
 

@@ -99,7 +99,7 @@ impl<'s> Expr<'s> for SimpleExpr<'s> {
             SimpleExpr::Comparison(op) => compiler.compile_comparison_expr(op),
             SimpleExpr::Parenthesized(op) => compiler.compile_logical_expr(*op),
             SimpleExpr::Unary {
-                op: UnaryOp::Not,
+                op: UnaryOp::Not(_),
                 arg,
             } => {
                 let arg = compiler.compile_simple_expr(*arg);
@@ -267,7 +267,7 @@ fn test() {
     }
 
     let not_expr = |expr| SimpleExpr::Unary {
-        op: UnaryOp::Not,
+        op: UnaryOp::Not(0),
         arg: Box::new(expr),
     };
 

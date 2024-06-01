@@ -241,12 +241,19 @@ macro_rules! lex_enum {
         lex_enum!(@decl $preamble $name $input {
             $($decl)*
             $(#[$meta])*
-            $item $(= $value)*,
+            $item(#[serde(skip)] u8) $(= $value)*,
         } {
             $($expr)*
-            $(if let Ok($input) = $crate::lex::expect($input, $s) {
-                return Ok(($name::$item, $input));
-            })+
+            let mut index = 0
+            $(
+                if let Ok($input) = $crate::lex::expect($input, $s) {
+                    return Ok(($name::$item(index), $input));
+                }
+                #[allow(unused_assignments)]
+                {
+                    index += 1;
+                }
+            )+
         } { $($rest)* });
     };
 
@@ -254,8 +261,8 @@ macro_rules! lex_enum {
     //
     // This is invoked when no more variants are left to process.
     // At this point declaration and lexer body are considered complete.
-    (@decl { $($preamble:tt)* } $name:ident $input:ident $decl:tt { $($expr:stmt)* } {}) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize)]
+    (@decl { $($preamble:tt)* } $name:ident $input:ident $decl:tt { $($expr:stmt)* } { }) => {
+        #[derive(Debug, Clone, Copy, Serialize)]
         $($preamble)*
         pub enum $name $decl
 
@@ -268,6 +275,20 @@ macro_rules! lex_enum {
                 ))
             }
         }
+
+        impl std::hash::Hash for $name {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                std::mem::discriminant(self).hash(state);
+            }
+        }
+
+        impl PartialEq for $name {
+            fn eq(&self, other: &Self) -> bool {
+                std::mem::discriminant(self) == std::mem::discriminant(other)
+            }
+        }
+
+        impl Eq for $name {}
     };
 
     // The public entry point to the macro.

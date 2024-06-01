@@ -979,7 +979,7 @@ mod tests {
                 function: SCHEME.get_function("any").unwrap(),
                 args: vec![FunctionCallArgExpr::SimpleExpr(SimpleExpr::Parenthesized(
                     Box::new(LogicalExpr::Combining {
-                        op: LogicalOp::Or,
+                        op: LogicalOp::Or(0),
                         items: vec![
                             LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
                                 lhs: IndexExpr {
@@ -1101,7 +1101,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("test".to_owned().into())
                 }
             })),
@@ -1202,7 +1202,7 @@ mod tests {
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
                 args: vec![FunctionCallArgExpr::SimpleExpr(SimpleExpr::Unary {
-                    op: UnaryOp::Not,
+                    op: UnaryOp::Not(0),
                     arg: Box::new(SimpleExpr::Parenthesized(Box::new(LogicalExpr::Simple(
                         SimpleExpr::Comparison(ComparisonExpr {
                             lhs: IndexExpr {
@@ -1260,7 +1260,7 @@ mod tests {
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
                 args: vec![FunctionCallArgExpr::SimpleExpr(SimpleExpr::Unary {
-                    op: UnaryOp::Not,
+                    op: UnaryOp::Not(0),
                     arg: Box::new(SimpleExpr::Parenthesized(Box::new(LogicalExpr::Simple(
                         SimpleExpr::Comparison(ComparisonExpr {
                             lhs: IndexExpr {

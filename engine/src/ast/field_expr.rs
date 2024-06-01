@@ -62,7 +62,14 @@ lex_enum!(
 impl OrderingOp {
     /// Determines whether the operator matches a given ordering.
     pub fn matches(self, ordering: Ordering) -> bool {
-        let mask = self as u8;
+        let mask = match self {
+            OrderingOp::Equal(_) => EQUAL,
+            OrderingOp::NotEqual(_) => LESS | GREATER,
+            OrderingOp::GreaterThanEqual(_) => GREATER | EQUAL,
+            OrderingOp::LessThanEqual(_) => LESS | EQUAL,
+            OrderingOp::GreaterThan(_) => GREATER,
+            OrderingOp::LessThan(_) => LESS,
+        };
         let flag = match ordering {
             Ordering::Less => LESS,
             Ordering::Greater => GREATER,
@@ -77,7 +84,7 @@ impl OrderingOp {
         match ordering {
             Some(ordering) => self.matches(ordering),
             // only `!=` should be true for incomparable types
-            None => self == OrderingOp::NotEqual,
+            None => self == OrderingOp::NotEqual(0),
         }
     }
 }
@@ -138,7 +145,7 @@ pub enum ComparisonOpExpr<'s> {
 
     /// "matches / ~" comparison
     #[serde(serialize_with = "serialize_matches")]
-    Matches(Regex),
+    Matches((Regex, u8)),
 
     /// "in {...}" comparison
     #[serde(serialize_with = "serialize_one_of")]
@@ -187,8 +194,8 @@ fn serialize_contains<S: Serializer>(rhs: &Bytes, ser: S) -> Result<S::Ok, S::Er
     serialize_op_rhs("Contains", rhs, ser)
 }
 
-fn serialize_matches<S: Serializer>(rhs: &Regex, ser: S) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("Matches", rhs, ser)
+fn serialize_matches<S: Serializer>(rhs: &(Regex, u8), ser: S) -> Result<S::Ok, S::Error> {
+    serialize_op_rhs("Matches", &rhs.0, ser)
 }
 
 fn serialize_one_of<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
@@ -312,10 +319,10 @@ impl<'s> ComparisonExpr<'s> {
             let input = skip_space(input);
 
             match (&lhs_type, op) {
-                (Type::Ip, ComparisonOp::In)
-                | (Type::Bytes, ComparisonOp::In)
-                | (Type::Int, ComparisonOp::In)
-                | (Type::Float, ComparisonOp::In) => {
+                (Type::Ip, ComparisonOp::In(_))
+                | (Type::Bytes, ComparisonOp::In(_))
+                | (Type::Int, ComparisonOp::In(_))
+                | (Type::Float, ComparisonOp::In(_)) => {
                     if expect(input, "$").is_ok() {
                         let (name, input) = ListName::lex(input)?;
                         let list = scheme.get_list(&lhs_type).ok_or((
@@ -328,12 +335,12 @@ impl<'s> ComparisonExpr<'s> {
                         (ComparisonOpExpr::OneOf(rhs), input)
                     }
                 }
-                (Type::Bytes, ComparisonOp::HasAny) | (Type::Bytes, ComparisonOp::HasAll) => {
+                (Type::Bytes, ComparisonOp::HasAny(_)) | (Type::Bytes, ComparisonOp::HasAll(_)) => {
                     let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
                     (
                         match op {
-                            ComparisonOp::HasAny => ComparisonOpExpr::HasAny(rhs),
-                            ComparisonOp::HasAll => ComparisonOpExpr::HasAll(rhs),
+                            ComparisonOp::HasAny(_) => ComparisonOpExpr::HasAny(rhs),
+                            ComparisonOp::HasAll(_) => ComparisonOpExpr::HasAll(rhs),
                             _ => unreachable!(),
                         },
                         input,
@@ -351,13 +358,13 @@ impl<'s> ComparisonExpr<'s> {
                     (ComparisonOpExpr::Int { op, rhs }, input)
                 }
                 (Type::Bytes, ComparisonOp::Bytes(op)) => match op {
-                    BytesOp::Contains => {
+                    BytesOp::Contains(_) => {
                         let (bytes, input) = Bytes::lex(input)?;
                         (ComparisonOpExpr::Contains(bytes), input)
                     }
-                    BytesOp::Matches => {
+                    BytesOp::Matches(variant) => {
                         let (regex, input) = Regex::lex(input)?;
-                        (ComparisonOpExpr::Matches(regex), input)
+                        (ComparisonOpExpr::Matches((regex, variant)), input)
                     }
                 },
                 _ => {
@@ -414,7 +421,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 }
             }
             ComparisonOpExpr::Ordering { op, rhs } => match op {
-                OrderingOp::NotEqual => lhs.compile_with(compiler, true, move |x, _ctx| {
+                OrderingOp::NotEqual(_) => lhs.compile_with(compiler, true, move |x, _ctx| {
                     op.matches_opt(x.strict_partial_cmp(&rhs))
                 }),
                 _ => lhs.compile_with(compiler, false, move |x, _ctx| {
@@ -422,7 +429,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 }),
             },
             ComparisonOpExpr::Int {
-                op: IntOp::BitwiseAnd,
+                op: IntOp::BitwiseAnd(_),
                 rhs,
             } => lhs.compile_with(compiler, false, move |x, _ctx| {
                 cast_value!(x, Int) & rhs != 0
@@ -458,7 +465,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 
                 search!(TwoWaySearcher::new(bytes))
             }
-            ComparisonOpExpr::Matches(regex) => {
+            ComparisonOpExpr::Matches((regex, _)) => {
                 lhs.compile_with(compiler, false, move |x, _ctx| {
                     regex.is_match(cast_value!(x, Bytes))
                 })
@@ -865,7 +872,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::LessThanEqual,
+                    op: OrderingOp::LessThanEqual(1),
                     rhs: RhsValue::Ip(IpAddr::from([
                         0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80
                     ]))
@@ -920,7 +927,7 @@ mod tests {
                         indexes: vec![],
                     },
                     op: ComparisonOpExpr::Ordering {
-                        op: OrderingOp::GreaterThanEqual,
+                        op: OrderingOp::GreaterThanEqual(1),
                         rhs: RhsValue::Bytes(
                             vec![0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80].into()
                         ),
@@ -948,7 +955,7 @@ mod tests {
                         indexes: vec![],
                     },
                     op: ComparisonOpExpr::Ordering {
-                        op: OrderingOp::LessThan,
+                        op: OrderingOp::LessThan(1),
                         rhs: RhsValue::Bytes(vec![0x12].into()),
                     },
                 }
@@ -972,7 +979,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1009,7 +1016,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Int {
-                    op: IntOp::BitwiseAnd,
+                    op: IntOp::BitwiseAnd(0),
                     rhs: 1,
                 }
             }
@@ -1363,7 +1370,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::LessThan,
+                    op: OrderingOp::LessThan(1),
                     rhs: RhsValue::Int(8000)
                 },
             }
@@ -1488,7 +1495,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1541,7 +1548,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1586,7 +1593,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(0)],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1622,7 +1629,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(0)],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::NotEqual,
+                    op: OrderingOp::NotEqual(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1658,7 +1665,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapKey("missing".into())],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1694,7 +1701,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapKey("missing".into())],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::NotEqual,
+                    op: OrderingOp::NotEqual(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1738,7 +1745,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1793,7 +1800,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
                 }
             }
@@ -1858,7 +1865,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(0)],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("three".to_owned().into())
                 }
             }
@@ -1939,7 +1946,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(2)],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("three-cf".to_owned().into())
                 }
             }
@@ -2066,7 +2073,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("three".to_owned().into())
                 }
             }
@@ -2109,7 +2116,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("three".to_owned().into())
                 }
             }
@@ -2177,7 +2184,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("three-cf".to_owned().into())
                 }
             }
@@ -2243,7 +2250,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::GreaterThan,
+                    op: OrderingOp::GreaterThan(1),
                     rhs: RhsValue::Int(3),
                 }
             }
@@ -2516,7 +2523,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach, FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
                 }
             }
@@ -2543,7 +2550,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(5), FieldIndex::MapEach],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
                 }
             }
@@ -2570,7 +2577,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapEach, FieldIndex::ArrayIndex(5)],
                 },
                 op: ComparisonOpExpr::Ordering {
-                    op: OrderingOp::Equal,
+                    op: OrderingOp::Equal(1),
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
                 }
             }

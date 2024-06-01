@@ -182,19 +182,19 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                             .collect::<Vec<_>>()
                             .into_boxed_slice();
                         match op {
-                            LogicalOp::And => {
+                            LogicalOp::And(_) => {
                                 CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
                                     first.execute(ctx, state)
                                         && items.iter().all(|item| item.execute(ctx, state))
                                 }))
                             }
-                            LogicalOp::Or => {
+                            LogicalOp::Or(_) => {
                                 CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
                                     first.execute(ctx, state)
                                         || items.iter().any(|item| item.execute(ctx, state))
                                 }))
                             }
-                            LogicalOp::Xor => {
+                            LogicalOp::Xor(_) => {
                                 CompiledExpr::One(CompiledOneExpr::new(move |ctx, state| {
                                     items.iter().fold(first.execute(ctx, state), |acc, item| {
                                         acc ^ item.execute(ctx, state)
@@ -212,7 +212,7 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                             .collect::<Vec<_>>()
                             .into_boxed_slice();
                         match op {
-                            LogicalOp::And => {
+                            LogicalOp::And(_) => {
                                 CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
                                     let items = items.iter().map(|item| item.execute(ctx, state));
                                     let mut output = first.execute(ctx, state).into_vec();
@@ -229,7 +229,7 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                                     output.into_boxed_slice()
                                 }))
                             }
-                            LogicalOp::Or => {
+                            LogicalOp::Or(_) => {
                                 CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
                                     let items = items.iter().map(|item| item.execute(ctx, state));
                                     let mut output = first.execute(ctx, state).into_vec();
@@ -246,7 +246,7 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
                                     output.into_boxed_slice()
                                 }))
                             }
-                            LogicalOp::Xor => {
+                            LogicalOp::Xor(_) => {
                                 CompiledExpr::Vec(CompiledVecExpr::new(move |ctx, state| {
                                     let items = items.iter().map(|item| item.execute(ctx, state));
                                     let mut output = first.execute(ctx, state).into_vec();
@@ -341,7 +341,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("t and t", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::And,
+                op: LogicalOp::And(0),
                 items: vec![t_expr(), t_expr()],
             }
         );
@@ -355,7 +355,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("t and f", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::And,
+                op: LogicalOp::And(0),
                 items: vec![t_expr(), f_expr()],
             }
         );
@@ -386,7 +386,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("t or f", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Or,
+                op: LogicalOp::Or(0),
                 items: vec![t_expr(), f_expr()],
             }
         );
@@ -417,7 +417,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("f or f", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Or,
+                op: LogicalOp::Or(0),
                 items: vec![f_expr(), f_expr()],
             }
         );
@@ -431,7 +431,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("t xor f", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Xor,
+                op: LogicalOp::Xor(0),
                 items: vec![t_expr(), f_expr()],
             }
         );
@@ -462,7 +462,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("f xor f", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Xor,
+                op: LogicalOp::Xor(0),
                 items: vec![f_expr(), f_expr()],
             }
         );
@@ -476,7 +476,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("f xor t", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Xor,
+                op: LogicalOp::Xor(0),
                 items: vec![f_expr(), t_expr()],
             }
         );
@@ -489,24 +489,29 @@ fn test() {
     assert_ok!(
         LogicalExpr::lex_with("t or t && t and t or t ^^ t and t || t", scheme),
         LogicalExpr::Combining {
-            op: LogicalOp::Or,
+            op: LogicalOp::Or(0),
             items: vec![
                 t_expr(),
                 LogicalExpr::Combining {
-                    op: LogicalOp::And,
+                    op: LogicalOp::And(0),
                     items: vec![t_expr(), t_expr(), t_expr()],
                 },
                 LogicalExpr::Combining {
-                    op: LogicalOp::Xor,
+                    op: LogicalOp::Or(0),
                     items: vec![
-                        t_expr(),
                         LogicalExpr::Combining {
-                            op: LogicalOp::And,
-                            items: vec![t_expr(), t_expr()],
+                            op: LogicalOp::Xor(0),
+                            items: vec![
+                                t_expr(),
+                                LogicalExpr::Combining {
+                                    op: LogicalOp::And(0),
+                                    items: vec![t_expr(), t_expr()],
+                                }
+                            ],
                         },
+                        t_expr(),
                     ],
                 },
-                t_expr(),
             ],
         }
     );
@@ -515,7 +520,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("at and af", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::And,
+                op: LogicalOp::And(0),
                 items: vec![at_expr(), af_expr()],
             }
         );
@@ -532,7 +537,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("at or af", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Or,
+                op: LogicalOp::Or(0),
                 items: vec![at_expr(), af_expr()],
             }
         );
@@ -549,7 +554,7 @@ fn test() {
         let expr = assert_ok!(
             LogicalExpr::lex_with("at xor af", scheme),
             LogicalExpr::Combining {
-                op: LogicalOp::Xor,
+                op: LogicalOp::Xor(0),
                 items: vec![at_expr(), af_expr()],
             }
         );

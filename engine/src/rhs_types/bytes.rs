@@ -80,7 +80,7 @@ impl From<Vec<u8>> for Bytes {
     fn from(src: Vec<u8>) -> Self {
         Bytes::Raw {
             value: src.into_boxed_slice(),
-            separator: ByteSeparator::Colon,
+            separator: ByteSeparator::Colon(0),
         }
     }
 }
@@ -188,9 +188,9 @@ lex_enum!(ByteSeparator {
 impl ByteSeparator {
     pub(crate) fn as_char(&self) -> char {
         match self {
-            ByteSeparator::Colon => ':',
-            ByteSeparator::Dash => '-',
-            ByteSeparator::Dot => '.',
+            ByteSeparator::Colon(_) => ':',
+            ByteSeparator::Dash(_) => '-',
+            ByteSeparator::Dot(_) => '.',
         }
     }
 }
@@ -316,7 +316,7 @@ impl<'i> Lex<'i> for Bytes {
             }
         } else {
             let mut res = Vec::new();
-            let mut separator = ByteSeparator::Colon;
+            let mut separator = ByteSeparator::Colon(0);
             loop {
                 let (b, rest) = hex_byte(input, false)?;
                 res.push(b);
