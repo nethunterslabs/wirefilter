@@ -134,7 +134,9 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             }
             ComparisonOpExpr::Matches(regex) => {
                 output.push_str(" matches ");
-                output.push_str(regex.as_str());
+                output.push('"');
+                output.push_str(&regex.as_str().replace('"', r#"\""#));
+                output.push('"');
             }
             ComparisonOpExpr::OneOf(values) => {
                 output.push_str(" in ");
@@ -653,6 +655,24 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  contains   "example"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host contains "example""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  matches   "\.[a-z]{3}"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host matches "\.[a-z]{3}""#.to_string()),
             "Unable to format single field expression"
         );
 
