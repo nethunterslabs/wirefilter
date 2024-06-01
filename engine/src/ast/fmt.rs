@@ -25,7 +25,7 @@ impl Fmt for FieldIndex {
             FieldIndex::ArrayIndex(i) => output.push_str(&i.to_string()),
             FieldIndex::MapKey(k) => {
                 output.push('"');
-                output.push_str(&utils::escape_hex_and_oct(k));
+                output.push_str(&utils::escape(k, true));
                 output.push('"');
             }
             FieldIndex::MapEach => output.push('*'),
@@ -135,7 +135,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             ComparisonOpExpr::Matches(regex) => {
                 output.push_str(" matches ");
                 output.push('"');
-                output.push_str(&regex.as_str().replace('"', r#"\""#));
+                output.push_str(&utils::escape(regex.as_str(), false));
                 output.push('"');
             }
             ComparisonOpExpr::OneOf(values) => {
@@ -260,7 +260,7 @@ impl Fmt for Bytes {
                 }
                 StrType::Escaped => {
                     output.push('"');
-                    output.push_str(&utils::escape_hex_and_oct(value));
+                    output.push_str(&utils::escape(value, true));
                     output.push('"');
                 }
             },
