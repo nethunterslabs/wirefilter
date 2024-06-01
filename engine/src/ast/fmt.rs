@@ -390,7 +390,7 @@ fn escape(string: &str, hex_and_oct: bool) -> String {
     let mut res = String::new();
     for c in string.chars() {
         match c {
-            '\n' => res.push(c),
+            '\n' => res.push_str(r"\n"),
             '\x00'..='\x1f' | '\x7f' if hex_and_oct => {
                 res.push('\\');
                 res.push('x');
