@@ -327,8 +327,13 @@ impl Fmt for IpRange {
 impl<'s> SingleValueExprAst<'s> {
     /// Format a [`SingleValueExprAst`] in an opinionated way.
     pub fn fmt(&self) -> Result<String, FormatError> {
+        self.fmt_with_indent(0)
+    }
+
+    /// Format a [`SingleValueExprAst`] in an opinionated way with an indent.
+    pub fn fmt_with_indent(&self, indent: usize) -> Result<String, FormatError> {
         let mut formatted = String::new();
-        self.op.fmt(0, &mut formatted);
+        self.op.fmt(indent, &mut formatted);
 
         let formatted_ast = self
             .scheme
@@ -345,8 +350,13 @@ impl<'s> SingleValueExprAst<'s> {
 impl<'s> FilterAst<'s> {
     /// Format a [`FilterAst`] in an opinionated way.
     pub fn fmt(&self) -> Result<String, FormatError> {
+        self.fmt_with_indent(0)
+    }
+
+    /// Format a [`FilterAst`] in an opinionated way with an indent.
+    pub fn fmt_with_indent(&self, indent: usize) -> Result<String, FormatError> {
         let mut formatted = String::new();
-        self.op.fmt(0, &mut formatted);
+        self.op.fmt(indent, &mut formatted);
 
         let formatted_ast = self
             .scheme
