@@ -1,8 +1,9 @@
 use crate::{
-    ast::{field_expr::IntOp, LhsFieldExpr},
+    ast::{field_expr::IntOp, simple_expr::UnaryOp, LhsFieldExpr},
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
     utils, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
-    FunctionCallExpr, IndexExpr, OrderingOp, RhsValue, RhsValues, SingleValueExprAst,
+    FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
+    SimpleExpr, SingleValueExprAst,
 };
 use std::fmt::{self, Display, Formatter};
 use thiserror::Error;
@@ -137,6 +138,55 @@ impl<'s> Display for ComparisonExpr<'s> {
             ComparisonOpExpr::InList { name, list: _ } => {
                 write!(f, "{} in ${}", self.lhs, name.as_str())
             }
+        }
+    }
+}
+
+impl<'s> LogicalExpr<'s> {
+    pub(crate) fn fmt(&self, indent: usize) -> String {
+        match self {
+            LogicalExpr::Simple(expr) => expr.fmt(indent),
+            LogicalExpr::Combining { op, items } => {
+                let mut output = String::new();
+
+                if let Some(item) = items.first() {
+                    let indent_str = " ".repeat(indent);
+
+                    output.push_str(&indent_str);
+                    output.push_str(&item.fmt(indent));
+
+                    for item in items.iter().skip(1) {
+                        output.push('\n');
+                        output.push_str(&indent_str);
+                        match op {
+                            LogicalOp::And => output.push_str("&& "),
+                            LogicalOp::Or => output.push_str("|| "),
+                            LogicalOp::Xor => output.push_str("^^ "),
+                        }
+                        output.push_str(&item.fmt(indent + 2));
+                    }
+                }
+                output
+            }
+        }
+    }
+}
+
+impl<'s> SimpleExpr<'s> {
+    pub(crate) fn fmt(&self, indent: usize) -> String {
+        match self {
+            SimpleExpr::Comparison(node) => node.to_string(),
+            SimpleExpr::Parenthesized(node) => {
+                if node.is_combining() {
+                    let indent_str = " ".repeat(indent);
+                    format!("{}(\n{}\n{})", indent_str, node.fmt(indent + 2), indent_str,)
+                } else {
+                    format!("( {} )", node.fmt(indent))
+                }
+            }
+            SimpleExpr::Unary { op, arg } => match op {
+                UnaryOp::Not => format!("!{}", arg.fmt(indent)),
+            },
         }
     }
 }

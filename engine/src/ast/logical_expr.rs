@@ -124,34 +124,6 @@ impl<'s> LogicalExpr<'s> {
         Ok((lhs, lookahead.1))
     }
 
-    pub(crate) fn fmt(&self, indent: usize) -> String {
-        match self {
-            LogicalExpr::Simple(expr) => expr.fmt(indent),
-            LogicalExpr::Combining { op, items } => {
-                let mut output = String::new();
-
-                if let Some(item) = items.first() {
-                    let indent_str = " ".repeat(indent);
-
-                    output.push_str(&indent_str);
-                    output.push_str(&item.fmt(indent));
-
-                    for item in items.iter().skip(1) {
-                        output.push('\n');
-                        output.push_str(&indent_str);
-                        match op {
-                            LogicalOp::And => output.push_str("&& "),
-                            LogicalOp::Or => output.push_str("|| "),
-                            LogicalOp::Xor => output.push_str("^^ "),
-                        }
-                        output.push_str(&item.fmt(indent + 2));
-                    }
-                }
-                output
-            }
-        }
-    }
-
     pub(crate) fn is_combining(&self) -> bool {
         matches!(self, LogicalExpr::Combining { .. })
     }
