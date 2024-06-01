@@ -539,6 +539,13 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme.parse(r#"http.host == "example\".com""#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example\".com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme
             .parse(r#"http.host == 65:78:61:6d:70:6c:65:2e:63:6f:6d"#)
             .unwrap();
