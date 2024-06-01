@@ -39,7 +39,7 @@ impl Fmt for RhsValue {
             RhsValue::Ip(ip) => output.push_str(&ip.to_string()),
             RhsValue::Bytes(bytes) => bytes.fmt(0, output),
             RhsValue::Int(num) => output.push_str(&num.to_string()),
-            RhsValue::Float(float_num) => output.push_str(&float_num.to_string()),
+            RhsValue::Float(float_num) => output.push_str(&format!("{:?}", float_num.into_inner())),
             RhsValue::Bool(_) => unreachable!(),
             RhsValue::Array(_) => unreachable!(),
             RhsValue::Map(_) => unreachable!(),
@@ -278,11 +278,11 @@ impl Fmt for FloatRange {
     fn fmt(&self, _indent: usize, output: &mut String) {
         let range = &self.0;
         if range.start() == range.end() {
-            output.push_str(&range.start().to_string());
+            output.push_str(&format!("{:?}", range.start().into_inner()));
         } else {
-            output.push_str(&range.start().to_string());
+            output.push_str(&format!("{:?}", range.start().into_inner()));
             output.push_str("..");
-            output.push_str(&range.end().to_string());
+            output.push_str(&format!("{:?}", range.end().into_inner()));
         }
     }
 }
@@ -429,6 +429,7 @@ mod tests {
             http.request.headers.names: Array(Bytes),
             http.request.headers.values: Array(Bytes),
             http.request.headers.is_empty: Array(Bool),
+            http.version: Float,
             ip.addr: Ip,
             ssl: Bool,
             tcp.port: Int,
@@ -550,6 +551,108 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host == 65-78-61-6D-70-6C-65-2E-63-6F-6D"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         ==  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port == 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   in    {    "example.com"     "example.org" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host in {"example.com" "example.org"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   has_any    {    ".com"     ".org" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host has_any {".com" ".org"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   has_any    {    "exam"     "ample" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host has_any {"exam" "ample"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"tcp.port   in    {    80     443 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port in {80 443}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"tcp.port   in    {    80..443           8000..8080 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port in {80..443 8000..8080}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"http.version         ==  1.1"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.version == 1.1"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.version   in    {    1.0     1.1 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.version in {1.0 1.1}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.version   in    {    1.0..1.1      2.0..3.0 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.version in {1.0..1.1 2.0..3.0}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"ip.addr         ==  127.0.0.1"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"ip.addr == 127.0.0.1"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"ip.addr   in    {    127.0.0.1     127.0.0.2 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"ip.addr in {127.0.0.1 127.0.0.2}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"ip.addr   in    {    127.0.0.1..127.0.0.2     127.0.0.0/24 }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#.to_string()),
             "Unable to format single field expression"
         );
 
