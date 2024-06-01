@@ -13,7 +13,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct ParseFloatError;
 
-impl fmt::Display for ParseFloatError {
+impl Display for ParseFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "invalid float")
     }
@@ -52,7 +52,7 @@ impl<'i> Lex<'i> for OrderedFloat<f64> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct FloatRange(RangeInclusive<OrderedFloat<f64>>);
+pub struct FloatRange(pub(crate) RangeInclusive<OrderedFloat<f64>>);
 
 impl From<OrderedFloat<f64>> for FloatRange {
     fn from(i: OrderedFloat<f64>) -> Self {
@@ -70,17 +70,6 @@ impl From<RangeInclusive<f64>> for FloatRange {
     fn from(r: RangeInclusive<f64>) -> Self {
         let (y, z) = r.into_inner();
         FloatRange(OrderedFloat(y)..=OrderedFloat(z))
-    }
-}
-
-impl Display for FloatRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let range = &self.0;
-        if range.start() == range.end() {
-            write!(f, "{}", range.start())
-        } else {
-            write!(f, "{}..{}", range.start(), range.end())
-        }
     }
 }
 

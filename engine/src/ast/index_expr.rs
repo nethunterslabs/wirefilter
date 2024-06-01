@@ -13,7 +13,6 @@ use crate::{
     types::{GetType, IntoIter, LhsValue, Type, TypeMismatchError},
 };
 use serde::{ser::SerializeSeq, Serialize, Serializer};
-use std::fmt::{self, Display};
 
 /// IndexExpr is an expr that destructures an index into an LhsFieldExpr.
 ///
@@ -25,16 +24,6 @@ use std::fmt::{self, Display};
 pub struct IndexExpr<'s> {
     pub(crate) lhs: LhsFieldExpr<'s>,
     pub(crate) indexes: Vec<FieldIndex>,
-}
-
-impl<'s> Display for IndexExpr<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.lhs)?;
-        for index in &self.indexes {
-            write!(f, "[{}]", index)?;
-        }
-        Ok(())
-    }
 }
 
 macro_rules! index_access_one {

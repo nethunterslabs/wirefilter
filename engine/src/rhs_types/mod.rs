@@ -11,7 +11,7 @@ mod regex;
 pub use self::{
     array::UninhabitedArray,
     bool::UninhabitedBool,
-    bytes::Bytes,
+    bytes::{Bytes, StrType},
     float::FloatRange,
     int::IntRange,
     ip::{ExplicitIpRange, IpRange},

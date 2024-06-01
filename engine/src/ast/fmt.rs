@@ -1,4 +1,10 @@
-use super::{FilterAst, SingleValueExprAst};
+use crate::{
+    ast::{field_expr::IntOp, LhsFieldExpr},
+    rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
+    utils, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
+    FunctionCallExpr, IndexExpr, OrderingOp, RhsValue, RhsValues, SingleValueExprAst,
+};
+use std::fmt::{self, Display, Formatter};
 use thiserror::Error;
 
 /// Error formatting, mismatched AST.
@@ -11,6 +17,211 @@ pub enum FormatError {
     /// Parse error.
     #[error("{0}")]
     ParseError(String),
+}
+
+impl Display for FieldIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldIndex::ArrayIndex(i) => write!(f, "{}", i),
+            FieldIndex::MapKey(k) => write!(f, "\"{}\"", utils::escape_hex_and_oct(k)),
+            FieldIndex::MapEach => write!(f, "*"),
+        }
+    }
+}
+
+impl Display for RhsValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RhsValue::Ip(ip) => write!(f, "{}", ip),
+            RhsValue::Bytes(bytes) => write!(f, "{}", bytes),
+            RhsValue::Int(num) => write!(f, "{}", num),
+            RhsValue::Float(float_num) => write!(f, "{}", float_num),
+            RhsValue::Bool(_) => unreachable!(),
+            RhsValue::Array(_) => unreachable!(),
+            RhsValue::Map(_) => unreachable!(),
+        }
+    }
+}
+
+impl Display for RhsValues {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RhsValues::Ip(ips) => {
+                write!(f, "{{")?;
+                for (i, ip) in ips.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", ip)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Bytes(bytes) => {
+                write!(f, "{{")?;
+                for (i, byte) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{:?}", byte)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Int(ints) => {
+                write!(f, "{{")?;
+                for (i, int) in ints.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", int)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Float(floats) => {
+                write!(f, "{{")?;
+                for (i, float) in floats.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", float)?;
+                }
+                write!(f, "}}")
+            }
+            RhsValues::Bool(_) => unreachable!(),
+            RhsValues::Array(_) => unreachable!(),
+            RhsValues::Map(_) => unreachable!(),
+        }
+    }
+}
+
+impl<'s> Display for LhsFieldExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LhsFieldExpr::Field(field) => write!(f, "{}", field.name()),
+            LhsFieldExpr::FunctionCallExpr(call) => write!(f, "{}", call),
+        }
+    }
+}
+
+impl<'s> Display for FunctionCallArgExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FunctionCallArgExpr::IndexExpr(index_expr) => write!(f, "{}", index_expr),
+            FunctionCallArgExpr::Literal(literal) => write!(f, "{}", literal),
+            FunctionCallArgExpr::SimpleExpr(simple_expr) => write!(f, "{}", simple_expr.fmt(0)),
+        }
+    }
+}
+
+impl<'s> Display for ComparisonExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.op {
+            ComparisonOpExpr::IsTrue => write!(f, "{}", self.lhs),
+            ComparisonOpExpr::Ordering { op, ref rhs } => match op {
+                OrderingOp::Equal => write!(f, "{} == {}", self.lhs, rhs),
+                OrderingOp::NotEqual => write!(f, "{} != {}", self.lhs, rhs),
+                OrderingOp::GreaterThanEqual => write!(f, "{} >= {}", self.lhs, rhs),
+                OrderingOp::LessThanEqual => write!(f, "{} <= {}", self.lhs, rhs),
+                OrderingOp::GreaterThan => write!(f, "{} > {}", self.lhs, rhs),
+                OrderingOp::LessThan => write!(f, "{} < {}", self.lhs, rhs),
+            },
+            ComparisonOpExpr::Int { op, rhs } => match op {
+                IntOp::BitwiseAnd => write!(f, "{} & {}", self.lhs, rhs),
+            },
+            ComparisonOpExpr::Contains(ref bytes) => write!(f, "{} contains {}", self.lhs, bytes),
+            ComparisonOpExpr::Matches(ref regex) => {
+                write!(f, "{} matches {}", self.lhs, regex.as_str())
+            }
+            ComparisonOpExpr::OneOf(ref values) => write!(f, "{} in {}", self.lhs, values),
+            ComparisonOpExpr::HasAny(ref values) => write!(f, "{} has_any {}", self.lhs, values),
+            ComparisonOpExpr::HasAll(ref values) => write!(f, "{} has_all {}", self.lhs, values),
+            ComparisonOpExpr::InList { name, list: _ } => {
+                write!(f, "{} in ${}", self.lhs, name.as_str())
+            }
+        }
+    }
+}
+
+impl<'s> Display for FunctionCallExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}(", self.function.name())?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl<'s> Display for IndexExpr<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.lhs)?;
+        for index in &self.indexes {
+            write!(f, "[{}]", index)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for Bytes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Bytes::Str { value, ty } => match ty {
+                StrType::Raw { hash_count } => {
+                    write!(f, "r{}", "#".repeat(*hash_count))?;
+                    write!(f, "\"{}\"", value)?;
+                    write!(f, "{}", "#".repeat(*hash_count))
+                }
+                StrType::Escaped => {
+                    write!(f, "\"{}\"", utils::escape_hex_and_oct(value))
+                }
+            },
+            Bytes::Raw { value, separator } => {
+                for (i, b) in value.iter().cloned().enumerate() {
+                    if i != 0 {
+                        write!(f, "{}", separator.as_char())?;
+                    }
+                    write!(f, "{:02X}", b)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Display for FloatRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let range = &self.0;
+        if range.start() == range.end() {
+            write!(f, "{}", range.start())
+        } else {
+            write!(f, "{}..{}", range.start(), range.end())
+        }
+    }
+}
+
+impl Display for IntRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let range = &self.0;
+        if range.start() == range.end() {
+            write!(f, "{}", range.start())
+        } else {
+            write!(f, "{}..{}", range.start(), range.end())
+        }
+    }
+}
+
+impl Display for IpRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IpRange::Explicit(range) => match range {
+                ExplicitIpRange::V4(range) => write!(f, "{}..{}", range.start(), range.end()),
+                ExplicitIpRange::V6(range) => write!(f, "{}..{}", range.start(), range.end()),
+            },
+            IpRange::Cidr(cidr) => write!(f, "{}", cidr),
+        }
+    }
 }
 
 impl<'s> SingleValueExprAst<'s> {

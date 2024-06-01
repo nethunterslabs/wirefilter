@@ -3,7 +3,6 @@ use crate::{
     functions::FunctionDefinition,
     lex::{complete, expect, span, take_while, Lex, LexErrorKind, LexResult, LexWith},
     types::{GetType, RhsValue, Type},
-    utils,
 };
 use fnv::FnvBuildHasher;
 use indexmap::map::{Entry, IndexMap};
@@ -48,16 +47,6 @@ pub enum FieldIndex {
 
     /// Map each element by applying a function or a comparison
     MapEach,
-}
-
-impl Display for FieldIndex {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            FieldIndex::ArrayIndex(i) => write!(f, "{}", i),
-            FieldIndex::MapKey(k) => write!(f, "\"{}\"", utils::escape_hex_and_oct(k)),
-            FieldIndex::MapEach => write!(f, "*"),
-        }
-    }
 }
 
 impl<'i> Lex<'i> for FieldIndex {

@@ -1,11 +1,10 @@
 use crate::{
     lex::{expect, take, Lex, LexErrorKind, LexResult},
     strict_partial_ord::StrictPartialOrd,
-    utils,
 };
 use serde::Serialize;
 use std::{
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
     ops::Deref,
     str,
@@ -140,32 +139,6 @@ impl Debug for Bytes {
     }
 }
 
-impl Display for Bytes {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Bytes::Str { value, ty } => match ty {
-                StrType::Raw { hash_count } => {
-                    write!(f, "r{}", "#".repeat(*hash_count))?;
-                    write!(f, "\"{}\"", value)?;
-                    write!(f, "{}", "#".repeat(*hash_count))
-                }
-                StrType::Escaped => {
-                    write!(f, "\"{}\"", utils::escape_hex_and_oct(value))
-                }
-            },
-            Bytes::Raw { value, separator } => {
-                for (i, b) in value.iter().cloned().enumerate() {
-                    if i != 0 {
-                        write!(f, "{}", separator.as_char())?;
-                    }
-                    write!(f, "{:02X}", b)?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 impl Deref for Bytes {
     type Target = [u8];
 
@@ -213,7 +186,7 @@ lex_enum!(ByteSeparator {
 });
 
 impl ByteSeparator {
-    fn as_char(&self) -> char {
+    pub(crate) fn as_char(&self) -> char {
         match self {
             ByteSeparator::Colon => ':',
             ByteSeparator::Dash => '-',
