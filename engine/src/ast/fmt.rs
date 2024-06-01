@@ -161,13 +161,10 @@ impl<'s> Fmt for LogicalExpr<'s> {
         match self {
             LogicalExpr::Simple(expr) => expr.fmt(indent, output),
             LogicalExpr::Combining { op, items } => {
-                if let Some(item) = items.first() {
-                    let indent_str = " ".repeat(indent);
+                let indent_str = " ".repeat(indent);
 
-                    output.push_str(&indent_str);
-                    item.fmt(indent, output);
-
-                    for item in items.iter().skip(1) {
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
                         output.push('\n');
                         output.push_str(&indent_str);
                         match op {
@@ -175,8 +172,8 @@ impl<'s> Fmt for LogicalExpr<'s> {
                             LogicalOp::Or => output.push_str("|| "),
                             LogicalOp::Xor => output.push_str("^^ "),
                         }
-                        item.fmt(indent + 2, output);
                     }
+                    item.fmt(indent, output);
                 }
             }
         }
@@ -189,12 +186,11 @@ impl<'s> Fmt for SimpleExpr<'s> {
             SimpleExpr::Comparison(node) => node.fmt(indent, output),
             SimpleExpr::Parenthesized(node) => {
                 if node.is_combining() {
-                    let indent_str = " ".repeat(indent);
-                    output.push_str(&indent_str);
                     output.push_str("(\n");
+                    output.push_str(&" ".repeat(indent + 2));
                     node.fmt(indent + 2, output);
                     output.push('\n');
-                    output.push_str(&indent_str);
+                    output.push_str(&" ".repeat(indent));
                     output.push(')');
                 } else {
                     output.push_str("( ");
@@ -630,6 +626,22 @@ mod tests {
 && len(http.request.headers["content-type"][0]) == 16"#
                 .to_string()),
             "Unable to format logical expression with function returning int"
+        );
+
+        let ast = scheme
+            .parse(r#"(echo(http.request.headers["content-type"][0]) == "application/json" && (ssl || http.host == "example.com"))"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"(
+  echo(http.request.headers["content-type"][0]) == "application/json"
+  && (
+    ssl
+    || http.host == "example.com"
+  )
+)"#
+            .to_string()),
+            "Unable to format logical expression in parentheses with function returning bytes"
         );
 
         let ast = scheme
