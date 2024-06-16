@@ -14,7 +14,7 @@ use crate::{
 use serde::Serialize;
 
 lex_enum!(UnaryOp {
-    "not" | "!" => Not,
+    "not" | "NOT" | "!" => Not,
 });
 
 /// SimpleExpr is a "generic" expression. It can be either a comparison

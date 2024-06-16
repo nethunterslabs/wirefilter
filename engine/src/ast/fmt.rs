@@ -112,90 +112,112 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             ComparisonOpExpr::IsTrue => {}
             ComparisonOpExpr::Ordering { op, rhs } => {
                 match op {
-                    OrderingOp::Equal(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" eq ");
-                        } else {
-                            output.push_str(" == ");
-                        }
-                    }
-                    OrderingOp::NotEqual(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" ne ");
-                        } else {
-                            output.push_str(" != ");
-                        }
-                    }
-                    OrderingOp::GreaterThanEqual(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" ge ");
-                        } else {
-                            output.push_str(" >= ");
-                        }
-                    }
-                    OrderingOp::LessThanEqual(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" le ");
-                        } else {
-                            output.push_str(" <= ");
-                        }
-                    }
-                    OrderingOp::GreaterThan(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" gt ");
-                        } else {
-                            output.push_str(" > ");
-                        }
-                    }
-                    OrderingOp::LessThan(variant) => {
-                        if *variant == 0 {
-                            output.push_str(" lt ");
-                        } else {
-                            output.push_str(" < ");
-                        }
-                    }
+                    OrderingOp::Equal(variant) => match *variant {
+                        0 => output.push_str(" eq "),
+                        1 => output.push_str(" EQ "),
+                        _ => output.push_str(" == "),
+                    },
+                    OrderingOp::NotEqual(variant) => match *variant {
+                        0 => output.push_str(" ne "),
+                        1 => output.push_str(" NE "),
+                        _ => output.push_str(" != "),
+                    },
+                    OrderingOp::GreaterThanEqual(variant) => match *variant {
+                        0 => output.push_str(" ge "),
+                        1 => output.push_str(" GE "),
+                        _ => output.push_str(" >= "),
+                    },
+                    OrderingOp::LessThanEqual(variant) => match *variant {
+                        0 => output.push_str(" le "),
+                        1 => output.push_str(" LE "),
+                        _ => output.push_str(" <= "),
+                    },
+                    OrderingOp::GreaterThan(variant) => match *variant {
+                        0 => output.push_str(" gt "),
+                        1 => output.push_str(" GT "),
+                        _ => output.push_str(" > "),
+                    },
+                    OrderingOp::LessThan(variant) => match *variant {
+                        0 => output.push_str(" lt "),
+                        1 => output.push_str(" LT "),
+                        _ => output.push_str(" < "),
+                    },
                 }
 
                 rhs.fmt(0, output);
             }
             ComparisonOpExpr::Int { op, rhs } => match op {
                 IntOp::BitwiseAnd(variant) => {
-                    if *variant == 0 {
-                        output.push_str(" & ");
-                    } else {
-                        output.push_str(" bitwise_and ");
+                    match *variant {
+                        0 => output.push_str(" & "),
+                        1 => output.push_str(" bitwise_and "),
+                        _ => output.push_str(" BITWISE_AND "),
                     }
                     output.push_str(&rhs.to_string());
                 }
             },
-            ComparisonOpExpr::Contains(bytes) => {
-                output.push_str(" contains ");
+            ComparisonOpExpr::Contains {
+                rhs: bytes,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" contains "),
+                    _ => output.push_str(" CONTAINS "),
+                }
                 bytes.fmt(0, output);
             }
-            ComparisonOpExpr::Matches((regex, variant)) => {
-                if *variant == 0 {
-                    output.push_str(" ~ ");
-                } else {
-                    output.push_str(" matches ");
+            ComparisonOpExpr::Matches {
+                rhs: regex,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" ~ "),
+                    1 => output.push_str(" matches "),
+                    _ => output.push_str(" MATCHES "),
                 }
                 output.push('"');
                 output.push_str(&escape(regex.as_str(), false));
                 output.push('"');
             }
-            ComparisonOpExpr::OneOf(values) => {
-                output.push_str(" in ");
+            ComparisonOpExpr::OneOf {
+                rhs: values,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" in "),
+                    _ => output.push_str(" IN "),
+                }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::HasAny(values) => {
-                output.push_str(" has_any ");
+            ComparisonOpExpr::HasAny {
+                rhs: values,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" has_any "),
+                    _ => output.push_str(" HAS_ANY "),
+                }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::HasAll(values) => {
-                output.push_str(" has_all ");
+            ComparisonOpExpr::HasAll {
+                rhs: values,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" has_all "),
+                    _ => output.push_str(" HAS_ALL "),
+                }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::InList { name, list: _ } => {
-                output.push_str(" in $");
+            ComparisonOpExpr::InList {
+                name,
+                list: _,
+                variant,
+            } => {
+                match *variant {
+                    0 => output.push_str(" in $"),
+                    _ => output.push_str(" IN $"),
+                }
                 output.push_str(name.as_str());
             }
         }
@@ -214,27 +236,21 @@ impl<'s> Fmt for LogicalExpr<'s> {
                         output.push('\n');
                         output.push_str(&indent_str);
                         match op {
-                            LogicalOp::And(variant) => {
-                                if *variant == 0 {
-                                    output.push_str("and ")
-                                } else {
-                                    output.push_str("&& ")
-                                }
-                            }
-                            LogicalOp::Or(variant) => {
-                                if *variant == 0 {
-                                    output.push_str("or ")
-                                } else {
-                                    output.push_str("|| ")
-                                }
-                            }
-                            LogicalOp::Xor(variant) => {
-                                if *variant == 0 {
-                                    output.push_str("xor ")
-                                } else {
-                                    output.push_str("^^ ")
-                                }
-                            }
+                            LogicalOp::And(variant) => match *variant {
+                                0 => output.push_str("and "),
+                                1 => output.push_str("AND "),
+                                _ => output.push_str("&& "),
+                            },
+                            LogicalOp::Or(variant) => match *variant {
+                                0 => output.push_str("or "),
+                                1 => output.push_str("OR "),
+                                _ => output.push_str("|| "),
+                            },
+                            LogicalOp::Xor(variant) => match *variant {
+                                0 => output.push_str("xor "),
+                                1 => output.push_str("XOR "),
+                                _ => output.push_str("^^ "),
+                            },
                         }
                     }
                     item.fmt(indent, output);
@@ -263,8 +279,12 @@ impl<'s> Fmt for SimpleExpr<'s> {
                 }
             }
             SimpleExpr::Unary { op, arg } => match op {
-                UnaryOp::Not(_) => {
-                    output.push('!');
+                UnaryOp::Not(variant) => {
+                    match *variant {
+                        0 => output.push_str("not "),
+                        1 => output.push_str("NOT "),
+                        _ => output.push('!'),
+                    }
                     arg.fmt(indent, output);
                 }
             },
@@ -456,6 +476,9 @@ impl<'s> FilterAst<'s> {
         if self == &formatted_ast {
             Ok(formatted.trim().to_owned())
         } else {
+            dbg!(self);
+            dbg!(&formatted_ast);
+            dbg!(formatted);
             Err(FormatError::MismatchedAst)
         }
     }
@@ -631,11 +654,47 @@ mod tests {
         );
 
         let ast = scheme
+            .parse(r#"!http.host  ==   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"!http.host == "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"not http.host  ==   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"not http.host == "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"NOT http.host  ==   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"NOT http.host == "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
             .parse(r#" http.host  eq   "example.com"    "#)
             .unwrap();
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host eq "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  EQ   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host EQ "example.com""#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -654,6 +713,15 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host ne "example.com""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  NE   "example.com"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host NE "example.com""#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -705,6 +773,13 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme.parse(r#"tcp.port         BITWISE_AND  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port BITWISE_AND 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme.parse(r#"tcp.port         &  80"#).unwrap();
         assert_eq!(
             ast.fmt(),
@@ -726,6 +801,13 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme.parse(r#"tcp.port         GT  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port GT 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme.parse(r#"tcp.port         >=  80"#).unwrap();
         assert_eq!(
             ast.fmt(),
@@ -737,6 +819,13 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"tcp.port ge 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#"tcp.port         GE  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port GE 80"#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -754,6 +843,13 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme.parse(r#"tcp.port         LT  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port LT 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme.parse(r#"tcp.port         <=  80"#).unwrap();
         assert_eq!(
             ast.fmt(),
@@ -768,12 +864,28 @@ mod tests {
             "Unable to format single field expression"
         );
 
+        let ast = scheme.parse(r#"tcp.port         LE  80"#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"tcp.port LE 80"#.to_string()),
+            "Unable to format single field expression"
+        );
+
         let ast = scheme
             .parse(r#"http.host   in    {    "example.com"     "example.org" }"#)
             .unwrap();
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host in {"example.com" "example.org"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   IN    {    "example.com"     "example.org" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host IN {"example.com" "example.org"}"#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -787,11 +899,29 @@ mod tests {
         );
 
         let ast = scheme
-            .parse(r#"http.host   has_any    {    "exam"     "ample" }"#)
+            .parse(r#"http.host   HAS_ANY    {    ".com"     ".org" }"#)
             .unwrap();
         assert_eq!(
             ast.fmt(),
-            Ok(r#"http.host has_any {"exam" "ample"}"#.to_string()),
+            Ok(r#"http.host HAS_ANY {".com" ".org"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   has_all    {    "exam"     "ample" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host has_all {"exam" "ample"}"#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host   HAS_ALL    {    "exam"     "ample" }"#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host HAS_ALL {"exam" "ample"}"#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -873,11 +1003,29 @@ mod tests {
         );
 
         let ast = scheme
+            .parse(r#" http.host  CONTAINS   "example"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host CONTAINS "example""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
             .parse(r#" http.host  matches   "\.[a-z]{3}"    "#)
             .unwrap();
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host matches "\.[a-z]{3}""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  MATCHES   "\.[a-z]{3}"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host MATCHES "\.[a-z]{3}""#.to_string()),
             "Unable to format single field expression"
         );
 
@@ -895,6 +1043,94 @@ mod tests {
             ast.fmt(),
             Ok(r#"http.host == "example.com"
 && http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" and http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+and http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" AND http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+AND http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" || http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+|| http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" or http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+or http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" OR http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+OR http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" ^^ http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+^^ http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" xor http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+xor http.request.headers["content-type"][0] == "application/json""#
+                .to_string()),
+            "Unable to format logical expression"
+        );
+
+        let ast = scheme
+            .parse(r#"http.host == "example.com" XOR http.request.headers["content-type"][0] == "application/json""#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host == "example.com"
+XOR http.request.headers["content-type"][0] == "application/json""#
                 .to_string()),
             "Unable to format logical expression"
         );

@@ -44,18 +44,18 @@ lazy_static! {
 lex_enum!(
     /// OrderingOp is an operator for an ordering [`ComparisonOpExpr`].
     #[repr(u8)] OrderingOp {
-        /// `eq` / `==` operator
-        "eq" | "==" => Equal = EQUAL,
-        /// `ne` / `!=` operator
-        "ne" | "!=" => NotEqual = LESS | GREATER,
-        /// `ge` / `>=` operator
-        "ge" | ">=" => GreaterThanEqual = GREATER | EQUAL,
-        /// `le` / `<=` operator
-        "le" | "<=" => LessThanEqual = LESS | EQUAL,
-        /// `gt` / `>` operator
-        "gt" | ">" => GreaterThan = GREATER,
-        /// `lt` / `<` operator
-        "lt" | "<" => LessThan = LESS,
+        /// `eq` / `EQ` / `==` operator
+        "eq" | "EQ" | "==" => Equal = EQUAL,
+        /// `ne`/ `NE` / `!=` operator
+        "ne" | "NE" | "!=" => NotEqual = LESS | GREATER,
+        /// `ge` / `GE` / `>=` operator
+        "ge" | "GE" | ">=" => GreaterThanEqual = GREATER | EQUAL,
+        /// `le` / `LE` / `<=` operator
+        "le" | "LE" | "<=" => LessThanEqual = LESS | EQUAL,
+        /// `gt` / `GT` / `>` operator
+        "gt" | "GT" | ">" => GreaterThan = GREATER,
+        /// `lt` / `LT` / `<` operator
+        "lt" | "LT" | "<" => LessThan = LESS,
     }
 );
 
@@ -90,18 +90,18 @@ impl OrderingOp {
 }
 
 lex_enum!(IntOp {
-    "&" | "bitwise_and" => BitwiseAnd,
+    "&" | "bitwise_and" | "BITWISE_AND" => BitwiseAnd,
 });
 
 lex_enum!(BytesOp {
-    "contains" => Contains,
-    "~" | "matches" => Matches,
+    "contains" | "CONTAINS" => Contains,
+    "~" | "matches" | "MATCHES" => Matches,
 });
 
 lex_enum!(ComparisonOp {
-    "in" => In,
-    "has_any" => HasAny,
-    "has_all" => HasAll,
+    "in" | "IN" => In,
+    "has_any" | "HAS_ANY" => HasAny,
+    "has_all" | "HAS_ALL" => HasAll,
     OrderingOp => Ordering,
     IntOp => Int,
     BytesOp => Bytes,
@@ -119,12 +119,12 @@ pub enum ComparisonOpExpr<'s> {
     /// Ordering comparison
     Ordering {
         /// Ordering comparison operator:
-        /// * "eq" | "=="
-        /// * "ne" | "!="
-        /// * "ge" | ">="
-        /// * "le" | "<="
-        /// * "gt" | ">"
-        /// * "lt" | "<"
+        /// * "eq" | "EQ" | "=="
+        /// * "ne" | "NE" | "!="
+        /// * "ge" | "GE" | ">="
+        /// * "le" | "LE" | "<="
+        /// * "gt" | "GT" | ">"
+        /// * "lt" | "LT" | "<"
         op: OrderingOp,
         /// Right-hand side literal
         rhs: RhsValue,
@@ -133,39 +133,66 @@ pub enum ComparisonOpExpr<'s> {
     /// Integer comparison
     Int {
         /// Integer comparison operator:
-        /// * "&" | "bitwise_and"
+        /// * "&" | "bitwise_and" | "BITWISE_AND"
         op: IntOp,
         /// Right-hand side integer value
         rhs: i32,
     },
 
-    /// "contains" comparison
+    /// "contains" / "CONTAINS" comparison
     #[serde(serialize_with = "serialize_contains")]
-    Contains(Bytes),
+    Contains {
+        /// Right-hand side bytes value
+        rhs: Bytes,
+        /// Variant, used for formatting
+        variant: u8,
+    },
 
-    /// "matches / ~" comparison
+    /// "matches / MATCHES / ~" comparison
     #[serde(serialize_with = "serialize_matches")]
-    Matches((Regex, u8)),
+    Matches {
+        /// Right-hand side regex value
+        rhs: Regex,
+        /// Variant, used for formatting
+        variant: u8,
+    },
 
-    /// "in {...}" comparison
+    /// "in {...}" / "IN {...}" comparison
     #[serde(serialize_with = "serialize_one_of")]
-    OneOf(RhsValues),
+    OneOf {
+        /// Right-hand side values
+        rhs: RhsValues,
+        /// Variant, used for formatting
+        variant: u8,
+    },
 
-    /// "has_any {...}" comparison
+    /// "has_any {...}" / "HAS_ANY {...}" comparison
     #[serde(serialize_with = "serialize_has_any")]
-    HasAny(RhsValues),
+    HasAny {
+        /// Right-hand side values
+        rhs: RhsValues,
+        /// Variant, used for formatting
+        variant: u8,
+    },
 
-    /// "has_all {...}" comparison
+    /// "has_all {...}" / "HAS_ALL {...}" comparison
     #[serde(serialize_with = "serialize_has_all")]
-    HasAll(RhsValues),
+    HasAll {
+        /// Right-hand side values
+        rhs: RhsValues,
+        /// Variant, used for formatting
+        variant: u8,
+    },
 
-    /// "in $..." comparison
+    /// "in $..." | "IN $..." comparison
     #[serde(serialize_with = "serialize_list")]
     InList {
         /// `List` from the `Scheme`
         list: List<'s>,
         /// List name
         name: ListName,
+        /// Variant, used for formatting
+        variant: u8,
     },
 }
 
@@ -190,27 +217,32 @@ fn serialize_is_true<S: Serializer>(ser: S) -> Result<S::Ok, S::Error> {
     out.end()
 }
 
-fn serialize_contains<S: Serializer>(rhs: &Bytes, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_contains<S: Serializer>(rhs: &Bytes, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("Contains", rhs, ser)
 }
 
-fn serialize_matches<S: Serializer>(rhs: &(Regex, u8), ser: S) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("Matches", &rhs.0, ser)
+fn serialize_matches<S: Serializer>(rhs: &Regex, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
+    serialize_op_rhs("Matches", &rhs, ser)
 }
 
-fn serialize_one_of<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_one_of<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("OneOf", rhs, ser)
 }
 
-fn serialize_has_any<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_has_any<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("HasAny", rhs, ser)
 }
 
-fn serialize_has_all<S: Serializer>(rhs: &RhsValues, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_has_all<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("HasAll", rhs, ser)
 }
 
-fn serialize_list<S: Serializer>(_: &List<'_>, name: &ListName, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_list<S: Serializer>(
+    _: &List<'_>,
+    name: &ListName,
+    _: &u8,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("InList", name, ser)
 }
 
@@ -319,28 +351,39 @@ impl<'s> ComparisonExpr<'s> {
             let input = skip_space(input);
 
             match (&lhs_type, op) {
-                (Type::Ip, ComparisonOp::In(_))
-                | (Type::Bytes, ComparisonOp::In(_))
-                | (Type::Int, ComparisonOp::In(_))
-                | (Type::Float, ComparisonOp::In(_)) => {
+                (Type::Ip, ComparisonOp::In(variant))
+                | (Type::Bytes, ComparisonOp::In(variant))
+                | (Type::Int, ComparisonOp::In(variant))
+                | (Type::Float, ComparisonOp::In(variant)) => {
                     if expect(input, "$").is_ok() {
                         let (name, input) = ListName::lex(input)?;
                         let list = scheme.get_list(&lhs_type).ok_or((
                             LexErrorKind::UnsupportedOp { lhs_type },
                             span(initial_input, input),
                         ))?;
-                        (ComparisonOpExpr::InList { name, list }, input)
+                        (
+                            ComparisonOpExpr::InList {
+                                name,
+                                list,
+                                variant,
+                            },
+                            input,
+                        )
                     } else {
                         let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
-                        (ComparisonOpExpr::OneOf(rhs), input)
+                        (ComparisonOpExpr::OneOf { rhs, variant }, input)
                     }
                 }
                 (Type::Bytes, ComparisonOp::HasAny(_)) | (Type::Bytes, ComparisonOp::HasAll(_)) => {
                     let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
                     (
                         match op {
-                            ComparisonOp::HasAny(_) => ComparisonOpExpr::HasAny(rhs),
-                            ComparisonOp::HasAll(_) => ComparisonOpExpr::HasAll(rhs),
+                            ComparisonOp::HasAny(variant) => {
+                                ComparisonOpExpr::HasAny { rhs, variant }
+                            }
+                            ComparisonOp::HasAll(variant) => {
+                                ComparisonOpExpr::HasAll { rhs, variant }
+                            }
                             _ => unreachable!(),
                         },
                         input,
@@ -358,13 +401,25 @@ impl<'s> ComparisonExpr<'s> {
                     (ComparisonOpExpr::Int { op, rhs }, input)
                 }
                 (Type::Bytes, ComparisonOp::Bytes(op)) => match op {
-                    BytesOp::Contains(_) => {
+                    BytesOp::Contains(variant) => {
                         let (bytes, input) = Bytes::lex(input)?;
-                        (ComparisonOpExpr::Contains(bytes), input)
+                        (
+                            ComparisonOpExpr::Contains {
+                                rhs: bytes,
+                                variant,
+                            },
+                            input,
+                        )
                     }
                     BytesOp::Matches(variant) => {
                         let (regex, input) = Regex::lex(input)?;
-                        (ComparisonOpExpr::Matches((regex, variant)), input)
+                        (
+                            ComparisonOpExpr::Matches {
+                                rhs: regex,
+                                variant,
+                            },
+                            input,
+                        )
                     }
                 },
                 _ => {
@@ -434,7 +489,10 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             } => lhs.compile_with(compiler, false, move |x, _ctx| {
                 cast_value!(x, Int) & rhs != 0
             }),
-            ComparisonOpExpr::Contains(bytes) => {
+            ComparisonOpExpr::Contains {
+                rhs: bytes,
+                variant: _,
+            } => {
                 macro_rules! search {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
@@ -465,12 +523,16 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 
                 search!(TwoWaySearcher::new(bytes))
             }
-            ComparisonOpExpr::Matches((regex, _)) => {
-                lhs.compile_with(compiler, false, move |x, _ctx| {
-                    regex.is_match(cast_value!(x, Bytes))
-                })
-            }
-            ComparisonOpExpr::OneOf(values) => match values {
+            ComparisonOpExpr::Matches {
+                rhs: regex,
+                variant: _,
+            } => lhs.compile_with(compiler, false, move |x, _ctx| {
+                regex.is_match(cast_value!(x, Bytes))
+            }),
+            ComparisonOpExpr::OneOf {
+                rhs: values,
+                variant: _,
+            } => match values {
                 RhsValues::Ip(ranges) => {
                     let mut v4 = Vec::new();
                     let mut v6 = Vec::new();
@@ -514,7 +576,10 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
             },
-            ComparisonOpExpr::HasAny(values) => match values {
+            ComparisonOpExpr::HasAny {
+                rhs: values,
+                variant: _,
+            } => match values {
                 RhsValues::Bytes(values) => {
                     if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
                         lhs.compile_with(compiler, false, move |x, _ctx| {
@@ -531,7 +596,10 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
             },
-            ComparisonOpExpr::HasAll(values) => match values {
+            ComparisonOpExpr::HasAll {
+                rhs: values,
+                variant: _,
+            } => match values {
                 RhsValues::Bytes(values) => {
                     if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
                         lhs.compile_with(compiler, false, move |x, _ctx| {
@@ -557,12 +625,14 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
             },
-            ComparisonOpExpr::InList { name, list } => {
-                lhs.compile_with(compiler, false, move |val, ctx| {
-                    ctx.get_list_matcher_unchecked(list)
-                        .match_value(name.as_str(), val)
-                })
-            }
+            ComparisonOpExpr::InList {
+                name,
+                list,
+                variant: _,
+            } => lhs.compile_with(compiler, false, move |val, ctx| {
+                ctx.get_list_matcher_unchecked(list)
+                    .match_value(name.as_str(), val)
+            }),
         }
     }
 }
@@ -1050,11 +1120,10 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::OneOf(RhsValues::Int(vec![
-                    80.into(),
-                    443.into(),
-                    (2082..=2083).into()
-                ])),
+                op: ComparisonOpExpr::OneOf {
+                    rhs: RhsValues::Int(vec![80.into(), 443.into(), (2082..=2083).into()]),
+                    variant: 0,
+                },
             }
         );
 
@@ -1105,12 +1174,15 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.host")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::OneOf(RhsValues::Bytes(
-                    ["example.org", "example.com",]
-                        .iter()
-                        .map(|s| (*s).to_string().into())
-                        .collect()
-                )),
+                op: ComparisonOpExpr::OneOf {
+                    rhs: RhsValues::Bytes(
+                        ["example.org", "example.com",]
+                            .iter()
+                            .map(|s| (*s).to_string().into())
+                            .collect()
+                    ),
+                    variant: 0,
+                },
             }
         );
 
@@ -1151,12 +1223,15 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.host")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::HasAll(RhsValues::Bytes(
-                    ["exam", "ple",]
-                        .iter()
-                        .map(|s| (*s).to_string().into())
-                        .collect()
-                )),
+                op: ComparisonOpExpr::HasAll {
+                    rhs: RhsValues::Bytes(
+                        ["exam", "ple",]
+                            .iter()
+                            .map(|s| (*s).to_string().into())
+                            .collect()
+                    ),
+                    variant: 0,
+                },
             }
         );
 
@@ -1196,12 +1271,15 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.host")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::HasAny(RhsValues::Bytes(
-                    ["com", "org",]
-                        .iter()
-                        .map(|s| (*s).to_string().into())
-                        .collect()
-                )),
+                op: ComparisonOpExpr::HasAny {
+                    rhs: RhsValues::Bytes(
+                        ["com", "org",]
+                            .iter()
+                            .map(|s| (*s).to_string().into())
+                            .collect()
+                    ),
+                    variant: 0,
+                },
             }
         );
 
@@ -1245,13 +1323,16 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("ip.addr")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::OneOf(RhsValues::Ip(vec![
-                    IpRange::Cidr(IpCidr::new([127, 0, 0, 0].into(), 8).unwrap()),
-                    IpRange::Cidr(IpCidr::new_host([0, 0, 0, 0, 0, 0, 0, 1].into())),
-                    IpRange::Explicit(ExplicitIpRange::V4(
-                        [10, 0, 0, 0].into()..=[10, 0, 255, 255].into()
-                    )),
-                ])),
+                op: ComparisonOpExpr::OneOf {
+                    rhs: RhsValues::Ip(vec![
+                        IpRange::Cidr(IpCidr::new([127, 0, 0, 0].into(), 8).unwrap()),
+                        IpRange::Cidr(IpCidr::new_host([0, 0, 0, 0, 0, 0, 0, 1].into())),
+                        IpRange::Explicit(ExplicitIpRange::V4(
+                            [10, 0, 0, 0].into()..=[10, 0, 255, 255].into()
+                        )),
+                    ]),
+                    variant: 0,
+                },
             }
         );
 
@@ -1301,7 +1382,10 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.host")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::Contains("abc".to_owned().into())
+                op: ComparisonOpExpr::Contains {
+                    rhs: "abc".to_owned().into(),
+                    variant: 0,
+                }
             }
         );
 
@@ -1335,7 +1419,10 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.host")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::Contains(vec![0x6F, 0x72, 0x67].into()),
+                op: ComparisonOpExpr::Contains {
+                    rhs: vec![0x6F, 0x72, 0x67].into(),
+                    variant: 0,
+                },
             }
         );
 
@@ -1404,7 +1491,10 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
                     indexes: vec![FieldIndex::ArrayIndex(0)],
                 },
-                op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                op: ComparisonOpExpr::Contains {
+                    rhs: "abc".to_owned().into(),
+                    variant: 0,
+                },
             }
         );
 
@@ -1439,7 +1529,10 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
                     indexes: vec![FieldIndex::MapKey("host".to_string())],
                 },
-                op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                op: ComparisonOpExpr::Contains {
+                    rhs: "abc".to_owned().into(),
+                    variant: 0,
+                },
             }
         );
 
@@ -2016,11 +2109,14 @@ mod tests {
                     }),
                     indexes: vec![FieldIndex::ArrayIndex(2)],
                 },
-                op: ComparisonOpExpr::OneOf(RhsValues::Bytes(vec![
-                    "one-cf".to_owned().into(),
-                    "two-cf".to_owned().into(),
-                    "three-cf".to_owned().into()
-                ]))
+                op: ComparisonOpExpr::OneOf {
+                    rhs: RhsValues::Bytes(vec![
+                        "one-cf".to_owned().into(),
+                        "two-cf".to_owned().into(),
+                        "three-cf".to_owned().into()
+                    ]),
+                    variant: 0,
+                },
             }
         );
 
@@ -2389,7 +2485,8 @@ mod tests {
                 },
                 op: ComparisonOpExpr::InList {
                     list,
-                    name: ListName::from("even".to_string())
+                    name: ListName::from("even".to_string()),
+                    variant: 0,
                 }
             }
         );
@@ -2443,7 +2540,7 @@ mod tests {
     fn test_any_number_in_list() {
         let list = SCHEME.get_list(&Type::Int).unwrap();
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"any(tcp.ports[*] in $even)"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"any(tcp.ports[*] IN $even)"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -2457,6 +2554,7 @@ mod tests {
                                 op: ComparisonOpExpr::InList {
                                     list,
                                     name: ListName::from("even".to_string()),
+                                    variant: 1,
                                 },
                             }
                         ))],

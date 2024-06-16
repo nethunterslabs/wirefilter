@@ -136,7 +136,7 @@ macro_rules! specialized_try_from {
 /// `RhsValues` variant (`RhsValues::Ip(Vec<IpRange>)`) for the curly bracket
 /// syntax. eg `num in {1, 5}`
 ///
-/// ```
+/// ```ignore
 /// declare_types! {
 ///     Ip(IpAddr | IpAddr | IpRange),
 /// }

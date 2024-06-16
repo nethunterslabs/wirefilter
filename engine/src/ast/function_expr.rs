@@ -1131,7 +1131,10 @@ mod tests {
                             }),
                             indexes: vec![FieldIndex::MapEach],
                         },
-                        op: ComparisonOpExpr::Contains("c".to_string().into(),)
+                        op: ComparisonOpExpr::Contains {
+                            rhs: "c".to_string().into(),
+                            variant: 0,
+                        }
                     }
                 ))],
                 return_type: Type::Bool,
@@ -1211,10 +1214,13 @@ mod tests {
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
                             },
-                            op: ComparisonOpExpr::OneOf(RhsValues::Bytes(vec![
-                                "Cookie".to_owned().into(),
-                                "Cookies".to_owned().into(),
-                            ])),
+                            op: ComparisonOpExpr::OneOf {
+                                rhs: RhsValues::Bytes(vec![
+                                    "Cookie".to_owned().into(),
+                                    "Cookies".to_owned().into(),
+                                ]),
+                                variant: 0,
+                            },
                         })
                     ))))
                 })],
@@ -1269,10 +1275,13 @@ mod tests {
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
                             },
-                            op: ComparisonOpExpr::OneOf(RhsValues::Bytes(vec![
-                                "Cookie".to_owned().into(),
-                                "Cookies".to_owned().into(),
-                            ])),
+                            op: ComparisonOpExpr::OneOf {
+                                rhs: RhsValues::Bytes(vec![
+                                    "Cookie".to_owned().into(),
+                                    "Cookies".to_owned().into(),
+                                ]),
+                                variant: 0,
+                            },
                         })
                     ))))
                 })],
@@ -1315,7 +1324,7 @@ mod tests {
     fn test_lex_function_with_any_arg_kind() {
         let expr = assert_ok!(
             FunctionCallExpr::lex_with(
-                "any(upper(http.request.headers.names[*])[*] contains \"C\")",
+                "any(upper(http.request.headers.names[*])[*] CONTAINS \"C\")",
                 &SCHEME
             ),
             FunctionCallExpr {
@@ -1336,7 +1345,10 @@ mod tests {
                             }),
                             indexes: vec![FieldIndex::MapEach],
                         },
-                        op: ComparisonOpExpr::Contains("C".to_string().into(),)
+                        op: ComparisonOpExpr::Contains {
+                            rhs: "C".to_string().into(),
+                            variant: 1,
+                        }
                     }
                 ))],
                 return_type: Type::Bool,

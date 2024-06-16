@@ -17,11 +17,11 @@ lex_enum!(
     /// by the operators' precedences in ascending order.
     #[derive(PartialOrd, Ord)] LogicalOp {
         /// `or` / `||` operator
-        "or" | "||" => Or,
+        "or" | "OR" | "||" => Or,
         /// `xor` / `^^` operator
-        "xor" | "^^" => Xor,
+        "xor" | "XOR" | "^^" => Xor,
         /// `and` / `&&` operator
-        "and" | "&&" => And,
+        "and" | "AND" | "&&" => And,
     }
 );
 
