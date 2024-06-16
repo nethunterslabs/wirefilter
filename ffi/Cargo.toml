@@ -16,14 +16,14 @@ doctest = false
 bench = false
 
 [dependencies]
-fnv = "1.0.6"
-libc = "0.2.42"
-serde_json = "1.0.27"
+fnv = "1.0.7"
+libc = "0.2.155"
+serde_json = "1.0.117"
 
 [dependencies.wirefilter-engine]
 path = "../engine"
 
 [dev-dependencies]
-regex = "1.1.5"
-indoc = "0.3.0"
+regex = "1.10.5"
+indoc = "0.3.6"
 wirefilter-ffi-ctests = {path = "tests/ctests"}

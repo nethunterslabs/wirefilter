@@ -2,7 +2,7 @@ use crate::{
     lex::{take_while, Lex, LexError, LexErrorKind, LexResult},
     strict_partial_ord::StrictPartialOrd,
 };
-use cidr::{Cidr, IpCidr, Ipv4Cidr, Ipv6Cidr, NetworkParseError};
+use cidr::{errors::NetworkParseError, IpCidr, Ipv4Cidr, Ipv6Cidr};
 use serde::Serialize;
 use std::{
     cmp::Ordering,

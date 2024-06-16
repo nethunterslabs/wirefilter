@@ -3,7 +3,7 @@ use crate::{
     scheme::{UnknownFieldError, UnknownFunctionError},
     types::{Type, TypeMismatchError},
 };
-use cidr::NetworkParseError;
+use cidr::errors::NetworkParseError;
 use failure::Fail;
 use std::num::ParseIntError;
 

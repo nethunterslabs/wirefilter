@@ -317,7 +317,7 @@ mod tests {
         },
         rhs_types::IpRange,
     };
-    use cidr::{Cidr, IpCidr};
+    use cidr::IpCidr;
     use lazy_static::lazy_static;
     use std::net::IpAddr;
 
