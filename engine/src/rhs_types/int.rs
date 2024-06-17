@@ -37,9 +37,10 @@ impl<'i> Lex<'i> for i32 {
     }
 }
 
+/// Represents a range of integers.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct IntRange(pub(crate) RangeInclusive<i32>);
+pub struct IntRange(pub RangeInclusive<i32>);
 
 impl From<i32> for IntRange {
     fn from(i: i32) -> Self {

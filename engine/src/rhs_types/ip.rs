@@ -35,17 +35,23 @@ impl<'i> Lex<'i> for IpAddr {
     }
 }
 
+/// Represents an explicit range of IP addresses.
 #[derive(PartialEq, Eq, Clone, Hash, Serialize, Debug)]
 #[serde(untagged)]
 pub enum ExplicitIpRange {
+    /// An explicit range of IPv4 addresses.
     V4(RangeInclusive<Ipv4Addr>),
+    /// An explicit range of IPv6 addresses.
     V6(RangeInclusive<Ipv6Addr>),
 }
 
+/// Represents a range of IP addresses.
 #[derive(PartialEq, Eq, Clone, Hash, Serialize, Debug)]
 #[serde(untagged)]
 pub enum IpRange {
+    /// An explicit range of IP addresses.
     Explicit(ExplicitIpRange),
+    /// A CIDR range of IP addresses.
     Cidr(IpCidr),
 }
 

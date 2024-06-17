@@ -13,10 +13,12 @@ use std::{
 /// Type of string literal.
 #[derive(Clone, Copy)]
 pub enum StrType {
+    /// Raw string literal.
     Raw {
         /// Number of `#` characters in the opening and closing delimiter.
         hash_count: usize,
     },
+    /// Escaped string literal.
     Escaped,
 }
 

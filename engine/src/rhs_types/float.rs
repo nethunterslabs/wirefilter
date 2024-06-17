@@ -50,9 +50,10 @@ impl<'i> Lex<'i> for OrderedFloat<f64> {
     }
 }
 
+/// Represents a range of floating point numbers.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct FloatRange(pub(crate) RangeInclusive<OrderedFloat<f64>>);
+pub struct FloatRange(pub RangeInclusive<OrderedFloat<f64>>);
 
 impl From<OrderedFloat<f64>> for FloatRange {
     fn from(i: OrderedFloat<f64>) -> Self {

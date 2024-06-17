@@ -78,11 +78,11 @@ mod types;
 
 pub use self::{
     ast::{
-        field_expr::{ComparisonExpr, ComparisonOpExpr, LhsFieldExpr, OrderingOp},
+        field_expr::{ComparisonExpr, ComparisonOpExpr, IntOp, LhsFieldExpr, OrderingOp},
         function_expr::{FunctionCallArgExpr, FunctionCallExpr},
         index_expr::IndexExpr,
         logical_expr::{LogicalExpr, LogicalOp},
-        simple_expr::SimpleExpr,
+        simple_expr::{SimpleExpr, UnaryOp},
         visitor::{Visitor, VisitorMut},
         Expr, FilterAst, SingleValueExprAst, ValueExpr,
     },
@@ -101,11 +101,14 @@ pub use self::{
         AlwaysList, AlwaysListMatcher, ListDefinition, ListMatcher, ListMatcherWrapper, NeverList,
         NeverListMatcher,
     },
-    rhs_types::{Bytes, OrderedFloat, Regex, RegexError},
+    rhs_types::{
+        ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, OrderedFloat, Regex,
+        RegexError, StrType,
+    },
     scheme::{
         Field, FieldIndex, FieldRedefinitionError, Function, FunctionRedefinitionError, Identifier,
         IdentifierRedefinitionError, List, ParseError, Scheme, SchemeMismatchError,
-        UnknownFieldError,
+        UnknownFieldError, UnknownFunctionError,
     },
     single_value_expr::{SingleValueExpr, SingleValueExprError},
     types::{ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError},

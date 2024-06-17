@@ -16,11 +16,11 @@ lex_enum!(
     /// LogicalOp is an operator for a [`LogicalExpr`]. Its ordering is defined
     /// by the operators' precedences in ascending order.
     #[derive(PartialOrd, Ord)] LogicalOp {
-        /// `or` / `||` operator
+        /// `or` / `OR` / `||` operator
         "or" | "OR" | "||" => Or,
-        /// `xor` / `^^` operator
+        /// `xor` / `XOR` / `^^` operator
         "xor" | "XOR" | "^^" => Xor,
-        /// `and` / `&&` operator
+        /// `and` / `AND` / `&&` operator
         "and" | "AND" | "&&" => And,
     }
 );
