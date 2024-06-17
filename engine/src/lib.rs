@@ -78,7 +78,7 @@ mod types;
 
 pub use self::{
     ast::{
-        field_expr::{ComparisonExpr, ComparisonOpExpr, OrderingOp},
+        field_expr::{ComparisonExpr, ComparisonOpExpr, LhsFieldExpr, OrderingOp},
         function_expr::{FunctionCallArgExpr, FunctionCallExpr},
         index_expr::IndexExpr,
         logical_expr::{LogicalExpr, LogicalOp},

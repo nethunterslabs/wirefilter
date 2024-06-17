@@ -244,9 +244,10 @@ pub struct FunctionCallExpr<'s> {
     pub return_type: Type,
     /// Arguments of the function.
     pub args: Vec<FunctionCallArgExpr<'s>>,
+    /// Context of the function definition.
     #[serde(skip)]
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
-    pub(crate) context: Option<FunctionDefinitionContext>,
+    pub context: Option<FunctionDefinitionContext>,
 }
 
 impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {

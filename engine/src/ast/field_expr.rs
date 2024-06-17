@@ -246,14 +246,21 @@ fn serialize_list<S: Serializer>(
     serialize_op_rhs("InList", name, ser)
 }
 
+/// Left-hand side of a field expression
+///
+/// This can be either a field or a function call.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
 #[serde(untagged)]
-pub(crate) enum LhsFieldExpr<'s> {
+pub enum LhsFieldExpr<'s> {
+    /// Field expression
     Field(Field<'s>),
+    /// Function call expression
     FunctionCallExpr(FunctionCallExpr<'s>),
 }
 
 impl<'s> LhsFieldExpr<'s> {
+    /// Compiles a [`LhsFieldExpr`] into a [`CompiledValueExpr`] using a specific
+    /// [`Compiler`].
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
@@ -290,7 +297,7 @@ impl<'s> GetType for LhsFieldExpr<'s> {
 /// Comparison expression
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
 pub struct ComparisonExpr<'s> {
-    /// Lef-hand side of the comparison expression
+    /// Left-hand side of the comparison expression
     pub lhs: IndexExpr<'s>,
 
     /// Operator + right-hand side of the comparison expression

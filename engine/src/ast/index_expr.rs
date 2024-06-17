@@ -22,8 +22,10 @@ use serde::{ser::SerializeSeq, Serialize, Serializer};
 /// http.request.headers and indexes ["Cookie", 0].
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IndexExpr<'s> {
-    pub(crate) lhs: LhsFieldExpr<'s>,
-    pub(crate) indexes: Vec<FieldIndex>,
+    /// Left-hand side of the index expression.
+    pub lhs: LhsFieldExpr<'s>,
+    /// Indexes to access the value.
+    pub indexes: Vec<FieldIndex>,
 }
 
 macro_rules! index_access_one {

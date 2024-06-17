@@ -149,7 +149,7 @@ impl<'i> Lex<'i> for Regex {
                             }
                         }
                     } else {
-                        return Err((LexErrorKind::MissingStartingQuote, input));
+                        Err((LexErrorKind::MissingStartingQuote, input))
                     }
                 } else {
                     Err(e)

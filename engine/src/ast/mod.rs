@@ -65,10 +65,11 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + 
 #[derive(PartialEq, Eq, Serialize, Clone, Hash)]
 #[serde(transparent)]
 pub struct SingleValueExprAst<'s> {
+    /// The scheme that this AST is attached to.
     #[serde(skip)]
-    scheme: &'s Scheme,
-
-    op: LhsFieldExpr<'s>,
+    pub scheme: &'s Scheme,
+    /// The root of the AST.
+    pub op: LhsFieldExpr<'s>,
 }
 
 impl<'s> Debug for SingleValueExprAst<'s> {
@@ -110,10 +111,11 @@ impl<'s> SingleValueExprAst<'s> {
 #[derive(PartialEq, Eq, Serialize, Clone, Hash)]
 #[serde(transparent)]
 pub struct FilterAst<'s> {
+    /// The scheme that this AST is attached to.
     #[serde(skip)]
-    scheme: &'s Scheme,
-
-    op: LogicalExpr<'s>,
+    pub scheme: &'s Scheme,
+    /// The root of the AST.
+    pub op: LogicalExpr<'s>,
 }
 
 impl<'s> Debug for FilterAst<'s> {

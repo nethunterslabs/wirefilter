@@ -90,8 +90,10 @@ pub struct IndexAccessError {
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 /// A structure to represent a field inside a [`Scheme`](struct@Scheme).
 pub struct Field<'s> {
-    scheme: &'s Scheme,
-    index: usize,
+    /// The [`Scheme`](struct@Scheme) to which this field belongs to.
+    pub scheme: &'s Scheme,
+    /// The index of the field in the [`Scheme`](struct@Scheme).
+    pub index: usize,
 }
 
 impl<'s> Serialize for Field<'s> {
@@ -150,8 +152,10 @@ impl<'s> GetType for Field<'s> {
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 /// A structure to represent a function inside a [`Scheme`](struct@Scheme).
 pub struct Function<'s> {
-    scheme: &'s Scheme,
-    index: usize,
+    /// The [`Scheme`](struct@Scheme) to which this function belongs to.
+    pub scheme: &'s Scheme,
+    /// The index of the function in the [`Scheme`](struct@Scheme).
+    pub index: usize,
 }
 
 impl<'s> Serialize for Function<'s> {
