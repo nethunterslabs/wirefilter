@@ -175,9 +175,22 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     1 => output.push_str(" matches "),
                     _ => output.push_str(" MATCHES "),
                 }
-                output.push('"');
-                output.push_str(&escape(regex.as_str(), false));
-                output.push('"');
+                match regex.ty {
+                    StrType::Raw { hash_count } => {
+                        let hashes = "#".repeat(hash_count);
+                        output.push('r');
+                        output.push_str(&hashes);
+                        output.push('"');
+                        output.push_str(regex.as_str());
+                        output.push('"');
+                        output.push_str(&hashes);
+                    }
+                    StrType::Escaped => {
+                        output.push('"');
+                        output.push_str(&escape(regex.as_str(), false));
+                        output.push('"');
+                    }
+                }
             }
             ComparisonOpExpr::OneOf {
                 rhs: values,
@@ -1026,6 +1039,40 @@ mod tests {
         assert_eq!(
             ast.fmt(),
             Ok(r#"http.host MATCHES "\.[a-z]{3}""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme.parse(r#" http.host  ~   "\.[a-z]{3}"    "#).unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host ~ "\.[a-z]{3}""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r#" http.host  matches   r"\.[a-z]{3}"    "#)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r#"http.host matches r"\.[a-z]{3}""#.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r##" http.host  matches   r#"\.[a-z]{3}"#    "##)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r##"http.host matches r#"\.[a-z]{3}"#"##.to_string()),
+            "Unable to format single field expression"
+        );
+
+        let ast = scheme
+            .parse(r##" http.host  MATCHES   r#"\."[a-z]{3}""#    "##)
+            .unwrap();
+        assert_eq!(
+            ast.fmt(),
+            Ok(r##"http.host MATCHES r#"\."[a-z]{3}""#"##.to_string()),
             "Unable to format single field expression"
         );
 
