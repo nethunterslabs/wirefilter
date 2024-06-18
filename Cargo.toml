@@ -9,6 +9,8 @@ members = [
 	"wirefilter-parser",
 ]
 
+default-members = ["ast-builder", "engine"]
+
 [profile.release]
 panic = "unwind"
 lto = true
