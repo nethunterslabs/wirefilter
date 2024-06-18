@@ -111,40 +111,30 @@ pub enum ComparisonOpExprBuilder {
     Contains {
         /// Right-hand side bytes value
         rhs: BytesBuilder,
-        /// Variant, used for formatting
-        variant: u8,
     },
 
     /// "matches / MATCHES / ~" comparison
     Matches {
         /// Right-hand side regex value
         rhs: RegexBuilder,
-        /// Variant, used for formatting
-        variant: u8,
     },
 
     /// "in {...}" / "IN {...}" comparison
     OneOf {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
-        /// Variant, used for formatting
-        variant: u8,
     },
 
     /// "has_any {...}" / "HAS_ANY {...}" comparison
     HasAny {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
-        /// Variant, used for formatting
-        variant: u8,
     },
 
     /// "has_all {...}" / "HAS_ALL {...}" comparison
     HasAll {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
-        /// Variant, used for formatting
-        variant: u8,
     },
 }
 
