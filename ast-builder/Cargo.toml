@@ -16,5 +16,8 @@ wirefilter-engine = { path = "../engine" }
 cidr = "0.2.2"
 regex = "1.10.5"
 serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.117" }
 thiserror = "1.0.61"
+
+[dev-dependencies]
+lazy_static = "1.4.0"
+serde_json = { version = "1.0.117" }

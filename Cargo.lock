@@ -1290,6 +1290,7 @@ name = "wirefilter-ast-builder"
 version = "0.1.0"
 dependencies = [
  "cidr",
+ "lazy_static",
  "regex",
  "serde",
  "serde_json",

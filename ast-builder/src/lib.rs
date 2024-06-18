@@ -15,9 +15,9 @@ pub use ast::{
     ComparisonOpExprBuilder, ExplicitIpRangeBuilder, FieldBuilder, FieldIndexBuilder,
     FilterAstBuilder, FunctionBuilder, FunctionCallArgExprBuilder, FunctionCallExprBuilder,
     IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder, LhsFieldExprBuilder,
-    LogicalExprBuilder, LogicalOpBuilder, RegexBuilder, RhsValueBuilder, RhsValuesBuilder,
-    SimpleExprBuilder, SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder, UnaryExprBuilder,
-    UnaryOpBuilder,
+    LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder, RhsValueBuilder,
+    RhsValuesBuilder, SimpleExprBuilder, SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder,
+    UnaryExprBuilder, UnaryOpBuilder,
 };
 
 /// Result type for the builder.
@@ -38,4 +38,1053 @@ pub enum BuilderError {
     /// Error when parsing an IP CIDR.
     #[error("Invalid IP CIDR: {0}")]
     InvalidIpCidr(#[from] cidr::errors::NetworkParseError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::process::Command;
+    use std::sync::Once;
+
+    use lazy_static::lazy_static;
+    use wirefilter::{
+        FunctionArgKind, FunctionArgs, LhsValue, Scheme, SimpleFunctionDefinition,
+        SimpleFunctionImpl, SimpleFunctionParam, State, Type,
+    };
+
+    static INIT: Once = Once::new();
+
+    pub fn initialize() {
+        INIT.call_once(|| {
+            let output = Command::new("poetry")
+                .arg("run")
+                .arg("python3")
+                .arg("python_ast_builder/generate_tests.py")
+                .current_dir("../python-ast-builder")
+                .output()
+                .expect("Failed to run python script");
+
+            if !output.status.success() {
+                panic!(
+                    "Python script failed with: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        });
+    }
+
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        match args.next()? {
+            Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
+        }
+    }
+
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        use std::borrow::Cow;
+
+        match args.next()? {
+            Ok(LhsValue::Bytes(mut b)) => {
+                let mut text: Vec<u8> = b.to_mut().to_vec();
+                text.make_ascii_lowercase();
+                Some(LhsValue::Bytes(Cow::Owned(text)))
+            }
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
+        }
+    }
+
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        use std::borrow::Cow;
+
+        match args.next()? {
+            Ok(LhsValue::Bytes(mut b)) => {
+                let mut text: Vec<u8> = b.to_mut().to_vec();
+                text.make_ascii_uppercase();
+                Some(LhsValue::Bytes(Cow::Owned(text)))
+            }
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
+        }
+    }
+
+    fn scheme() -> Scheme {
+        let mut scheme = Scheme! {
+            http.request.headers: Map(Array(Bytes)),
+            http.host: Bytes,
+            http.request.headers.names: Array(Bytes),
+            http.request.headers.values: Array(Bytes),
+            http.request.headers.is_empty: Array(Bool),
+            http.version: Float,
+            ip.addr: Ip,
+            ssl: Bool,
+            tcp.port: Int,
+        };
+
+        scheme
+            .add_function(
+                "lower".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Field,
+                        val_type: Type::Bytes,
+                    }],
+                    opt_params: Some(vec![]),
+                    return_type: Type::Bytes,
+                    implementation: SimpleFunctionImpl::new(lower_function),
+                },
+            )
+            .unwrap();
+        scheme
+            .add_function(
+                "upper".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Any,
+                        val_type: Type::Bytes,
+                    }],
+                    opt_params: Some(vec![]),
+                    return_type: Type::Bytes,
+                    implementation: SimpleFunctionImpl::new(upper_function),
+                },
+            )
+            .unwrap();
+        scheme
+            .add_function(
+                "len".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Field,
+                        val_type: Type::Bytes,
+                    }],
+                    opt_params: Some(vec![]),
+                    return_type: Type::Int,
+                    implementation: SimpleFunctionImpl::new(len_function),
+                },
+            )
+            .unwrap();
+
+        scheme
+    }
+
+    lazy_static! {
+        static ref SCHEME: Scheme = scheme();
+    }
+
+    fn read_json_ast_file(file_name: &str) -> String {
+        std::fs::read_to_string(format!("../python-ast-builder/tests/{}.json", file_name))
+            .map_err(|e| {
+                format!(
+                    "Failed to read json file: ../python-ast-builder/tests/{}.json: {}",
+                    file_name, e
+                )
+            })
+            .unwrap()
+    }
+
+    fn get_builder_from_json<T>(file_name: &str) -> T
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        initialize();
+
+        let json_file = read_json_ast_file(file_name);
+
+        serde_json::from_str(&json_file)
+            .map_err(|e| format!("Failed to parse json in test {}: {}", stringify!(T), e))
+            .unwrap()
+    }
+
+    macro_rules! test_builder {
+        ($builder:ident, $file_name:literal, $expected:expr) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.build();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, Scheme) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.build(&SCHEME);
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, SchemeUnwrap) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.build(&SCHEME).unwrap();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, Unwrap) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.build().unwrap();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+    }
+
+    #[test]
+    fn test_str_type_builder() {
+        test_builder!(
+            StrTypeBuilder,
+            "str_type_builder1",
+            wirefilter::StrType::Escaped
+        );
+
+        test_builder!(
+            StrTypeBuilder,
+            "str_type_builder2",
+            wirefilter::StrType::Raw { hash_count: 3 }
+        );
+    }
+
+    #[test]
+    fn test_byte_separator_builder() {
+        test_builder!(
+            ByteSeparatorBuilder,
+            "byte_separator_builder",
+            wirefilter::ByteSeparator::Colon(0)
+        );
+    }
+
+    #[test]
+    fn test_bytes_builder() {
+        test_builder!(
+            BytesBuilder,
+            "bytes_builder1",
+            wirefilter::Bytes::Str {
+                value: "value".into(),
+                ty: wirefilter::StrType::Escaped,
+            }
+        );
+
+        test_builder!(
+            BytesBuilder,
+            "bytes_builder2",
+            wirefilter::Bytes::Raw {
+                value: vec![1, 2, 3].into_boxed_slice(),
+                separator: wirefilter::ByteSeparator::Dot(0),
+            }
+        );
+    }
+
+    #[test]
+    fn test_field_builder() {
+        test_builder!(
+            FieldBuilder,
+            "field_builder",
+            SCHEME.get_field("http.version").unwrap(),
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_function_builder() {
+        test_builder!(
+            FunctionBuilder,
+            "function_builder",
+            SCHEME.get_function("len").unwrap(),
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_type_builder() {
+        test_builder!(TypeBuilder, "type_builder1", wirefilter::Type::Bool);
+
+        test_builder!(
+            TypeBuilder,
+            "type_builder2",
+            wirefilter::Type::Array(Box::new(Type::Bytes))
+        );
+    }
+
+    #[test]
+    fn test_ordering_op_builder() {
+        test_builder!(
+            OrderingOpBuilder,
+            "ordering_op_builder",
+            wirefilter::OrderingOp::LessThan(0)
+        );
+    }
+
+    #[test]
+    fn test_regex_builder() {
+        test_builder!(
+            RegexBuilder,
+            "regex_builder1",
+            wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped).unwrap(),
+            Unwrap
+        );
+
+        test_builder!(
+            RegexBuilder,
+            "regex_builder2",
+            wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Raw { hash_count: 3 })
+                .unwrap(),
+            Unwrap
+        );
+    }
+
+    #[test]
+    fn test_unary_op_builder() {
+        test_builder!(
+            UnaryOpBuilder,
+            "unary_op_builder",
+            wirefilter::UnaryOp::Not(0)
+        );
+    }
+
+    #[test]
+    fn test_comparison_op_expr_builder() {
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder1",
+            wirefilter::ComparisonOpExpr::IsTrue,
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder2",
+            wirefilter::ComparisonOpExpr::Ordering {
+                op: wirefilter::OrderingOp::LessThan(0),
+                rhs: wirefilter::RhsValue::Int(1),
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder3",
+            wirefilter::ComparisonOpExpr::Int {
+                op: wirefilter::IntOp::BitwiseAnd(0),
+                rhs: 1,
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder4",
+            wirefilter::ComparisonOpExpr::Contains {
+                rhs: wirefilter::Bytes::Str {
+                    value: "value".into(),
+                    ty: wirefilter::StrType::Escaped,
+                },
+                variant: 0,
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder5",
+            wirefilter::ComparisonOpExpr::Matches {
+                rhs: wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
+                    .unwrap(),
+                variant: 0,
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder6",
+            wirefilter::ComparisonOpExpr::OneOf {
+                rhs: wirefilter::RhsValues::Int(vec![
+                    wirefilter::IntRange(1..=2),
+                    wirefilter::IntRange(3..=4),
+                ]),
+                variant: 0,
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder7",
+            wirefilter::ComparisonOpExpr::HasAny {
+                rhs: wirefilter::RhsValues::Bytes(vec![wirefilter::Bytes::Str {
+                    value: "value".into(),
+                    ty: wirefilter::StrType::Escaped,
+                }]),
+                variant: 0,
+            },
+            Unwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder8",
+            wirefilter::ComparisonOpExpr::HasAll {
+                rhs: wirefilter::RhsValues::Bytes(vec![wirefilter::Bytes::Str {
+                    value: "value".into(),
+                    ty: wirefilter::StrType::Escaped,
+                }]),
+                variant: 0,
+            },
+            Unwrap
+        );
+    }
+
+    #[test]
+    fn test_unary_expr_builder() {
+        test_builder!(
+            UnaryExprBuilder,
+            "unary_expr_builder",
+            wirefilter::SimpleExpr::Unary {
+                op: wirefilter::UnaryOp::Not(0),
+                arg: Box::new(wirefilter::SimpleExpr::Comparison(
+                    wirefilter::ComparisonExpr {
+                        lhs: wirefilter::IndexExpr {
+                            lhs: wirefilter::LhsFieldExpr::Field(
+                                SCHEME.get_field("http.version").unwrap()
+                            ),
+                            indexes: Vec::new(),
+                        },
+                        op: wirefilter::ComparisonOpExpr::Ordering {
+                            op: wirefilter::OrderingOp::LessThan(0),
+                            rhs: wirefilter::RhsValue::Int(1),
+                        },
+                    }
+                ))
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_index_expr_builder() {
+        test_builder!(
+            IndexExprBuilder,
+            "index_expr_builder1",
+            wirefilter::IndexExpr {
+                lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                indexes: Vec::new(),
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            IndexExprBuilder,
+            "index_expr_builder2",
+            wirefilter::IndexExpr {
+                lhs: wirefilter::LhsFieldExpr::Field(
+                    SCHEME.get_field("http.request.headers").unwrap()
+                ),
+                indexes: vec![
+                    wirefilter::FieldIndex::ArrayIndex(1),
+                    wirefilter::FieldIndex::MapKey("key".into()),
+                ],
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_lhs_field_expr_builder() {
+        test_builder!(
+            LhsFieldExprBuilder,
+            "lhs_field_expr_builder1",
+            wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            LhsFieldExprBuilder,
+            "lhs_field_expr_builder2",
+            wirefilter::LhsFieldExpr::FunctionCallExpr(wirefilter::FunctionCallExpr {
+                function: SCHEME.get_function("len").unwrap(),
+                return_type: wirefilter::Type::Int,
+                args: vec![wirefilter::FunctionCallArgExpr::IndexExpr(
+                    wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::Field(
+                            SCHEME.get_field("http.host").unwrap()
+                        ),
+                        indexes: Vec::new(),
+                    }
+                )],
+                context: None,
+            }),
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_function_call_arg_expr_builder() {
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder1",
+            wirefilter::FunctionCallArgExpr::IndexExpr(wirefilter::IndexExpr {
+                lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                indexes: Vec::new(),
+            }),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder2",
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Int(1)),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder3",
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Bytes(
+                "value".as_bytes().to_owned().into()
+            )),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder4",
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Float(1.0.into())),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder5",
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Ip(
+                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
+            )),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            FunctionCallArgExprBuilder,
+            "function_call_arg_expr_builder6",
+            wirefilter::FunctionCallArgExpr::SimpleExpr(wirefilter::SimpleExpr::Comparison(
+                wirefilter::ComparisonExpr {
+                    lhs: wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::Field(
+                            SCHEME.get_field("http.host").unwrap()
+                        ),
+                        indexes: Vec::new(),
+                    },
+                    op: wirefilter::ComparisonOpExpr::Ordering {
+                        op: wirefilter::OrderingOp::LessThan(0),
+                        rhs: wirefilter::RhsValue::Int(1),
+                    },
+                }
+            )),
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_function_call_expr_builder() {
+        test_builder!(
+            FunctionCallExprBuilder,
+            "function_call_expr_builder",
+            wirefilter::FunctionCallExpr {
+                function: SCHEME.get_function("len").unwrap(),
+                return_type: wirefilter::Type::Int,
+                args: vec![wirefilter::FunctionCallArgExpr::IndexExpr(
+                    wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::Field(
+                            SCHEME.get_field("http.host").unwrap()
+                        ),
+                        indexes: Vec::new(),
+                    }
+                )],
+                context: None,
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_comparison_expr_builder() {
+        test_builder!(
+            ComparisonExprBuilder,
+            "comparison_expr_builder1",
+            wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::Ordering {
+                    op: wirefilter::OrderingOp::LessThan(0),
+                    rhs: wirefilter::RhsValue::Int(1),
+                },
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonExprBuilder,
+            "comparison_expr_builder2",
+            wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::IsTrue,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonExprBuilder,
+            "comparison_expr_builder3",
+            wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::Int {
+                    op: wirefilter::IntOp::BitwiseAnd(0),
+                    rhs: 1,
+                },
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonExprBuilder,
+            "comparison_expr_builder4",
+            wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::Contains {
+                    rhs: wirefilter::Bytes::Str {
+                        value: "value".into(),
+                        ty: wirefilter::StrType::Escaped,
+                    },
+                    variant: 0,
+                },
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonExprBuilder,
+            "comparison_expr_builder5",
+            wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::Matches {
+                    rhs: wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
+                        .unwrap(),
+                    variant: 0,
+                },
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_logical_op_builder() {
+        test_builder!(
+            LogicalOpBuilder,
+            "logical_op_builder",
+            wirefilter::LogicalOp::And(0)
+        );
+    }
+
+    #[test]
+    fn test_simple_expr_builder() {
+        test_builder!(
+            SimpleExprBuilder,
+            "simple_expr_builder1",
+            wirefilter::SimpleExpr::Comparison(wirefilter::ComparisonExpr {
+                lhs: wirefilter::IndexExpr {
+                    lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                    indexes: Vec::new(),
+                },
+                op: wirefilter::ComparisonOpExpr::Ordering {
+                    op: wirefilter::OrderingOp::LessThan(0),
+                    rhs: wirefilter::RhsValue::Int(1),
+                },
+            }),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            SimpleExprBuilder,
+            "simple_expr_builder2",
+            wirefilter::SimpleExpr::Unary {
+                op: wirefilter::UnaryOp::Not(0),
+                arg: Box::new(wirefilter::SimpleExpr::Comparison(
+                    wirefilter::ComparisonExpr {
+                        lhs: wirefilter::IndexExpr {
+                            lhs: wirefilter::LhsFieldExpr::Field(
+                                SCHEME.get_field("http.version").unwrap()
+                            ),
+                            indexes: Vec::new(),
+                        },
+                        op: wirefilter::ComparisonOpExpr::Ordering {
+                            op: wirefilter::OrderingOp::LessThan(0),
+                            rhs: wirefilter::RhsValue::Int(1),
+                        },
+                    }
+                ))
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_combining_expr_builder() {
+        test_builder!(
+            CombiningExprBuilder,
+            "combining_expr_builder",
+            wirefilter::LogicalExpr::Combining {
+                op: wirefilter::LogicalOp::And(0),
+                items: vec![
+                    wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                        wirefilter::ComparisonExpr {
+                            lhs: wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("http.version").unwrap()
+                                ),
+                                indexes: Vec::new(),
+                            },
+                            op: wirefilter::ComparisonOpExpr::Ordering {
+                                op: wirefilter::OrderingOp::LessThan(0),
+                                rhs: wirefilter::RhsValue::Int(1),
+                            },
+                        }
+                    )),
+                    wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                        wirefilter::ComparisonExpr {
+                            lhs: wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("http.version").unwrap()
+                                ),
+                                indexes: Vec::new(),
+                            },
+                            op: wirefilter::ComparisonOpExpr::Ordering {
+                                op: wirefilter::OrderingOp::LessThan(0),
+                                rhs: wirefilter::RhsValue::Int(1),
+                            },
+                        }
+                    )),
+                ],
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_logical_expr_builder() {
+        test_builder!(
+            LogicalExprBuilder,
+            "logical_expr_builder1",
+            wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                wirefilter::ComparisonExpr {
+                    lhs: wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::Field(
+                            SCHEME.get_field("http.version").unwrap()
+                        ),
+                        indexes: Vec::new(),
+                    },
+                    op: wirefilter::ComparisonOpExpr::Ordering {
+                        op: wirefilter::OrderingOp::LessThan(0),
+                        rhs: wirefilter::RhsValue::Int(1),
+                    },
+                }
+            )),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            LogicalExprBuilder,
+            "logical_expr_builder2",
+            wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Unary {
+                op: wirefilter::UnaryOp::Not(0),
+                arg: Box::new(wirefilter::SimpleExpr::Comparison(
+                    wirefilter::ComparisonExpr {
+                        lhs: wirefilter::IndexExpr {
+                            lhs: wirefilter::LhsFieldExpr::Field(
+                                SCHEME.get_field("http.version").unwrap()
+                            ),
+                            indexes: Vec::new(),
+                        },
+                        op: wirefilter::ComparisonOpExpr::Ordering {
+                            op: wirefilter::OrderingOp::LessThan(0),
+                            rhs: wirefilter::RhsValue::Int(1),
+                        },
+                    }
+                ))
+            }),
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            LogicalExprBuilder,
+            "logical_expr_builder3",
+            wirefilter::LogicalExpr::Combining {
+                op: wirefilter::LogicalOp::And(0),
+                items: vec![
+                    wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                        wirefilter::ComparisonExpr {
+                            lhs: wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("http.version").unwrap()
+                                ),
+                                indexes: Vec::new(),
+                            },
+                            op: wirefilter::ComparisonOpExpr::Ordering {
+                                op: wirefilter::OrderingOp::LessThan(0),
+                                rhs: wirefilter::RhsValue::Int(1),
+                            },
+                        }
+                    )),
+                    wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                        wirefilter::ComparisonExpr {
+                            lhs: wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("http.version").unwrap()
+                                ),
+                                indexes: Vec::new(),
+                            },
+                            op: wirefilter::ComparisonOpExpr::Ordering {
+                                op: wirefilter::OrderingOp::LessThan(0),
+                                rhs: wirefilter::RhsValue::Int(1),
+                            },
+                        }
+                    )),
+                ],
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_filter_ast_builder() {
+        test_builder!(
+            FilterAstBuilder,
+            "filter_ast_builder",
+            wirefilter::FilterAst {
+                op: wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                    wirefilter::ComparisonExpr {
+                        lhs: wirefilter::IndexExpr {
+                            lhs: wirefilter::LhsFieldExpr::Field(
+                                SCHEME.get_field("http.version").unwrap()
+                            ),
+                            indexes: Vec::new(),
+                        },
+                        op: wirefilter::ComparisonOpExpr::Ordering {
+                            op: wirefilter::OrderingOp::LessThan(0),
+                            rhs: wirefilter::RhsValue::Int(1),
+                        },
+                    }
+                )),
+                scheme: &SCHEME,
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    // SingleValueExprAstBuilder
+    fn test_single_value_expr_ast_builder() {
+        test_builder!(
+            SingleValueExprAstBuilder,
+            "single_value_expr_ast_builder1",
+            wirefilter::SingleValueExprAst {
+                op: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                scheme: &SCHEME,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            SingleValueExprAstBuilder,
+            "single_value_expr_ast_builder2",
+            wirefilter::SingleValueExprAst {
+                op: wirefilter::LhsFieldExpr::FunctionCallExpr(wirefilter::FunctionCallExpr {
+                    function: SCHEME.get_function("len").unwrap(),
+                    return_type: wirefilter::Type::Int,
+                    args: vec![wirefilter::FunctionCallArgExpr::IndexExpr(
+                        wirefilter::IndexExpr {
+                            lhs: wirefilter::LhsFieldExpr::Field(
+                                SCHEME.get_field("http.host").unwrap()
+                            ),
+                            indexes: Vec::new(),
+                        }
+                    )],
+                    context: None,
+                }),
+                scheme: &SCHEME,
+            },
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
+    fn test_int_op_builder() {
+        test_builder!(
+            IntOpBuilder,
+            "int_op_builder",
+            wirefilter::IntOp::BitwiseAnd(0)
+        );
+    }
+
+    #[test]
+    fn test_field_index_builder() {
+        test_builder!(
+            FieldIndexBuilder,
+            "field_index_builder1",
+            wirefilter::FieldIndex::ArrayIndex(1)
+        );
+
+        test_builder!(
+            FieldIndexBuilder,
+            "field_index_builder2",
+            wirefilter::FieldIndex::MapKey("key".into())
+        );
+    }
+
+    #[test]
+    fn test_ip_cidr_builder() {
+        test_builder!(
+            IpCidrBuilder,
+            "ip_cidr_builder",
+            cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap(),
+            Unwrap
+        );
+    }
+
+    #[test]
+    fn test_explicit_ip_range_builder() {
+        test_builder!(
+            ExplicitIpRangeBuilder,
+            "explicit_ip_range_builder",
+            wirefilter::ExplicitIpRange::V4(
+                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
+                    ..=std::net::Ipv4Addr::new(127, 0, 0, 255).into()
+            )
+        );
+    }
+
+    #[test]
+    fn test_ip_range_builder() {
+        test_builder!(
+            IpRangeBuilder,
+            "ip_range_builder1",
+            wirefilter::IpRange::Explicit(wirefilter::ExplicitIpRange::V4(
+                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
+                    ..=std::net::Ipv4Addr::new(127, 0, 0, 255).into()
+            )),
+            Unwrap
+        );
+
+        test_builder!(
+            IpRangeBuilder,
+            "ip_range_builder2",
+            wirefilter::IpRange::Cidr(
+                cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
+            ),
+            Unwrap
+        );
+    }
+
+    #[test]
+    fn test_rhs_value_builder() {
+        test_builder!(
+            RhsValueBuilder,
+            "rhs_value_builder1",
+            wirefilter::RhsValue::Int(1)
+        );
+
+        test_builder!(
+            RhsValueBuilder,
+            "rhs_value_builder2",
+            wirefilter::RhsValue::Bytes("value".as_bytes().to_owned().into())
+        );
+
+        test_builder!(
+            RhsValueBuilder,
+            "rhs_value_builder3",
+            wirefilter::RhsValue::Float(1.0.into())
+        );
+
+        test_builder!(
+            RhsValueBuilder,
+            "rhs_value_builder4",
+            wirefilter::RhsValue::Ip(std::net::Ipv4Addr::new(127, 0, 0, 1).into())
+        );
+    }
+
+    #[test]
+    fn test_rhs_values_builder() {
+        test_builder!(
+            RhsValuesBuilder,
+            "rhs_values_builder1",
+            wirefilter::RhsValues::Int(vec![
+                wirefilter::IntRange(1..=2),
+                wirefilter::IntRange(3..=4),
+            ]),
+            Unwrap
+        );
+
+        test_builder!(
+            RhsValuesBuilder,
+            "rhs_values_builder2",
+            wirefilter::RhsValues::Float(vec![wirefilter::FloatRange(1.0.into()..=10.0.into())]),
+            Unwrap
+        );
+
+        test_builder!(
+            RhsValuesBuilder,
+            "rhs_values_builder3",
+            wirefilter::RhsValues::Ip(vec![wirefilter::IpRange::Cidr(
+                cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
+            )]),
+            Unwrap
+        );
+
+        test_builder!(
+            RhsValuesBuilder,
+            "rhs_values_builder4",
+            wirefilter::RhsValues::Bytes(vec![wirefilter::Bytes::Str {
+                value: "value".into(),
+                ty: wirefilter::StrType::Escaped
+            }]),
+            Unwrap
+        );
+    }
 }
