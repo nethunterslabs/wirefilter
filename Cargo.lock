@@ -1286,6 +1286,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wirefilter-ast-builder"
+version = "0.1.0"
+dependencies = [
+ "cidr",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "wirefilter-engine",
+]
+
+[[package]]
 name = "wirefilter-engine"
 version = "0.7.0"
 dependencies = [

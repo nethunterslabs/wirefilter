@@ -1,11 +1,12 @@
 [workspace]
 members = [
+	"ast-builder",
 	"engine",
 	"ffi",
 	"fuzz/bytes",
 	"fuzz/map-keys",
 	"wasm",
-	"wirefilter-parser"
+	"wirefilter-parser",
 ]
 
 [profile.release]
