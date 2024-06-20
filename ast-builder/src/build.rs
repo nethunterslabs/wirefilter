@@ -20,7 +20,7 @@ impl FilterAstBuilder {
     }
 
     /// Builds a `FilterAst` from the `FilterAstBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<FilterAst<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<FilterAst<'_>> {
         Ok(FilterAst {
             scheme,
             op: self.op.build(scheme)?,
@@ -35,7 +35,7 @@ impl SingleValueExprAstBuilder {
     }
 
     /// Builds a `SingleValueExprAst` from the `SingleValueExprAstBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<SingleValueExprAst<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<SingleValueExprAst<'_>> {
         Ok(SingleValueExprAst {
             scheme,
             op: self.op.build(scheme)?,
@@ -45,7 +45,7 @@ impl SingleValueExprAstBuilder {
 
 impl LogicalExprBuilder {
     /// Builds a `LogicalExprAst` from the `LogicalExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<LogicalExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<LogicalExpr<'_>> {
         match self {
             LogicalExprBuilder::Simple(builder) => Ok(LogicalExpr::Simple(builder.build(scheme)?)),
             LogicalExprBuilder::Combining(builder) => builder.build(scheme),
@@ -60,7 +60,7 @@ impl CombiningExprBuilder {
     }
 
     /// Builds a `CombiningExpr` from the `CombiningExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<LogicalExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<LogicalExpr<'_>> {
         Ok(LogicalExpr::Combining {
             op: self.op.build(),
             items: self
@@ -74,7 +74,7 @@ impl CombiningExprBuilder {
 
 impl LogicalOpBuilder {
     /// Builds a `LogicalOp` from the `LogicalOpBuilder`.
-    pub fn build<'s>(self) -> LogicalOp {
+    pub fn build(self) -> LogicalOp {
         match self {
             LogicalOpBuilder::Or => LogicalOp::Or(0),
             LogicalOpBuilder::Xor => LogicalOp::Xor(0),
@@ -85,7 +85,7 @@ impl LogicalOpBuilder {
 
 impl SimpleExprBuilder {
     /// Builds a `SimpleExprAst` from the `SimpleExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<SimpleExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<SimpleExpr> {
         match self {
             SimpleExprBuilder::Comparison(builder) => {
                 Ok(SimpleExpr::Comparison(builder.build(scheme)?))
@@ -108,7 +108,7 @@ impl UnaryExprBuilder {
     }
 
     /// Builds a `UnaryExpr` from the `UnaryExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<SimpleExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<SimpleExpr> {
         Ok(SimpleExpr::Unary {
             op: self.op.build(),
             arg: Box::new(self.arg.build(scheme)?),
@@ -118,7 +118,7 @@ impl UnaryExprBuilder {
 
 impl UnaryOpBuilder {
     /// Builds a `UnaryOp` from the `UnaryOpBuilder`.
-    pub fn build<'s>(self) -> UnaryOp {
+    pub fn build(self) -> UnaryOp {
         match self {
             UnaryOpBuilder::Not => UnaryOp::Not(0),
         }
@@ -132,7 +132,7 @@ impl ComparisonExprBuilder {
     }
 
     /// Builds a `ComparisonExpr` from the `ComparisonExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<ComparisonExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<ComparisonExpr> {
         Ok(ComparisonExpr {
             lhs: self.lhs.build(scheme)?,
             op: self.op.build()?,
@@ -147,14 +147,14 @@ impl RegexBuilder {
     }
 
     /// Builds a `Regex` from the `RegexBuilder`.
-    pub fn build<'s>(self) -> Result<Regex> {
+    pub fn build(self) -> Result<Regex> {
         Ok(Regex::parse_str(&self.value, self.ty.build())?)
     }
 }
 
 impl BytesBuilder {
     /// Builds a `Bytes` from the `BytesBuilder`.
-    pub fn build<'s>(self) -> Bytes {
+    pub fn build(self) -> Bytes {
         match self {
             BytesBuilder::Str { value, ty } => Bytes::Str {
                 value,
@@ -170,7 +170,7 @@ impl BytesBuilder {
 
 impl StrTypeBuilder {
     /// Builds a `StrType` from the `StrTypeBuilder`.
-    pub fn build<'s>(self) -> StrType {
+    pub fn build(self) -> StrType {
         match self {
             StrTypeBuilder::Raw { hash_count } => StrType::Raw { hash_count },
             StrTypeBuilder::Escaped => StrType::Escaped,
@@ -180,7 +180,7 @@ impl StrTypeBuilder {
 
 impl ByteSeparatorBuilder {
     /// Builds a `ByteSeparator` from the `ByteSeparatorBuilder`.
-    pub fn build<'s>(self) -> ByteSeparator {
+    pub fn build(self) -> ByteSeparator {
         match self {
             ByteSeparatorBuilder::Colon => ByteSeparator::Colon(0),
             ByteSeparatorBuilder::Dash => ByteSeparator::Dash(0),
@@ -191,7 +191,7 @@ impl ByteSeparatorBuilder {
 
 impl IntOpBuilder {
     /// Builds a `IntOp` from the `IntOpBuilder`.
-    pub fn build<'s>(self) -> IntOp {
+    pub fn build(self) -> IntOp {
         match self {
             IntOpBuilder::BitwiseAnd => IntOp::BitwiseAnd(0),
         }
@@ -200,7 +200,7 @@ impl IntOpBuilder {
 
 impl RhsValueBuilder {
     /// Builds a `RhsValue` from the `RhsValueBuilder`.
-    pub fn build<'s>(self) -> RhsValue {
+    pub fn build(self) -> RhsValue {
         match self {
             RhsValueBuilder::Int(value) => RhsValue::Int(value),
             RhsValueBuilder::Float(value) => RhsValue::Float(OrderedFloat(value)),
@@ -212,7 +212,7 @@ impl RhsValueBuilder {
 
 impl RhsValuesBuilder {
     /// Builds a `RhsValues` from the `RhsValuesBuilder`.
-    pub fn build<'s>(self) -> Result<RhsValues> {
+    pub fn build(self) -> Result<RhsValues> {
         Ok(match self {
             RhsValuesBuilder::Int(values) => RhsValues::Int(
                 values
@@ -244,7 +244,7 @@ impl RhsValuesBuilder {
 
 impl IpRangeBuilder {
     /// Builds a `IpRange` from the `IpRangeBuilder`.
-    pub fn build<'s>(self) -> Result<IpRange> {
+    pub fn build(self) -> Result<IpRange> {
         Ok(match self {
             IpRangeBuilder::Explicit(builder) => IpRange::Explicit(builder.build()),
             IpRangeBuilder::Cidr(builder) => IpRange::Cidr(builder.build()?),
@@ -254,7 +254,7 @@ impl IpRangeBuilder {
 
 impl ExplicitIpRangeBuilder {
     /// Builds a `ExplicitIpRange` from the `ExplicitIpRangeBuilder`.
-    pub fn build<'s>(self) -> ExplicitIpRange {
+    pub fn build(self) -> ExplicitIpRange {
         match self {
             ExplicitIpRangeBuilder::V4((first, last)) => ExplicitIpRange::V4(first..=last),
             ExplicitIpRangeBuilder::V6((first, last)) => ExplicitIpRange::V6(first..=last),
@@ -269,7 +269,7 @@ impl IpCidrBuilder {
     }
 
     /// Builds a `IpCidr` from the `IpCidrBuilder`.
-    pub fn build<'s>(self) -> Result<IpCidr> {
+    pub fn build(self) -> Result<IpCidr> {
         Ok(IpCidr::new(self.0, self.1)?)
     }
 }
@@ -313,7 +313,7 @@ impl ComparisonOpExprBuilder {
 
 impl OrderingOpBuilder {
     /// Builds a `OrderingOp` from the `OrderingOpBuilder`.
-    pub fn build<'s>(self) -> OrderingOp {
+    pub fn build(self) -> OrderingOp {
         match self {
             OrderingOpBuilder::Equal => OrderingOp::Equal(0),
             OrderingOpBuilder::NotEqual => OrderingOp::NotEqual(0),
@@ -332,7 +332,7 @@ impl IndexExprBuilder {
     }
 
     /// Builds a `IndexExpr` from the `IndexExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<IndexExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<IndexExpr<'_>> {
         Ok(IndexExpr {
             lhs: self.lhs.build(scheme)?,
             indexes: self
@@ -346,7 +346,7 @@ impl IndexExprBuilder {
 
 impl FieldIndexBuilder {
     /// Builds a `FieldIndex` from the `FieldIndexBuilder`.
-    pub fn build<'s>(self) -> FieldIndex {
+    pub fn build(self) -> FieldIndex {
         match self {
             FieldIndexBuilder::ArrayIndex(index) => FieldIndex::ArrayIndex(index),
             FieldIndexBuilder::MapKey(key) => FieldIndex::MapKey(key),
@@ -357,7 +357,7 @@ impl FieldIndexBuilder {
 
 impl LhsFieldExprBuilder {
     /// Builds a `LhsFieldExpr` from the `LhsFieldExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<LhsFieldExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<LhsFieldExpr<'_>> {
         match self {
             LhsFieldExprBuilder::Field(builder) => Ok(LhsFieldExpr::Field(builder.build(scheme)?)),
             LhsFieldExprBuilder::FunctionCallExpr(builder) => {
@@ -382,7 +382,7 @@ impl FunctionCallExprBuilder {
     }
 
     /// Builds a `FunctionCallExpr` from the `FunctionCallExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<FunctionCallExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<FunctionCallExpr<'_>> {
         Ok(FunctionCallExpr {
             function: self.function.build(scheme)?,
             return_type: self.return_type.build(),
@@ -398,7 +398,7 @@ impl FunctionCallExprBuilder {
 
 impl TypeBuilder {
     /// Builds a `Type` from the `TypeBuilder`.
-    pub fn build<'s>(self) -> Type {
+    pub fn build(self) -> Type {
         match self {
             TypeBuilder::Bool => Type::Bool,
             TypeBuilder::Int => Type::Int,
@@ -413,7 +413,7 @@ impl TypeBuilder {
 
 impl FunctionCallArgExprBuilder {
     /// Builds a `FunctionCallArgExpr` from the `FunctionCallArgExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<FunctionCallArgExpr<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<FunctionCallArgExpr<'_>> {
         Ok(match self {
             FunctionCallArgExprBuilder::IndexExpr(builder) => {
                 FunctionCallArgExpr::IndexExpr(builder.build(scheme)?)
@@ -435,7 +435,7 @@ impl FunctionBuilder {
     }
 
     /// Builds a `Function` from the `FunctionBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<Function<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<Function<'_>> {
         Ok(scheme.get_function(&self.name)?)
     }
 }
@@ -447,7 +447,7 @@ impl FieldBuilder {
     }
 
     /// Builds a `Field` from the `FieldBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme) -> Result<wirefilter::Field<'s>> {
+    pub fn build(self, scheme: &Scheme) -> Result<wirefilter::Field<'_>> {
         Ok(scheme.get_field(&self.name)?)
     }
 }
