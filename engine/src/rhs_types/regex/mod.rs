@@ -87,7 +87,7 @@ impl<'i> Lex<'i> for Regex {
                         };
                     }
                 };
-                match Regex::parse_str(&regex_buf, StrType::Escaped) {
+                match Regex::parse_str_with_str_type(&regex_buf, StrType::Escaped) {
                     Ok(regex) => Ok((regex, input)),
                     Err(err) => Err((LexErrorKind::ParseRegex(err), regex_str)),
                 }
@@ -124,7 +124,7 @@ impl<'i> Lex<'i> for Regex {
 
                                 #[allow(clippy::comparison_chain)]
                                 if end_hash_count == start_hash_count {
-                                    match Regex::parse_str(
+                                    match Regex::parse_str_with_str_type(
                                         &raw_string,
                                         StrType::Raw {
                                             hash_count: start_hash_count,
@@ -208,7 +208,7 @@ impl<'i> Lex<'i> for UninhabitedRegex {
 fn test() {
     let expr = assert_ok!(
         Regex::lex(r#""[a-z"\]]+\d{1,10}\"";"#),
-        Regex::parse_str(r#"[a-z"\]]+\d{1,10}""#, StrType::Escaped).unwrap(),
+        Regex::parse_str_with_str_type(r#"[a-z"\]]+\d{1,10}""#, StrType::Escaped).unwrap(),
         ";"
     );
 
@@ -216,7 +216,7 @@ fn test() {
 
     let expr = assert_ok!(
         Regex::lex(r##"r#"[a-z"\]]+\d{1,10}""#;"##),
-        Regex::parse_str(r#"[a-z"\]]+\d{1,10}""#, StrType::Escaped).unwrap(),
+        Regex::parse_str_with_str_type(r#"[a-z"\]]+\d{1,10}""#, StrType::Escaped).unwrap(),
         ";"
     );
 
@@ -230,7 +230,7 @@ fn test() {
 
     assert_ok!(
         Regex::lex(r#""[\"'\xb4\xe2\x80\x98\xe2\x80\x99`<>]{1,3}""#),
-        Regex::parse_str(
+        Regex::parse_str_with_str_type(
             r#"[\"'\xb4\xe2\x80\x98\xe2\x80\x99`<>]{1,3}"#,
             StrType::Escaped
         )

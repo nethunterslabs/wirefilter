@@ -190,9 +190,7 @@ mod tests {
         scheme
             .add_variable(
                 "regex_var".to_string(),
-                wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
-                    .unwrap()
-                    .into(),
+                wirefilter::Regex::parse_str(r"^\d{3}$").unwrap().into(),
             )
             .unwrap();
         scheme
@@ -405,15 +403,19 @@ mod tests {
         test_builder!(
             RegexBuilder,
             "regex_builder1",
-            wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped).unwrap(),
+            wirefilter::Regex::parse_str_with_str_type(r"^\d{3}$", wirefilter::StrType::Escaped)
+                .unwrap(),
             Unwrap
         );
 
         test_builder!(
             RegexBuilder,
             "regex_builder2",
-            wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Raw { hash_count: 3 })
-                .unwrap(),
+            wirefilter::Regex::parse_str_with_str_type(
+                r"^\d{3}$",
+                wirefilter::StrType::Raw { hash_count: 3 }
+            )
+            .unwrap(),
             Unwrap
         );
     }
@@ -473,8 +475,11 @@ mod tests {
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder5",
             wirefilter::ComparisonOpExpr::Matches {
-                rhs: wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
-                    .unwrap(),
+                rhs: wirefilter::Regex::parse_str_with_str_type(
+                    r"^\d{3}$",
+                    wirefilter::StrType::Escaped
+                )
+                .unwrap(),
                 variant: 0,
             },
             SchemeUnwrap
@@ -835,8 +840,11 @@ mod tests {
                     indexes: Vec::new(),
                 },
                 op: wirefilter::ComparisonOpExpr::Matches {
-                    rhs: wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
-                        .unwrap(),
+                    rhs: wirefilter::Regex::parse_str_with_str_type(
+                        r"^\d{3}$",
+                        wirefilter::StrType::Escaped
+                    )
+                    .unwrap(),
                     variant: 0,
                 },
             },

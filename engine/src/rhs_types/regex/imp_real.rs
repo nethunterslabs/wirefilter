@@ -12,12 +12,17 @@ pub struct Regex {
 }
 
 impl Regex {
-    /// Parses a regex from a string.
-    pub fn parse_str(s: &str, ty: StrType) -> Result<Self, Error> {
+    /// Parses a regex from a string with a given string type.
+    pub fn parse_str_with_str_type(s: &str, ty: StrType) -> Result<Self, Error> {
         ::regex::bytes::RegexBuilder::new(s)
             .unicode(false)
             .build()
             .map(|value| Self { value, ty })
+    }
+
+    /// Parses a regex from a string.
+    pub fn parse_str(s: &str) -> Result<Self, Error> {
+        Self::parse_str_with_str_type(s, StrType::Escaped)
     }
 
     /// Returns true if and only if the regex matches the string given.
