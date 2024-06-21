@@ -2,7 +2,7 @@ use crate::{
     ast::{FilterAst, SingleValueExprAst},
     functions::FunctionDefinition,
     lex::{complete, expect, span, take_while, Lex, LexErrorKind, LexResult, LexWith},
-    types::{GetType, RhsValue, Type},
+    types::{GetType, RhsValue, Type, VariableValue},
 };
 use fnv::FnvBuildHasher;
 use indexmap::map::{Entry, IndexMap};
@@ -274,6 +274,12 @@ pub struct UnknownFieldError;
 #[error("unknown function")]
 pub struct UnknownFunctionError;
 
+/// An error that occurs if an unregistered variable name was queried from a
+/// [`Scheme`](struct@Scheme).
+#[derive(Debug, PartialEq, Error)]
+#[error("unknown variable")]
+pub struct UnknownVariableError;
+
 /// An error that occurs when previously defined field gets redefined.
 #[derive(Debug, PartialEq, Error)]
 #[error("attempt to redefine field {0}")]
@@ -397,45 +403,50 @@ impl<T: FunctionDefinition + 'static> From<T> for Box<dyn FunctionDefinition> {
     }
 }
 
-/// A structure to represent a list inside a [`scheme`](struct.Scheme.html).
-///
-/// See [`Scheme::get_list`](struct.Scheme.html#method.get_list).
+/// A reference to a variable inside a [`Scheme`](struct@Scheme).
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
-pub struct List<'s> {
-    scheme: &'s Scheme,
-    index: usize,
+pub struct VariableRef<'s> {
+    pub(crate) scheme: &'s Scheme,
+    pub(crate) index: usize,
 }
 
-impl<'s> List<'s> {
-    pub(crate) fn index(&self) -> usize {
-        self.index
+impl<'s> Debug for VariableRef<'s> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.name())
+    }
+}
+
+impl<'s> Serialize for VariableRef<'s> {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        self.name().serialize(ser)
+    }
+}
+
+impl<'s> VariableRef<'s> {
+    /// Returns the variable's name as recorded in the [`Scheme`](struct@Scheme).
+    #[inline]
+    pub fn name(&self) -> &'s str {
+        self.scheme.variables.get_index(self.index).unwrap().0
     }
 
-    pub(crate) fn scheme(&self) -> &'s Scheme {
+    /// Returns the [`Scheme`](struct@Scheme) to which this variable belongs to.
+    #[inline]
+    pub fn scheme(&self) -> &'s Scheme {
         self.scheme
     }
 
-    pub(crate) fn definition(&self) -> &'s dyn ListDefinition {
-        &**self.scheme.lists.get_index(self.index).unwrap().1
+    /// Returns the [`VariableValue`](enum@VariableValue) associated with the reference.
+    #[inline]
+    pub fn value(&self) -> &VariableValue {
+        self.scheme.variables.get_index(self.index).unwrap().1
     }
 }
 
-impl<'s> Debug for List<'s> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:?}",
-            self.scheme.lists.get_index(self.index).unwrap().1
-        )
-    }
-}
-
-/// An error that occurs when previously defined list gets redefined.
+/// An error that occurs when a previously defined variables gets redefined.
 #[derive(Debug, PartialEq, Error)]
-#[error("attempt to redefine list for type {0:?}")]
-pub struct ListRedefinitionError(Type);
+#[error("attempt to redefine variable {0:?}")]
+pub struct VariableRedefinitionError(String);
 
-use crate::list_matcher::ListDefinition;
 /// The main registry for fields and their associated types.
 ///
 /// This is necessary to provide typechecking for runtime values provided
@@ -444,7 +455,7 @@ use crate::list_matcher::ListDefinition;
 #[derive(Default, Debug)]
 pub struct Scheme {
     items: IndexMap<String, SchemeItem, FnvBuildHasher>,
-    lists: IndexMap<Type, Box<dyn ListDefinition>>,
+    variables: IndexMap<String, VariableValue>,
 }
 
 impl PartialEq for Scheme {
@@ -558,7 +569,12 @@ impl<'s> Scheme {
 
     /// Returns the number of element in the [`scheme`](struct@Scheme)
     pub fn len(&self) -> (usize, usize) {
-        (self.items.len(), self.lists.len())
+        (self.items.len(), self.variables.len())
+    }
+
+    /// Returns the number of items in the [`scheme`](struct@Scheme)
+    pub fn len_items(&self) -> usize {
+        self.items.len()
     }
 
     /// Returns true if the [`scheme`](struct@Scheme) is empty
@@ -644,42 +660,53 @@ impl<'s> Scheme {
             })
     }
 
-    /// Registers a new [`list`](trait.ListDefinition.html) for a given
-    /// [`type`](enum.Type.html).
-    pub fn add_list(
+    /// Registers a new [`VariableValue`](enum@VariableValue) for a given name.
+    pub fn add_variable(
         &mut self,
-        ty: Type,
-        list: Box<dyn ListDefinition>,
-    ) -> Result<(), ListRedefinitionError> {
-        match self.lists.entry(ty) {
-            Entry::Occupied(entry) => Err(ListRedefinitionError(entry.key().clone())),
+        name: String,
+        variable: VariableValue,
+    ) -> Result<(), VariableRedefinitionError> {
+        match self.variables.entry(name) {
+            Entry::Occupied(entry) => Err(VariableRedefinitionError(entry.key().clone())),
             Entry::Vacant(entry) => {
-                entry.insert(list);
+                entry.insert(variable);
                 Ok(())
             }
         }
     }
 
-    /// Returns the [`list`](struct.List.html) for a given
-    /// [`type`](enum.Type.html).
-    pub fn get_list(&self, ty: &Type) -> Option<List<'_>> {
-        self.lists.get_index_of(ty).map(move |index| List {
-            scheme: self,
-            index,
-        })
+    /// Returns the [`VariableValue`](enum@VariableValue) for a given name.
+    pub fn get_variable(&self, name: &str) -> Option<&VariableValue> {
+        self.variables.get(name)
     }
 
-    /// Iterates over all registered [`lists`](trait.ListDefinition.html).
-    pub fn lists(&self) -> impl ExactSizeIterator<Item = (&Type, List<'_>)> {
-        self.lists.keys().enumerate().map(move |(index, key)| {
+    /// Returns a reference to the [`VariableValue`](enum@VariableValue) for a given name.
+    pub fn get_variable_ref(&self, name: &str) -> Result<VariableRef<'_>, UnknownVariableError> {
+        self.variables
+            .get_index_of(name)
+            .map(|index| VariableRef {
+                scheme: self,
+                index,
+            })
+            .ok_or(UnknownVariableError)
+    }
+
+    /// Returns the [`VariableValue`](enum@VariableValue) and reference for a given name.
+    pub fn get_variable_and_ref(&self, name: &str) -> Option<(&VariableValue, VariableRef<'_>)> {
+        self.variables.get_full(name).map(|(index, _, variable)| {
             (
-                key,
-                List {
+                variable,
+                VariableRef {
                     scheme: self,
                     index,
                 },
             )
         })
+    }
+
+    /// Iterates over all registered [`Variables`](struct@Variable).
+    pub fn variables(&self) -> impl ExactSizeIterator<Item = (&str, &VariableValue)> {
+        self.variables.iter().map(|(k, v)| (k.as_str(), v))
     }
 }
 

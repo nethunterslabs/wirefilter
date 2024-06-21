@@ -84,6 +84,7 @@ pub struct ComparisonExprBuilder {
 pub enum ComparisonOpExprBuilder {
     /// Boolean field verification
     IsTrue,
+
     /// Ordering comparison
     Ordering {
         /// Ordering comparison operator:
@@ -98,6 +99,20 @@ pub enum ComparisonOpExprBuilder {
         rhs: RhsValueBuilder,
     },
 
+    /// Ordering comparison with a variable
+    OrderingVariable {
+        /// Ordering comparison operator:
+        /// * "eq" | "EQ" | "=="
+        /// * "ne" | "NE" | "!="
+        /// * "ge" | "GE" | ">="
+        /// * "le" | "LE" | "<="
+        /// * "gt" | "GT" | ">"
+        /// * "lt" | "LT" | "<"
+        op: OrderingOpBuilder,
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+    },
+
     /// Integer comparison
     Int {
         /// Integer comparison operator:
@@ -107,10 +122,25 @@ pub enum ComparisonOpExprBuilder {
         rhs: i32,
     },
 
+    /// Integer comparison with a variable
+    IntVariable {
+        /// Integer comparison operator:
+        /// * "&" | "bitwise_and" | "BITWISE_AND"
+        op: IntOpBuilder,
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+    },
+
     /// "contains" / "CONTAINS" comparison
     Contains {
         /// Right-hand side bytes value
         rhs: BytesBuilder,
+    },
+
+    /// "contains" / "CONTAINS" comparison with a variable
+    ContainsVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
     },
 
     /// "matches / MATCHES / ~" comparison
@@ -119,10 +149,22 @@ pub enum ComparisonOpExprBuilder {
         rhs: RegexBuilder,
     },
 
+    /// "matches / MATCHES / ~" comparison with a variable
+    MatchesVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+    },
+
     /// "in {...}" / "IN {...}" comparison
     OneOf {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
+    },
+
+    /// "in $..." | "IN $..." comparison with a variable
+    OneOfVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
     },
 
     /// "has_any {...}" / "HAS_ANY {...}" comparison
@@ -131,10 +173,22 @@ pub enum ComparisonOpExprBuilder {
         rhs: RhsValuesBuilder,
     },
 
+    /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+    HasAnyVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+    },
+
     /// "has_all {...}" / "HAS_ALL {...}" comparison
     HasAll {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
+    },
+
+    /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+    HasAllVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
     },
 }
 
@@ -349,6 +403,15 @@ pub enum FunctionCallArgExprBuilder {
     /// or a list of true/false. It compiles to a CompiledExpr and is coerced
     /// into a CompiledValueExpr.
     SimpleExpr(SimpleExprBuilder),
+    /// A variable.
+    Variable(VariableBuilder),
+}
+
+/// Builder for `Variable`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct VariableBuilder {
+    /// Name of the variable.
+    pub name: String,
 }
 
 /// Builder for `Function`.

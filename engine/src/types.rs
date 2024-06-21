@@ -2,7 +2,8 @@ use crate::{
     lex::{expect, skip_space, Lex, LexResult, LexWith},
     lhs_types::{Array, ArrayIterator, Map, MapIter, MapValuesIntoIter},
     rhs_types::{
-        Bytes, FloatRange, IntRange, IpRange, UninhabitedArray, UninhabitedBool, UninhabitedMap,
+        Bytes, FloatRange, IntRange, IpRange, Regex, UninhabitedArray, UninhabitedBool,
+        UninhabitedMap, UninhabitedRegex,
     },
     scheme::{FieldIndex, IndexAccessError},
     strict_partial_ord::StrictPartialOrd,
@@ -12,6 +13,7 @@ use serde::{
     de::{DeserializeSeed, Deserializer},
     Deserialize, Serialize, Serializer,
 };
+use sliceslice::Needle;
 use std::{
     borrow::Cow,
     cmp::Ordering,
@@ -168,12 +170,60 @@ macro_rules! declare_types {
     };
 
     // This is the entry point for the macro.
-    ($($(# $attrs:tt)* $name:ident $([$val_ty:ty])? ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty ) , )*) => {
+    ($($(# $attrs:tt)* $name:ident $([$val_ty:ty])? ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty| ( $( $(#[$variable_value_docs:meta])* $variable_value_ty_name:ident ($variable_value_ty:ty) , )* ) ) , )*) => {
         /// Enumeration of supported types for field values.
-        #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Hash)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Hash)]
         pub enum Type {
             $($(# $attrs)* $name$(($val_ty))?,)*
         }
+
+        /// Enumeration of types for variable values.
+        ///
+        /// These are used in the [scheme](::Scheme) to store variable values
+        /// which can then be used in [filters](::Filter) for comparisons.
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+        pub enum VariableValue {
+            $(
+                $(# $attrs)*
+                $(
+                    $(#[$variable_value_docs])*
+                    $variable_value_ty_name($variable_value_ty),
+                )*
+            )*
+        }
+
+        impl VariableValue {
+            /// Returns the variable type of the variable value.
+            pub fn get_variable_type(&self) -> VariableType {
+                match self {
+                    $(
+                        $(
+                            VariableValue::$variable_value_ty_name(_) => VariableType::$variable_value_ty_name,
+                        )*
+                    )*
+                }
+            }
+        }
+
+        /// Enumeration of supported types for variable values.
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, Hash)]
+        pub enum VariableType {
+            $(
+                $(# $attrs)*
+                $(
+                    $(#[$variable_value_docs])*
+                    $variable_value_ty_name,
+                )*
+            )*
+        }
+
+        $($(
+            impl From<$variable_value_ty> for VariableValue {
+                fn from(value: $variable_value_ty) -> Self {
+                    VariableValue::$variable_value_ty_name(value)
+                }
+            }
+        )*)*
 
         declare_types! {
             /// An LHS value provided for filter execution.
@@ -181,7 +231,7 @@ macro_rules! declare_types {
             /// These are passed to the [execution context](::ExecutionContext)
             /// and are used by [filters](::Filter)
             /// for execution and comparisons.
-            #[derive(PartialEq, Eq, Clone, Deserialize)]
+            #[derive(PartialEq, Eq, Hash, Clone, Deserialize)]
             #[serde(untagged)]
             enum LhsValue<'a> {
                 $($(# $attrs)* $(# $lhs_attrs)* $name($lhs_ty),)*
@@ -358,6 +408,161 @@ impl<'a> PartialEq<RhsValue> for LhsValue<'a> {
     }
 }
 
+impl<'a> PartialOrd<VariableValue> for LhsValue<'a> {
+    fn partial_cmp(&self, other: &VariableValue) -> Option<Ordering> {
+        match (self, other) {
+            (LhsValue::Int(lhs), VariableValue::Int(rhs)) => lhs.partial_cmp(rhs),
+            (LhsValue::Float(lhs), VariableValue::Float(rhs)) => lhs.partial_cmp(rhs),
+            (LhsValue::Bool(lhs), VariableValue::Bool(rhs)) => lhs.partial_cmp(rhs),
+            (LhsValue::Bytes(lhs), VariableValue::Bytes(rhs)) => {
+                lhs.as_bytes().partial_cmp(rhs.as_bytes())
+            }
+            (LhsValue::Ip(lhs), VariableValue::Ip(rhs)) => lhs.partial_cmp(rhs),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> StrictPartialOrd<VariableValue> for LhsValue<'a> {}
+
+impl<'a> PartialEq<VariableValue> for LhsValue<'a> {
+    fn eq(&self, other: &VariableValue) -> bool {
+        self.strict_partial_cmp(other) == Some(Ordering::Equal)
+    }
+}
+
+impl VariableType {
+    /// Checks if a Type is compatible with a VariableType.
+    pub fn is_compatible(&self, ty: &Type) -> bool {
+        matches!(
+            (self, ty),
+            (VariableType::Bool, Type::Bool)
+                | (VariableType::BoolList, Type::Bool)
+                | (VariableType::Int, Type::Int)
+                | (VariableType::IntRange, Type::Int)
+                | (VariableType::IntList, Type::Int)
+                | (VariableType::IntRangeList, Type::Int)
+                | (VariableType::Float, Type::Float)
+                | (VariableType::FloatRange, Type::Float)
+                | (VariableType::FloatList, Type::Float)
+                | (VariableType::FloatRangeList, Type::Float)
+                | (VariableType::Bytes, Type::Bytes)
+                | (VariableType::BytesList, Type::Bytes)
+                | (VariableType::Regex, Type::Bytes)
+                | (VariableType::Ip, Type::Ip)
+                | (VariableType::IpRange, Type::Ip)
+                | (VariableType::IpList, Type::Ip)
+                | (VariableType::IpRangeList, Type::Ip)
+        )
+    }
+
+    /// Returns the Type of a VariableType.
+    pub fn get_type(&self) -> Option<Type> {
+        match self {
+            VariableType::Bool => Some(Type::Bool),
+            VariableType::Int => Some(Type::Int),
+            VariableType::Float => Some(Type::Float),
+            VariableType::Bytes => Some(Type::Bytes),
+            VariableType::Ip => Some(Type::Ip),
+            _ => None,
+        }
+    }
+}
+
+impl VariableValue {
+    /// Returns the type of the variable.
+    #[inline]
+    pub fn get_type(&self) -> Option<Type> {
+        self.get_variable_type().get_type()
+    }
+
+    /// Checks if a variable match is supported with a given [`Type`](enum@Type)
+    /// for an [`LhsValue`](enum@LhsValue).
+    pub fn is_supported_lhs_value_match(&self, ty: &Type) -> bool {
+        matches!(
+            (self, ty),
+            (VariableValue::Bool(_), Type::Bool)
+                | (VariableValue::BoolList(_), Type::Bool)
+                | (VariableValue::Int(_), Type::Int)
+                | (VariableValue::IntRange(_), Type::Int)
+                | (VariableValue::IntList(_), Type::Int)
+                | (VariableValue::IntRangeList(_), Type::Int)
+                | (VariableValue::Float(_), Type::Float)
+                | (VariableValue::FloatRange(_), Type::Float)
+                | (VariableValue::FloatList(_), Type::Float)
+                | (VariableValue::FloatRangeList(_), Type::Float)
+                | (VariableValue::Bytes(_), Type::Bytes)
+                | (VariableValue::BytesList(_), Type::Bytes)
+                | (VariableValue::Regex(_), Type::Bytes)
+                | (VariableValue::Ip(_), Type::Ip)
+                | (VariableValue::IpRange(_), Type::Ip)
+                | (VariableValue::IpList(_), Type::Ip)
+                | (VariableValue::IpRangeList(_), Type::Ip)
+        )
+    }
+
+    /// Checks if a variable matches a [`LhsValue`](enum@LhsValue).
+    pub fn matches_lhs_value(&self, value: &LhsValue<'_>) -> bool {
+        match (self, value) {
+            (VariableValue::Bool(a), LhsValue::Bool(b)) => a == b,
+            (VariableValue::BoolList(a), LhsValue::Bool(b)) => a.contains(b),
+
+            (VariableValue::Int(a), LhsValue::Int(b)) => a == b,
+            (VariableValue::IntRange(a), LhsValue::Int(b)) => a.0.contains(b),
+            (VariableValue::IntList(a), LhsValue::Int(b)) => a.contains(b),
+            (VariableValue::IntRangeList(a), LhsValue::Int(b)) => {
+                a.iter().any(|range| range.0.contains(b))
+            }
+
+            (VariableValue::Float(a), LhsValue::Float(b)) => a == b,
+            (VariableValue::FloatRange(a), LhsValue::Float(b)) => a.0.contains(b),
+            (VariableValue::FloatList(a), LhsValue::Float(b)) => a.contains(b),
+            (VariableValue::FloatRangeList(a), LhsValue::Float(b)) => {
+                a.iter().any(|range| range.0.contains(b))
+            }
+
+            (VariableValue::Bytes(a), LhsValue::Bytes(b)) => a.as_bytes() == b.as_bytes(),
+            (VariableValue::BytesList(a), LhsValue::Bytes(b)) => {
+                a.iter().any(|x| x == b.as_bytes())
+            }
+            (VariableValue::Regex(a), LhsValue::Bytes(b)) => a.is_match(b),
+
+            (VariableValue::Ip(a), LhsValue::Ip(b)) => a == b,
+            (VariableValue::IpRange(a), LhsValue::Ip(b)) => a.contains(b),
+            (VariableValue::IpList(a), LhsValue::Ip(b)) => a.contains(b),
+            (VariableValue::IpRangeList(a), LhsValue::Ip(b)) => {
+                a.iter().any(|range| range.contains(b))
+            }
+
+            _ => false,
+        }
+    }
+
+    /// Checks if a variable type can be cast as a [`LhsValue`](enum@LhsValue).
+    pub fn is_supported_as_lhs_value(&self, ty: &Type) -> bool {
+        matches!(
+            (self, ty),
+            (VariableValue::Bool(_), Type::Bool)
+                | (VariableValue::Int(_), Type::Int)
+                | (VariableValue::Float(_), Type::Float)
+                | (VariableValue::Bytes(_), Type::Bytes)
+                | (VariableValue::Ip(_), Type::Ip)
+        )
+    }
+
+    /// Casts a variable as a [`LhsValue`](enum@LhsValue).
+    pub fn as_lhs_value(&self) -> Option<LhsValue<'static>> {
+        match self {
+            VariableValue::Bool(a) => Some(LhsValue::Bool(*a)),
+            VariableValue::Int(a) => Some(LhsValue::Int(*a)),
+            VariableValue::Float(a) => Some(LhsValue::Float(*a)),
+            VariableValue::Bytes(a) => Some(LhsValue::Bytes(Cow::Owned(a.to_vec()))),
+            VariableValue::Ip(a) => Some(LhsValue::Ip(*a)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum BytesOrString<'a> {
@@ -425,6 +630,7 @@ impl<'a> From<&'a RhsValue> for LhsValue<'a> {
             RhsValue::Bool(b) => match *b {},
             RhsValue::Array(a) => match *a {},
             RhsValue::Map(m) => match *m {},
+            RhsValue::Regex(r) => match *r {},
         }
     }
 }
@@ -439,6 +645,7 @@ impl<'a> From<RhsValue> for LhsValue<'a> {
             RhsValue::Bool(b) => match b {},
             RhsValue::Array(a) => match a {},
             RhsValue::Map(m) => match m {},
+            RhsValue::Regex(r) => match r {},
         }
     }
 }
@@ -455,6 +662,7 @@ impl<'a> LhsValue<'a> {
             LhsValue::Bool(b) => LhsValue::Bool(*b),
             LhsValue::Array(a) => LhsValue::Array(a.as_ref()),
             LhsValue::Map(m) => LhsValue::Map(m.as_ref()),
+            LhsValue::Regex(r) => LhsValue::Regex(*r),
         }
     }
 
@@ -468,6 +676,7 @@ impl<'a> LhsValue<'a> {
             LhsValue::Bool(b) => LhsValue::Bool(b),
             LhsValue::Array(arr) => LhsValue::Array(arr.into_owned()),
             LhsValue::Map(map) => LhsValue::Map(map.into_owned()),
+            LhsValue::Regex(r) => LhsValue::Regex(r),
         }
     }
 
@@ -587,6 +796,7 @@ impl<'a> Serialize for LhsValue<'a> {
             LhsValue::Bool(b) => b.serialize(serializer),
             LhsValue::Array(arr) => arr.serialize(serializer),
             LhsValue::Map(map) => map.serialize(serializer),
+            LhsValue::Regex(regex) => regex.serialize(serializer),
         }
     }
 }
@@ -618,6 +828,9 @@ impl<'de, 'a> DeserializeSeed<'de> for LhsValueSeed<'a> {
                 map.deserialize(deserializer)?;
                 map
             })),
+            Type::Regex => Ok(LhsValue::Regex(UninhabitedRegex::deserialize(
+                deserializer,
+            )?)),
         }
     }
 }
@@ -668,30 +881,71 @@ impl<'a> Iterator for Iter<'a> {
 
 declare_types!(
     /// A boolean.
-    Bool(bool | UninhabitedBool | UninhabitedBool),
+    Bool(bool | UninhabitedBool | UninhabitedBool | (
+        Bool(bool),
+        /// Represents a list of booleans.
+        BoolList(Vec<bool>),
+    )),
 
     /// A 32-bit integer number.
-    Int(i32 | i32 | IntRange),
+    Int(i32 | i32 | IntRange | (
+        Int(i32),
+        /// Represents a range of integers.
+        IntRange(IntRange),
+        /// Represents a list of integers.
+        IntList(Vec<i32>),
+        /// Represents a list of integer ranges.
+        IntRangeList(Vec<IntRange>),
+    )),
 
     /// A 64-bit floating point number.
-    Float(OrderedFloat<f64> | OrderedFloat<f64> | FloatRange),
+    Float(OrderedFloat<f64> | OrderedFloat<f64> | FloatRange | (
+        Float(OrderedFloat<f64>),
+        /// Represents a range of floating point numbers.
+        FloatRange(FloatRange),
+        /// Represents a list of floating point numbers.
+        FloatList(Vec<OrderedFloat<f64>>),
+        /// Represents a list of floating point ranges.
+        FloatRangeList(Vec<FloatRange>),
+    )),
 
     /// An IPv4 or IPv6 address.
     ///
     /// These are represented as a single type to allow interop comparisons.
-    Ip(IpAddr | IpAddr | IpRange),
+    Ip(IpAddr | IpAddr | IpRange | (
+        Ip(IpAddr),
+        /// Represents a range of IP addresses.
+        IpRange(IpRange),
+        /// Represents a list of IP addresses.
+        IpList(Vec<IpAddr>),
+        /// Represents a list of IP ranges.
+        IpRangeList(Vec<IpRange>),
+    )),
 
     /// A raw bytes or a string field.
     ///
     /// These are completely interchangeable in runtime and differ only in
     /// syntax representation, so we represent them as a single type.
-    Bytes(#[serde(borrow)] Cow<'a, [u8]> | Bytes | Bytes),
+    Bytes(#[serde(borrow)] Cow<'a, [u8]> | Bytes | Bytes | (
+        Bytes(Vec<u8>),
+        /// Represents a list of bytes.
+        BytesList(Vec<Vec<u8>>),
+    )),
 
     /// An Array of [`Type`].
-    Array[Box<Type>](#[serde(skip_deserializing)] Array<'a> | UninhabitedArray | UninhabitedArray),
+    Array[Box<Type>](#[serde(skip_deserializing)] Array<'a> | UninhabitedArray | UninhabitedArray | (
+        Array(UninhabitedArray),
+    )),
 
     /// A Map of string to [`Type`].
-    Map[Box<Type>](#[serde(skip_deserializing)] Map<'a> | UninhabitedMap | UninhabitedMap),
+    Map[Box<Type>](#[serde(skip_deserializing)] Map<'a> | UninhabitedMap | UninhabitedMap | (
+        Map(UninhabitedMap),
+    ) ),
+
+    /// A regex pattern.
+    Regex(UninhabitedRegex | UninhabitedRegex | UninhabitedRegex | (
+        Regex(Regex),
+    )),
 );
 
 #[test]

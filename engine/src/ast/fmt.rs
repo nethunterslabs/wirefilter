@@ -43,6 +43,7 @@ impl Fmt for RhsValue {
             RhsValue::Bool(_) => unreachable!(),
             RhsValue::Array(_) => unreachable!(),
             RhsValue::Map(_) => unreachable!(),
+            RhsValue::Regex(_) => unreachable!(),
         }
     }
 }
@@ -86,6 +87,7 @@ impl Fmt for RhsValues {
             RhsValues::Bool(_) => unreachable!(),
             RhsValues::Array(_) => unreachable!(),
             RhsValues::Map(_) => unreachable!(),
+            RhsValues::Regex(_) => unreachable!(),
         }
         output.push('}');
     }
@@ -104,58 +106,82 @@ impl<'s> Fmt for LhsFieldExpr<'s> {
     }
 }
 
+impl Fmt for OrderingOp {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        match self {
+            OrderingOp::Equal(variant) => match *variant {
+                0 => output.push_str(" eq "),
+                1 => output.push_str(" EQ "),
+                _ => output.push_str(" == "),
+            },
+            OrderingOp::NotEqual(variant) => match *variant {
+                0 => output.push_str(" ne "),
+                1 => output.push_str(" NE "),
+                _ => output.push_str(" != "),
+            },
+            OrderingOp::GreaterThanEqual(variant) => match *variant {
+                0 => output.push_str(" ge "),
+                1 => output.push_str(" GE "),
+                _ => output.push_str(" >= "),
+            },
+            OrderingOp::LessThanEqual(variant) => match *variant {
+                0 => output.push_str(" le "),
+                1 => output.push_str(" LE "),
+                _ => output.push_str(" <= "),
+            },
+            OrderingOp::GreaterThan(variant) => match *variant {
+                0 => output.push_str(" gt "),
+                1 => output.push_str(" GT "),
+                _ => output.push_str(" > "),
+            },
+            OrderingOp::LessThan(variant) => match *variant {
+                0 => output.push_str(" lt "),
+                1 => output.push_str(" LT "),
+                _ => output.push_str(" < "),
+            },
+        }
+    }
+}
+
+impl Fmt for IntOp {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        match self {
+            IntOp::BitwiseAnd(variant) => match *variant {
+                0 => output.push_str(" & "),
+                1 => output.push_str(" bitwise_and "),
+                _ => output.push_str(" BITWISE_AND "),
+            },
+        }
+    }
+}
+
 impl<'s> Fmt for ComparisonExpr<'s> {
     fn fmt(&self, _indent: usize, output: &mut String) {
         self.lhs.fmt(0, output);
 
         match &self.op {
             ComparisonOpExpr::IsTrue => {}
-            ComparisonOpExpr::Ordering { op, rhs } => {
-                match op {
-                    OrderingOp::Equal(variant) => match *variant {
-                        0 => output.push_str(" eq "),
-                        1 => output.push_str(" EQ "),
-                        _ => output.push_str(" == "),
-                    },
-                    OrderingOp::NotEqual(variant) => match *variant {
-                        0 => output.push_str(" ne "),
-                        1 => output.push_str(" NE "),
-                        _ => output.push_str(" != "),
-                    },
-                    OrderingOp::GreaterThanEqual(variant) => match *variant {
-                        0 => output.push_str(" ge "),
-                        1 => output.push_str(" GE "),
-                        _ => output.push_str(" >= "),
-                    },
-                    OrderingOp::LessThanEqual(variant) => match *variant {
-                        0 => output.push_str(" le "),
-                        1 => output.push_str(" LE "),
-                        _ => output.push_str(" <= "),
-                    },
-                    OrderingOp::GreaterThan(variant) => match *variant {
-                        0 => output.push_str(" gt "),
-                        1 => output.push_str(" GT "),
-                        _ => output.push_str(" > "),
-                    },
-                    OrderingOp::LessThan(variant) => match *variant {
-                        0 => output.push_str(" lt "),
-                        1 => output.push_str(" LT "),
-                        _ => output.push_str(" < "),
-                    },
-                }
 
+            ComparisonOpExpr::Ordering { op, rhs } => {
+                op.fmt(0, output);
                 rhs.fmt(0, output);
             }
-            ComparisonOpExpr::Int { op, rhs } => match op {
-                IntOp::BitwiseAnd(variant) => {
-                    match *variant {
-                        0 => output.push_str(" & "),
-                        1 => output.push_str(" bitwise_and "),
-                        _ => output.push_str(" BITWISE_AND "),
-                    }
-                    output.push_str(&rhs.to_string());
-                }
-            },
+            ComparisonOpExpr::OrderingVariable { op, var } => {
+                op.fmt(0, output);
+                output.push('$');
+                output.push_str(var.name());
+            }
+
+            ComparisonOpExpr::Int { op, rhs } => {
+                op.fmt(0, output);
+                output.push_str(&rhs.to_string());
+            }
+            ComparisonOpExpr::IntVariable { op, var } => {
+                op.fmt(0, output);
+                output.push('$');
+                output.push_str(var.name());
+            }
+
             ComparisonOpExpr::Contains {
                 rhs: bytes,
                 variant,
@@ -166,6 +192,14 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 }
                 bytes.fmt(0, output);
             }
+            ComparisonOpExpr::ContainsVariable { var, variant } => {
+                match *variant {
+                    0 => output.push_str(" contains $"),
+                    _ => output.push_str(" CONTAINS $"),
+                }
+                output.push_str(var.name());
+            }
+
             ComparisonOpExpr::Matches {
                 rhs: regex,
                 variant,
@@ -192,6 +226,15 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     }
                 }
             }
+            ComparisonOpExpr::MatchesVariable { var, variant } => {
+                match *variant {
+                    0 => output.push_str(" ~ $"),
+                    1 => output.push_str(" matches $"),
+                    _ => output.push_str(" MATCHES $"),
+                }
+                output.push_str(var.name());
+            }
+
             ComparisonOpExpr::OneOf {
                 rhs: values,
                 variant,
@@ -202,6 +245,14 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 }
                 values.fmt(0, output);
             }
+            ComparisonOpExpr::OneOfVariable { var, variant } => {
+                match *variant {
+                    0 => output.push_str(" in $"),
+                    _ => output.push_str(" IN $"),
+                }
+                output.push_str(var.name());
+            }
+
             ComparisonOpExpr::HasAny {
                 rhs: values,
                 variant,
@@ -212,6 +263,14 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 }
                 values.fmt(0, output);
             }
+            ComparisonOpExpr::HasAnyVariable { var, variant } => {
+                match *variant {
+                    0 => output.push_str(" has_any $"),
+                    _ => output.push_str(" HAS_ANY $"),
+                }
+                output.push_str(var.name());
+            }
+
             ComparisonOpExpr::HasAll {
                 rhs: values,
                 variant,
@@ -222,16 +281,12 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::InList {
-                name,
-                list: _,
-                variant,
-            } => {
+            ComparisonOpExpr::HasAllVariable { var, variant } => {
                 match *variant {
-                    0 => output.push_str(" in $"),
-                    _ => output.push_str(" IN $"),
+                    0 => output.push_str(" has_all $"),
+                    _ => output.push_str(" HAS_ALL $"),
                 }
-                output.push_str(name.as_str());
+                output.push_str(var.name());
             }
         }
     }
@@ -325,6 +380,10 @@ impl<'s> Fmt for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::IndexExpr(index_expr) => index_expr.fmt(indent, output),
             FunctionCallArgExpr::Literal(literal) => literal.fmt(indent, output),
             FunctionCallArgExpr::SimpleExpr(simple_expr) => simple_expr.fmt(indent, output),
+            FunctionCallArgExpr::Variable(variable) => {
+                output.push('$');
+                output.push_str(variable.name())
+            }
         }
     }
 }
@@ -500,71 +559,72 @@ impl<'s> FilterAst<'s> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        Array, FunctionArgKind, FunctionArgs, GetType, LhsValue, Scheme, SimpleFunctionDefinition,
-        SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam, State, Type,
+        Array, ExecutionContext, FunctionArgKind, FunctionArgs, GetType, LhsValue, Map, Scheme,
+        SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam,
+        State, Type,
     };
-    use std::convert::TryFrom;
+    use lazy_static::lazy_static;
+    use ordered_float::OrderedFloat;
+    use std::{convert::TryFrom, net::IpAddr};
 
-    #[test]
-    fn test_fmt() {
-        fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
-            match args.next()? {
-                Ok(v) => Some(LhsValue::Bool(
-                    Array::try_from(v)
-                        .unwrap()
-                        .into_iter()
-                        .any(|lhs| bool::try_from(lhs).unwrap()),
-                )),
-                Err(Type::Array(ref arr)) if arr.get_type() == Type::Bool => None,
-                _ => unreachable!(),
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        match args.next()? {
+            Ok(v) => Some(LhsValue::Bool(
+                Array::try_from(v)
+                    .unwrap()
+                    .into_iter()
+                    .any(|lhs| bool::try_from(lhs).unwrap()),
+            )),
+            Err(Type::Array(ref arr)) if arr.get_type() == Type::Bool => None,
+            _ => unreachable!(),
+        }
+    }
+
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        use std::borrow::Cow;
+
+        match args.next()? {
+            Ok(LhsValue::Bytes(mut b)) => {
+                let mut text: Vec<u8> = b.to_mut().to_vec();
+                text.make_ascii_lowercase();
+                Some(LhsValue::Bytes(Cow::Owned(text)))
             }
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
         }
+    }
 
-        fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
-            use std::borrow::Cow;
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        use std::borrow::Cow;
 
-            match args.next()? {
-                Ok(LhsValue::Bytes(mut b)) => {
-                    let mut text: Vec<u8> = b.to_mut().to_vec();
-                    text.make_ascii_lowercase();
-                    Some(LhsValue::Bytes(Cow::Owned(text)))
-                }
-                Err(Type::Bytes) => None,
-                _ => unreachable!(),
+        match args.next()? {
+            Ok(LhsValue::Bytes(mut b)) => {
+                let mut text: Vec<u8> = b.to_mut().to_vec();
+                text.make_ascii_uppercase();
+                Some(LhsValue::Bytes(Cow::Owned(text)))
             }
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
         }
+    }
 
-        fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
-            use std::borrow::Cow;
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        args.next()?.ok()
+    }
 
-            match args.next()? {
-                Ok(LhsValue::Bytes(mut b)) => {
-                    let mut text: Vec<u8> = b.to_mut().to_vec();
-                    text.make_ascii_uppercase();
-                    Some(LhsValue::Bytes(Cow::Owned(text)))
-                }
-                Err(Type::Bytes) => None,
-                _ => unreachable!(),
-            }
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        match args.next()? {
+            Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
+            Err(Type::Bytes) => None,
+            _ => unreachable!(),
         }
+    }
 
-        fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
-            args.next()?.ok()
-        }
-
-        fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
-            match args.next()? {
-                Ok(LhsValue::Bytes(bytes)) => {
-                    Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap()))
-                }
-                Err(Type::Bytes) => None,
-                _ => unreachable!(),
-            }
-        }
-
+    fn scheme() -> Scheme {
         let mut scheme = Scheme! {
             http.request.headers: Map(Array(Bytes)),
             http.host: Bytes,
+            http.user_agent: Bytes,
             http.request.headers.names: Array(Bytes),
             http.request.headers.values: Array(Bytes),
             http.request.headers.is_empty: Array(Bool),
@@ -572,13 +632,14 @@ mod tests {
             ip.addr: Ip,
             ssl: Bool,
             tcp.port: Int,
+            tcp.dport: Int,
         };
         scheme
             .add_function(
                 "any".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Array(Box::new(Type::Bool)),
                     }],
                     opt_params: Some(vec![]),
@@ -592,12 +653,12 @@ mod tests {
                 "echo".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![
                         SimpleFunctionOptParam {
-                            arg_kind: FunctionArgKind::Literal,
+                            arg_kind: FunctionArgKind::Any,
                             default_value: LhsValue::Int(10),
                         },
                         SimpleFunctionOptParam {
@@ -619,7 +680,7 @@ mod tests {
                 "lower".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![]),
@@ -647,7 +708,7 @@ mod tests {
                 "len".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![]),
@@ -656,714 +717,591 @@ mod tests {
                 },
             )
             .unwrap();
-
-        let ast = scheme
-            .parse(r#" http.host  ==   "example.com"    "#)
+        scheme
+            .add_variable(
+                "in_var".to_string(),
+                vec![b"example.com".to_vec(), b"example.org".to_vec()].into(),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"!http.host  ==   "example.com"    "#)
+        scheme
+            .add_variable(
+                "has_any_var".to_string(),
+                vec![b".com".to_vec(), b".org".to_vec()].into(),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"!http.host == "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"not http.host  ==   "example.com"    "#)
+        scheme
+            .add_variable(
+                "has_all_var".to_string(),
+                vec![b"exam".to_vec(), b"ple".to_vec()].into(),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"not http.host == "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"NOT http.host  ==   "example.com"    "#)
+        scheme
+            .add_variable("bool_var".to_string(), true.into())
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"NOT http.host == "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#" http.host  eq   "example.com"    "#)
+        scheme
+            .add_variable("bytes_var".to_string(), b"example.com".to_vec().into())
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host eq "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#" http.host  EQ   "example.com"    "#)
+        scheme
+            .add_variable("bytes_var2".to_string(), b"example.org".to_vec().into())
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host EQ "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#" http.host  !=   "example.com"    "#)
+        scheme
+            .add_variable("int_var".to_string(), 80.into())
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host != "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#" http.host  ne   "example.com"    "#)
+        scheme
+            .add_variable("float_var".to_string(), OrderedFloat(80.0).into())
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host ne "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#" http.host  NE   "example.com"    "#)
+        scheme
+            .add_variable(
+                "ip_var".to_string(),
+                "127.0.0.1".parse::<IpAddr>().unwrap().into(),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host NE "example.com""#.to_string()),
-            "Unable to format single field expression"
-        );
+        scheme
+    }
 
-        let ast = scheme.parse(r#"http.host == "example\".com""#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example\".com""#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host == 65:78:61:6d:70:6c:65:2e:63:6f:6d"#)
+    fn execution_context(scheme: &'static Scheme) -> ExecutionContext<'static> {
+        let mut execution_context = ExecutionContext::new(scheme);
+        execution_context
+            .set_field_value(
+                scheme.get_field("http.host").unwrap(),
+                LhsValue::Bytes(b"example.com".into()),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == 65:78:61:6D:70:6C:65:2E:63:6F:6D"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host == 65.78.61.6d.70.6c.65.2e.63.6f.6d"#)
+        execution_context
+            .set_field_value(scheme.get_field("tcp.port").unwrap(), LhsValue::Int(80))
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == 65.78.61.6D.70.6C.65.2E.63.6F.6D"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host == 65-78-61-6d-70-6c-65-2e-63-6f-6d"#)
+        execution_context
+            .set_field_value(scheme.get_field("tcp.dport").unwrap(), LhsValue::Int(443))
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == 65-78-61-6D-70-6C-65-2E-63-6F-6D"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         ==  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port == 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         bitwise_and  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port bitwise_and 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         BITWISE_AND  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port BITWISE_AND 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         &  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port & 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         >  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port > 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         gt  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port gt 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         GT  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port GT 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         >=  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port >= 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         ge  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port ge 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         GE  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port GE 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         <  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port < 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         lt  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port lt 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         LT  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port LT 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         <=  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port <= 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         le  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port le 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme.parse(r#"tcp.port         LE  80"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port LE 80"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host   in    {    "example.com"     "example.org" }"#)
+        execution_context
+            .set_field_value(
+                scheme.get_field("http.version").unwrap(),
+                LhsValue::Float(OrderedFloat(1.1)),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host in {"example.com" "example.org"}"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host   IN    {    "example.com"     "example.org" }"#)
+        execution_context
+            .set_field_value(
+                scheme.get_field("ip.addr").unwrap(),
+                LhsValue::Ip("127.0.0.1".parse::<IpAddr>().unwrap()),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host IN {"example.com" "example.org"}"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host   has_any    {    ".com"     ".org" }"#)
+        execution_context
+            .set_field_value(scheme.get_field("ssl").unwrap(), LhsValue::Bool(true))
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host has_any {".com" ".org"}"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host   HAS_ANY    {    ".com"     ".org" }"#)
+        execution_context
+            .set_field_value(
+                scheme.get_field("http.user_agent").unwrap(),
+                LhsValue::Bytes(b".\"abc\"".into()),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host HAS_ANY {".com" ".org"}"#.to_string()),
-            "Unable to format single field expression"
-        );
-
-        let ast = scheme
-            .parse(r#"http.host   has_all    {    "exam"     "ample" }"#)
+        execution_context
+            .set_field_value(
+                scheme.get_field("http.request.headers").unwrap(),
+                LhsValue::Map({
+                    let mut map = Map::new(Type::Array(Box::new(Type::Bytes)));
+                    map.insert(b"host", {
+                        let mut array = Array::new(Type::Bytes);
+                        array.push(b"example.com".to_vec().into()).unwrap();
+                        array.into()
+                    })
+                    .unwrap();
+                    map.insert(b"user-agent", {
+                        let mut array = Array::new(Type::Bytes);
+                        array.push(b"Mozilla/5.0".to_vec().into()).unwrap();
+                        array.into()
+                    })
+                    .unwrap();
+                    map.insert(b"content-type", {
+                        let mut array = Array::new(Type::Bytes);
+                        array.push(b"application/json".to_vec().into()).unwrap();
+                        array.into()
+                    })
+                    .unwrap();
+                    map
+                }),
+            )
             .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host has_all {"exam" "ample"}"#.to_string()),
-            "Unable to format single field expression"
+        execution_context
+    }
+
+    lazy_static! {
+        static ref SCHEME: Scheme = scheme();
+        static ref EXECUTION_CONTEXT: ExecutionContext<'static> = execution_context(&SCHEME);
+        static ref STATE: State<'static> = State::new();
+    }
+
+    macro_rules! test_fmt {
+        ($input:expr, $expected:expr) => {
+            let ast = SCHEME.parse($input).unwrap();
+            let formatted = ast.fmt().unwrap();
+            assert_eq!(formatted, $expected);
+
+            let filter = ast.compile();
+            assert!(
+                filter.execute(&EXECUTION_CONTEXT, &STATE).unwrap(),
+                "Failed to execute filter: {}",
+                $input
+            );
+        };
+    }
+
+    #[test]
+    fn test_fmt_bytes_eq() {
+        test_fmt!(
+            r#" http.host  ==   "example.com"   "#,
+            r#"http.host == "example.com""#
         );
 
-        let ast = scheme
-            .parse(r#"http.host   HAS_ALL    {    "exam"     "ample" }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host HAS_ALL {"exam" "ample"}"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.host  eq   "example.com"    "#,
+            r#"http.host eq "example.com""#
+        );
+        test_fmt!(
+            r#"http.host  EQ   "example.com"    "#,
+            r#"http.host EQ "example.com""#
+        );
+    }
+
+    #[test]
+    fn test_fmt_float_eq() {
+        test_fmt!(r#"http.version == 1.1"#, r#"http.version == 1.1"#);
+    }
+
+    #[test]
+    fn test_fmt_bytes_eq_var() {
+        test_fmt!(
+            r#" http.host  ==   $bytes_var   "#,
+            r#"http.host == $bytes_var"#
+        );
+    }
+
+    #[test]
+    fn test_fmt_not_bytes_eq() {
+        test_fmt!(
+            r#"!http.host  ==   "example.org"    "#,
+            r#"!http.host == "example.org""#
         );
 
-        let ast = scheme
-            .parse(r#"tcp.port   in    {    80     443 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port in {80 443}"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"not http.host  ==   "example.org"    "#,
+            r#"not http.host == "example.org""#
+        );
+        test_fmt!(
+            r#"NOT http.host  ==   "example.org"    "#,
+            r#"NOT http.host == "example.org""#
+        );
+    }
+
+    #[test]
+    fn test_not_bytes_eq_var_fmt() {
+        test_fmt!(
+            r#"!http.host  ==   $bytes_var2    "#,
+            r#"!http.host == $bytes_var2"#
         );
 
-        let ast = scheme
-            .parse(r#"tcp.port   in    {    80..443           8000..8080 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"tcp.port in {80..443 8000..8080}"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"NOT http.host  ==   $bytes_var2    "#,
+            r#"NOT http.host == $bytes_var2"#
         );
 
-        let ast = scheme.parse(r#"http.version         ==  1.1"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.version == 1.1"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"not http.host  ==   $bytes_var2    "#,
+            r#"not http.host == $bytes_var2"#
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.version   in    {    1.0     1.1 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.version in {1.0 1.1}"#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_not_equals() {
+        test_fmt!(
+            r#"http.host  !=   "example.org"    "#,
+            r#"http.host != "example.org""#
         );
-
-        let ast = scheme
-            .parse(r#"http.version   in    {    1.0..1.1      2.0..3.0 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.version in {1.0..1.1 2.0..3.0}"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.host  ne   "example.org"    "#,
+            r#"http.host ne "example.org""#
         );
-
-        let ast = scheme.parse(r#"ip.addr         ==  127.0.0.1"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"ip.addr == 127.0.0.1"#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.host  NE   "example.org"    "#,
+            r#"http.host NE "example.org""#
         );
+    }
 
-        let ast = scheme
-            .parse(r#"ip.addr   in    {    127.0.0.1     127.0.0.2 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"ip.addr in {127.0.0.1 127.0.0.2}"#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_escape() {
+        test_fmt!(
+            r#"http.host != "example\".com""#,
+            r#"http.host != "example\".com""#
         );
+    }
 
-        let ast = scheme
-            .parse(r#"ip.addr   in    {    127.0.0.1..127.0.0.2     127.0.0.0/24 }"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_colon_separated() {
+        test_fmt!(
+            r#"http.host == 65:78:61:6d:70:6c:65:2e:63:6f:6d"#,
+            r#"http.host == 65:78:61:6D:70:6C:65:2E:63:6F:6D"#
         );
+    }
 
-        let ast = scheme
-            .parse(r#" http.host  contains   "example"    "#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host contains "example""#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_dot_separated() {
+        test_fmt!(
+            r#"http.host == 65.78.61.6d.70.6c.65.2e.63.6f.6d"#,
+            r#"http.host == 65.78.61.6D.70.6C.65.2E.63.6F.6D"#
         );
+    }
 
-        let ast = scheme
-            .parse(r#" http.host  CONTAINS   "example"    "#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host CONTAINS "example""#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_dash_separated() {
+        test_fmt!(
+            r#"http.host == 65-78-61-6d-70-6c-65-2e-63-6f-6d"#,
+            r#"http.host == 65-78-61-6D-70-6C-65-2E-63-6F-6D"#
         );
+    }
 
-        let ast = scheme
-            .parse(r#" http.host  matches   "\.[a-z]{3}"    "#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host matches "\.[a-z]{3}""#.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_equals() {
+        test_fmt!(r#"tcp.port == 80"#, r#"tcp.port == 80"#);
+    }
+
+    #[test]
+    fn test_fmt_bitwise_and() {
+        test_fmt!(r#"tcp.dport bitwise_and 1"#, r#"tcp.dport bitwise_and 1"#);
+        test_fmt!(r#"tcp.dport BITWISE_AND 1"#, r#"tcp.dport BITWISE_AND 1"#);
+        test_fmt!(r#"tcp.dport & 1"#, r#"tcp.dport & 1"#);
+    }
+
+    #[test]
+    fn test_fmt_greater_than() {
+        test_fmt!(r#"tcp.port > 70"#, r#"tcp.port > 70"#);
+        test_fmt!(r#"tcp.port gt 70"#, r#"tcp.port gt 70"#);
+        test_fmt!(r#"tcp.port GT 70"#, r#"tcp.port GT 70"#);
+    }
+
+    #[test]
+    fn test_fmt_greater_than_or_equal_to() {
+        test_fmt!(r#"tcp.port >= 80"#, r#"tcp.port >= 80"#);
+        test_fmt!(r#"tcp.port ge 80"#, r#"tcp.port ge 80"#);
+        test_fmt!(r#"tcp.port GE 80"#, r#"tcp.port GE 80"#);
+    }
+
+    #[test]
+    fn test_fmt_less_than() {
+        test_fmt!(r#"tcp.port < 90"#, r#"tcp.port < 90"#);
+        test_fmt!(r#"tcp.port lt 90"#, r#"tcp.port lt 90"#);
+        test_fmt!(r#"tcp.port LT 90"#, r#"tcp.port LT 90"#);
+    }
+
+    #[test]
+    fn test_fmt_less_than_or_equal_to() {
+        test_fmt!(r#"tcp.port <= 80"#, r#"tcp.port <= 80"#);
+        test_fmt!(r#"tcp.port le 80"#, r#"tcp.port le 80"#);
+        test_fmt!(r#"tcp.port LE 80"#, r#"tcp.port LE 80"#);
+    }
+
+    #[test]
+    fn test_fmt_in() {
+        test_fmt!(r#"http.host in $in_var"#, r#"http.host in $in_var"#);
+        test_fmt!(
+            r#"http.host in {"example.com" "example.org"}"#,
+            r#"http.host in {"example.com" "example.org"}"#
         );
-
-        let ast = scheme
-            .parse(r#" http.host  MATCHES   "\.[a-z]{3}"    "#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host MATCHES "\.[a-z]{3}""#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.host IN {"example.com" "example.org"}"#,
+            r#"http.host IN {"example.com" "example.org"}"#
         );
-
-        let ast = scheme.parse(r#" http.host  ~   "\.[a-z]{3}"    "#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host ~ "\.[a-z]{3}""#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(r#"tcp.port in {80 443}"#, r#"tcp.port in {80 443}"#);
+        test_fmt!(
+            r#"tcp.port in {80..443 8000..8080}"#,
+            r#"tcp.port in {80..443 8000..8080}"#
         );
-
-        let ast = scheme
-            .parse(r#" http.host  matches   r"\.[a-z]{3}"    "#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host matches r"\.[a-z]{3}""#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.version in {1.0 1.1}"#,
+            r#"http.version in {1.0 1.1}"#
         );
-
-        let ast = scheme
-            .parse(r##" http.host  matches   r#"\.[a-z]{3}"#    "##)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r##"http.host matches r#"\.[a-z]{3}"#"##.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.version in {1.0..1.1 2.0..3.0}"#,
+            r#"http.version in {1.0..1.1 2.0..3.0}"#
         );
+    }
 
-        let ast = scheme
-            .parse(r##" http.host  MATCHES   r#"\."[a-z]{3}""#    "##)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r##"http.host MATCHES r#"\."[a-z]{3}""#"##.to_string()),
-            "Unable to format single field expression"
+    #[test]
+    fn test_fmt_has_any() {
+        test_fmt!(
+            r#"http.host has_any {".com" ".org"}"#,
+            r#"http.host has_any {".com" ".org"}"#
         );
-
-        let ast = scheme.parse(r#" http.host  ~   "\.[a-z]{3}"    "#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host ~ "\.[a-z]{3}""#.to_string()),
-            "Unable to format single field expression"
+        test_fmt!(
+            r#"http.host has_any $has_any_var"#,
+            r#"http.host has_any $has_any_var"#
         );
+        test_fmt!(
+            r#"http.host HAS_ANY {".com" ".org"}"#,
+            r#"http.host HAS_ANY {".com" ".org"}"#
+        );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == "example.com" && http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+    #[test]
+    fn test_fmt_has_all() {
+        test_fmt!(
+            r#"http.host has_all {"exam" "ple"}"#,
+            r#"http.host has_all {"exam" "ple"}"#
+        );
+        test_fmt!(
+            r#"http.host has_all $has_all_var"#,
+            r#"http.host has_all $has_all_var"#
+        );
+        test_fmt!(
+            r#"http.host HAS_ALL {"exam" "ple"}"#,
+            r#"http.host HAS_ALL {"exam" "ple"}"#
+        );
+    }
+
+    #[test]
+    fn test_fmt_ip_addr() {
+        test_fmt!(r#"ip.addr == 127.0.0.1"#, r#"ip.addr == 127.0.0.1"#);
+        test_fmt!(
+            r#"ip.addr in {127.0.0.1 127.0.0.2}"#,
+            r#"ip.addr in {127.0.0.1 127.0.0.2}"#
+        );
+        test_fmt!(
+            r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#,
+            r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#
+        );
+    }
+
+    #[test]
+    fn test_fmt_http_host() {
+        test_fmt!(
+            r#"http.host contains "example""#,
+            r#"http.host contains "example""#
+        );
+        test_fmt!(
+            r#"http.host CONTAINS "example""#,
+            r#"http.host CONTAINS "example""#
+        );
+        test_fmt!(
+            r#"http.host CONTAINS $bytes_var"#,
+            r#"http.host CONTAINS $bytes_var"#
+        );
+        test_fmt!(
+            r#"http.host matches "\.[a-z]{3}""#,
+            r#"http.host matches "\.[a-z]{3}""#
+        );
+        test_fmt!(
+            r#"http.host MATCHES "\.[a-z]{3}""#,
+            r#"http.host MATCHES "\.[a-z]{3}""#
+        );
+        test_fmt!(r#"http.host ~ "\.[a-z]{3}""#, r#"http.host ~ "\.[a-z]{3}""#);
+        test_fmt!(
+            r#"http.host matches r"\.[a-z]{3}""#,
+            r#"http.host matches r"\.[a-z]{3}""#
+        );
+        test_fmt!(
+            r##"http.host matches r#"\.[a-z]{3}"#"##,
+            r##"http.host matches r#"\.[a-z]{3}"#"##
+        );
+        test_fmt!(
+            r##"http.user_agent MATCHES r#"\."[a-z]{3}""#"##,
+            r##"http.user_agent MATCHES r#"\."[a-z]{3}""#"##
+        );
+        test_fmt!(r#"http.host ~ "\.[a-z]{3}""#, r#"http.host ~ "\.[a-z]{3}""#);
+    }
+
+    #[test]
+    fn test_fmt_http_host_and_content_type() {
+        test_fmt!(
+            r#"http.host == "example.com" && http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 && http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" and http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.com" and http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 and http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" AND http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.com" AND http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 AND http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == "example.com" || http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+    #[test]
+    fn test_fmt_http_host_or_content_type() {
+        test_fmt!(
+            r#"http.host == "example.com" || http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 || http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" or http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.com" or http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 or http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" OR http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.com" OR http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.com"
 OR http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == "example.com" ^^ http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+    #[test]
+    fn test_fmt_http_host_xor_content_type() {
+        test_fmt!(
+            r#"http.host == "example.org" ^^ http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.org"
 ^^ http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" xor http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.org" xor http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.org"
 xor http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
-
-        let ast = scheme
-            .parse(r#"http.host == "example.com" XOR http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+        test_fmt!(
+            r#"http.host == "example.org" XOR http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == "example.org"
 XOR http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == r"example.com" && http.request.headers["content-type"][0] == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == r"example.com"
+    #[test]
+    fn test_fmt_http_host_and_content_type_raw_string() {
+        test_fmt!(
+            r#"http.host == r"example.com" && http.request.headers["content-type"][0] == "application/json""#,
+            r#"http.host == r"example.com"
 && http.request.headers["content-type"][0] == "application/json""#
-                .to_string()),
-            "Unable to format logical expression with raw string"
         );
-
-        let ast = scheme
-            .parse(r##"http.host == r#"example.com"# && http.request.headers["content-type"][0] == "application/json""##)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r##"http.host == r#"example.com"#
+        test_fmt!(
+            r##"http.host == r#"example.com"# && http.request.headers["content-type"][0] == "application/json""##,
+            r##"http.host == r#"example.com"#
 && http.request.headers["content-type"][0] == "application/json""##
-                .to_string()),
-            "Unable to format logical expression with raw string"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == "example.com" && lower(http.request.headers["content-type"][0]) == "application/json""#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+    #[test]
+    fn test_fmt_http_host_and_content_type_lower() {
+        test_fmt!(
+            r#"http.host == "example.com" && lower(http.request.headers["content-type"][0]) == "application/json""#,
+            r#"http.host == "example.com"
 && lower(http.request.headers["content-type"][0]) == "application/json""#
-                .to_string()),
-            "Unable to format logical expression with function"
         );
+    }
 
-        let ast = scheme.parse(r#"(http.host == "example.com")"#).unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( http.host == "example.com" )"#.to_string()),
-            "Unable to format logical expression in parentheses with function"
+    #[test]
+    fn test_fmt_http_host_parentheses() {
+        test_fmt!(
+            r#"(http.host == "example.com")"#,
+            r#"( http.host == "example.com" )"#
         );
+    }
 
-        let ast = scheme
-            .parse(r#"(http.host == "example.com" && upper(http.request.headers["content-type"][0]) == "APPLICATION/JSON")"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"(
+    #[test]
+    fn test_fmt_http_host_and_content_type_upper() {
+        test_fmt!(
+            r#"(http.host == "example.com" && upper(http.request.headers["content-type"][0]) == "APPLICATION/JSON")"#,
+            r#"(
   http.host == "example.com"
   && upper(http.request.headers["content-type"][0]) == "APPLICATION/JSON"
 )"#
-            .to_string()),
-            "Unable to format logical expression in parentheses with function"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"http.host == "example.com" && len(http.request.headers["content-type"][0]) == 16"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"http.host == "example.com"
+    #[test]
+    fn test_fmt_http_host_and_content_type_len() {
+        test_fmt!(
+            r#"http.host == "example.com" && len(http.request.headers["content-type"][0]) == 16"#,
+            r#"http.host == "example.com"
 && len(http.request.headers["content-type"][0]) == 16"#
-                .to_string()),
-            "Unable to format logical expression with function returning int"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"(echo(http.request.headers["content-type"][0]) == "application/json" && (ssl || http.host == "example.com"))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"(
+    #[test]
+    fn test_fmt_http_host_and_content_type_echo() {
+        test_fmt!(
+            r#"(echo(http.request.headers["content-type"][0]) == "application/json" && (ssl || http.host == "example.com"))"#,
+            r#"(
   echo(http.request.headers["content-type"][0]) == "application/json"
   && (
     ssl
     || http.host == "example.com"
   )
 )"#
-            .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"((http.host == "example.com") && (echo(http.request.headers["content-type"][0]) == "application/json"))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"(
+    #[test]
+    fn test_fmt_http_host_and_content_type_echo_parentheses() {
+        test_fmt!(
+            r#"((http.host == "example.com") && (echo(http.request.headers["content-type"][0]) == "application/json"))"#,
+            r#"(
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0]) == "application/json" )
 )"#
-            .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0]) == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+    #[test]
+    fn test_fmt_http_host_and_content_type_echo_nested_parentheses() {
+        test_fmt!(
+            r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0]) == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0]) == "application/json" )
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && any(http.request.headers["content-type"][*] == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+    #[test]
+    fn test_fmt_logical_expression_in_parentheses_with_map_index() {
+        test_fmt!(
+            r#"(((http.host == "example.com") && any(http.request.headers["content-type"][*] == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && any(http.request.headers["content-type"][*] == "application/json")
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with map index"
         );
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && any((http.request.headers["content-type"][*] == "application/json"))))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+        test_fmt!(
+            r#"(((http.host == "example.com") && any((http.request.headers["content-type"][*] == "application/json"))))"#,
+            r#"( (
   ( http.host == "example.com" )
   && any(( http.request.headers["content-type"][*] == "application/json" ))
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with map index"
         );
+    }
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0], 100) == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+    #[test]
+    fn test_fmt_logical_expression_in_parentheses_with_function_returning_bytes() {
+        test_fmt!(
+            r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0], 100) == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0], 100) == "application/json" )
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,"teeeeeeest"    ) == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+        test_fmt!(
+            r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,"teeeeeeest") == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0], 100, 200, "teeeeeeest") == "application/json" )
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,r"teeeeeeest"    ) == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+        test_fmt!(
+            r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,r"teeeeeeest") == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0], 100, 200, r"teeeeeeest") == "application/json" )
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
 
-        let ast = scheme
-            .parse(r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,74:65:65:65:65:65:65:65:73:74    ) == "application/json")))"#)
-            .unwrap();
-        assert_eq!(
-            ast.fmt(),
-            Ok(r#"( (
+        test_fmt!(
+            r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,74:65:65:65:65:65:65:65:73:74) == "application/json")))"#,
+            r#"( (
   ( http.host == "example.com" )
   && ( echo(http.request.headers["content-type"][0], 100, 200, 74:65:65:65:65:65:65:65:73:74) == "application/json" )
 ) )"#
-                .to_string()),
-            "Unable to format logical expression in parentheses with function returning bytes"
         );
     }
 }

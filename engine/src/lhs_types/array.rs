@@ -12,7 +12,7 @@ use std::{borrow::Cow, fmt, ops::Deref};
 // Ideally, we would want to use Cow<'a, LhsValue<'a>> here
 // but it doesnt work for unknown reasons
 // See https://github.com/rust-lang/rust/issues/23707#issuecomment-557312736
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum InnerArray<'a> {
     Owned(Vec<LhsValue<'a>>),
     Borrowed(&'a [LhsValue<'a>]),
@@ -62,7 +62,7 @@ impl<'a> Deref for InnerArray<'a> {
 }
 
 /// An array of [`Type`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Array<'a> {
     val_type: Cow<'a, Type>,
     data: InnerArray<'a>,
@@ -80,6 +80,11 @@ impl<'a> Array<'a> {
     /// Get a reference to an element if it exists
     pub fn get(&self, idx: usize) -> Option<&LhsValue<'a>> {
         self.data.get(idx)
+    }
+
+    /// Check if the array contains an element
+    pub fn contains(&self, value: &LhsValue<'a>) -> bool {
+        self.data.iter().any(|elem| elem == value)
     }
 
     /// Get a mutable reference to an element if it exists

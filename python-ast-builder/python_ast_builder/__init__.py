@@ -28,4 +28,5 @@ from python_ast_builder.ast_builder import (
     TypeBuilder,
     UnaryExprBuilder,
     UnaryOpBuilder,
+    VariableBuilder,
 )

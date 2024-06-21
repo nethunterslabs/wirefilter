@@ -82,9 +82,9 @@ pub type FunctionArgs<'i, 'a> = &'i mut dyn ExactSizeIterator<Item = CompiledVal
 pub enum FunctionArgKind {
     /// Allow only literal as argument.
     Literal,
-    /// Allow only field as argument.
-    Field,
-    /// Allows either literal or field as argument.
+    /// Allow only field, variable or expressions as argument.
+    Complex,
+    /// Allows either literal or complex arguments.
     Any,
 }
 
@@ -124,15 +124,15 @@ pub enum FunctionParamError {
 pub enum FunctionParam<'a> {
     /// Contant function parameter (literal value)
     Constant(LhsValue<'a>),
-    /// Variable function parameter (field, or complex expressions)
-    Variable(Type),
+    /// Complex function parameter (field, variable or expressions)
+    Complex(Type),
 }
 
 impl From<&FunctionParam<'_>> for FunctionArgKind {
     fn from(arg: &FunctionParam<'_>) -> Self {
         match arg {
             FunctionParam::Constant(_) => FunctionArgKind::Literal,
-            FunctionParam::Variable(_) => FunctionArgKind::Field,
+            FunctionParam::Complex(_) => FunctionArgKind::Complex,
         }
     }
 }
@@ -141,7 +141,7 @@ impl<'a> GetType for FunctionParam<'a> {
     fn get_type(&self) -> Type {
         match self {
             FunctionParam::Constant(value) => value.get_type(),
-            FunctionParam::Variable(ty) => ty.clone(),
+            FunctionParam::Complex(ty) => ty.clone(),
         }
     }
 }
@@ -208,10 +208,10 @@ impl<'a> FunctionParam<'a> {
                     FunctionParamError::InvalidConstant(FunctionArgInvalidConstantError { msg })
                 })
             }
-            Self::Variable(_) => Err(FunctionParamError::KindMismatch(
+            Self::Complex(_) => Err(FunctionParamError::KindMismatch(
                 FunctionArgKindMismatchError {
                     expected: FunctionArgKind::Literal,
-                    actual: FunctionArgKind::Field,
+                    actual: FunctionArgKind::Complex,
                 },
             )),
         }

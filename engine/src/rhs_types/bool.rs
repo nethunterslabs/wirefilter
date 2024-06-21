@@ -7,7 +7,7 @@ use std::{borrow::Borrow, cmp::Ordering};
 
 /// [Uninhabited / empty type](https://doc.rust-lang.org/nomicon/exotic-sizes.html#empty-types)
 /// for `bool` with traits we need for RHS values.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Serialize)]
 pub enum UninhabitedBool {}
 
 impl Borrow<bool> for UninhabitedBool {
@@ -29,6 +29,8 @@ impl PartialOrd<UninhabitedBool> for bool {
 }
 
 impl StrictPartialOrd<UninhabitedBool> for bool {}
+
+impl StrictPartialOrd<bool> for bool {}
 
 impl<'i> Lex<'i> for UninhabitedBool {
     fn lex(_input: &str) -> LexResult<'_, Self> {

@@ -28,7 +28,7 @@ fn main() {
             "panic".into(),
             SimpleFunctionDefinition {
                 params: vec![SimpleFunctionParam {
-                    arg_kind: FunctionArgKind::Field,
+                    arg_kind: FunctionArgKind::Complex,
                     val_type: Type::Bytes,
                 }],
                 opt_params: Some(vec![SimpleFunctionOptParam {

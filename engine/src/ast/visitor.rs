@@ -6,7 +6,10 @@ use super::{
     simple_expr::SimpleExpr,
     Expr, ValueExpr,
 };
-use crate::scheme::{Field, Function};
+use crate::{
+    scheme::{Field, Function},
+    types::VariableValue,
+};
 
 /// Trait used to immutably visit all nodes in the AST.
 pub trait Visitor<'s>: Sized {
@@ -71,6 +74,10 @@ pub trait Visitor<'s>: Sized {
     /// Visit [`Function`] node.
     #[inline]
     fn visit_function(&mut self, _: &Function<'s>) {}
+
+    /// Visit [`Variable`] node.
+    #[inline]
+    fn visit_variable(&mut self, _: &VariableValue) {}
 
     // TODO: add visitor methods for literals?
 }
@@ -143,6 +150,10 @@ pub trait VisitorMut<'s>: Sized {
     #[inline]
     fn visit_function(&mut self, _: &Function<'s>) {}
 
+    /// Visit [`Variable`] node.
+    #[inline]
+    fn visit_variable(&mut self, _: &VariableValue) {}
+
     // TODO: add visitor methods for literals?
 }
 
@@ -184,13 +195,13 @@ impl<'s> Visitor<'s> for UsesVisitor<'s> {
     }
 }
 
-/// Recursively check if a [`Field`] is being used in a list comparison.
-pub(crate) struct UsesListVisitor<'s> {
+/// Recursively check if a [`Field`] is being used in a variable comparison.
+pub(crate) struct UsesVariableVisitor<'s> {
     field: Field<'s>,
     uses: bool,
 }
 
-impl<'s> UsesListVisitor<'s> {
+impl<'s> UsesVariableVisitor<'s> {
     pub fn new(field: Field<'s>) -> Self {
         Self { field, uses: false }
     }
@@ -200,7 +211,7 @@ impl<'s> UsesListVisitor<'s> {
     }
 }
 
-impl<'s> Visitor<'s> for UsesListVisitor<'s> {
+impl<'s> Visitor<'s> for UsesVariableVisitor<'s> {
     fn visit_expr(&mut self, node: &impl Expr<'s>) {
         // Stop visiting the AST once we have found one occurence of the field
         if !self.uses {
@@ -216,7 +227,7 @@ impl<'s> Visitor<'s> for UsesListVisitor<'s> {
     }
 
     fn visit_comparison_expr(&mut self, comparison_expr: &ComparisonExpr<'s>) {
-        if let ComparisonOpExpr::InList { .. } = comparison_expr.op {
+        if let ComparisonOpExpr::OneOfVariable { .. } = comparison_expr.op {
             let mut visitor = UsesVisitor::new(self.field);
             visitor.visit_comparison_expr(comparison_expr);
             if visitor.uses {
@@ -232,8 +243,8 @@ impl<'s> Visitor<'s> for UsesListVisitor<'s> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        list_matcher, FunctionArgKind, Identifier, Scheme, SimpleFunctionDefinition,
-        SimpleFunctionImpl, SimpleFunctionParam, Type,
+        FunctionArgKind, Identifier, Scheme, SimpleFunctionDefinition, SimpleFunctionImpl,
+        SimpleFunctionParam, Type,
     };
     use lazy_static::lazy_static;
 
@@ -253,7 +264,7 @@ mod tests {
                     "echo".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -263,7 +274,7 @@ mod tests {
                 )
                 .unwrap();
             scheme
-                .add_list(Type::Bytes, Box::<list_matcher::AlwaysList>::default())
+                .add_variable("test".to_string(), vec![b"value".to_vec()].into())
                 .unwrap();
             scheme
         };
@@ -289,9 +300,9 @@ mod tests {
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
-                    assert_eq!(ast.uses_list(f.name()), Ok(true))
+                    assert_eq!(ast.uses_variable(f.name()), Ok(true))
                 }
-                Identifier::Field(f) => assert_eq!(ast.uses_list(f.name()), Ok(false)),
+                Identifier::Field(f) => assert_eq!(ast.uses_variable(f.name()), Ok(false)),
                 Identifier::Function(_) => {}
             }
         }
@@ -312,14 +323,14 @@ mod tests {
     }
 
     #[test]
-    fn test_uses_list_visitor_function() {
+    fn test_uses_variable_visitor_function() {
         let ast = SCHEME.parse(r#"echo(http.host) in $test"#).unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
-                    assert_eq!(ast.uses_list(f.name()), Ok(true))
+                    assert_eq!(ast.uses_variable(f.name()), Ok(true))
                 }
-                Identifier::Field(f) => assert_eq!(ast.uses_list(f.name()), Ok(false)),
+                Identifier::Field(f) => assert_eq!(ast.uses_variable(f.name()), Ok(false)),
                 Identifier::Function(_) => {}
             }
         }
@@ -342,16 +353,16 @@ mod tests {
     }
 
     #[test]
-    fn test_uses_list_visitor_mapeach() {
+    fn test_uses_variable_visitor_mapeach() {
         let ast = SCHEME
             .parse(r#"echo(echo(http.headers[*])[*])[0] in $test"#)
             .unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.headers" => {
-                    assert_eq!(ast.uses_list(f.name()), Ok(true))
+                    assert_eq!(ast.uses_variable(f.name()), Ok(true))
                 }
-                Identifier::Field(f) => assert_eq!(ast.uses_list(f.name()), Ok(false)),
+                Identifier::Field(f) => assert_eq!(ast.uses_variable(f.name()), Ok(false)),
                 Identifier::Function(_) => {}
             }
         }

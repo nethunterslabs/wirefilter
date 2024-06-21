@@ -68,7 +68,6 @@ mod execution_context;
 mod filter;
 mod functions;
 mod lhs_types;
-mod list_matcher;
 mod range_set;
 mod rhs_types;
 mod searcher;
@@ -87,7 +86,7 @@ pub use self::{
         Expr, FilterAst, SingleValueExprAst, ValueExpr,
     },
     compiler::{Compiler, DefaultCompiler},
-    execution_context::{ExecutionContext, InvalidListMatcherError, State},
+    execution_context::{ExecutionContext, State},
     filter::{CompiledExpr, CompiledOneExpr, CompiledValueExpr, CompiledVecExpr, Filter},
     functions::{
         FunctionArgInvalidConstantError, FunctionArgKind, FunctionArgKindMismatchError,
@@ -97,19 +96,18 @@ pub use self::{
     },
     lex::LexErrorKind,
     lhs_types::{Array, Map},
-    list_matcher::{
-        AlwaysList, AlwaysListMatcher, ListDefinition, ListMatcher, ListMatcherWrapper, NeverList,
-        NeverListMatcher,
-    },
     rhs_types::{
         ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, OrderedFloat, Regex,
         RegexError, StrType,
     },
     scheme::{
         Field, FieldIndex, FieldRedefinitionError, Function, FunctionRedefinitionError, Identifier,
-        IdentifierRedefinitionError, List, ParseError, Scheme, SchemeMismatchError,
-        UnknownFieldError, UnknownFunctionError,
+        IdentifierRedefinitionError, ParseError, Scheme, SchemeMismatchError, UnknownFieldError,
+        UnknownFunctionError, UnknownVariableError, VariableRedefinitionError, VariableRef,
     },
     single_value_expr::{SingleValueExpr, SingleValueExprError},
-    types::{ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError},
+    types::{
+        ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError,
+        VariableType, VariableValue,
+    },
 };

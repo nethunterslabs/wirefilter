@@ -17,7 +17,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::fmt::Debug;
-use visitor::{UsesListVisitor, UsesVisitor, Visitor, VisitorMut};
+use visitor::{UsesVariableVisitor, UsesVisitor, Visitor, VisitorMut};
 
 /// Trait used to represent node that evaluates to a [`bool`] (or a
 /// [`Vec<bool>`]).
@@ -175,10 +175,10 @@ impl<'s> FilterAst<'s> {
         })
     }
 
-    /// Recursively checks whether a [`FilterAst`] uses a list.
-    pub fn uses_list(&self, field_name: &str) -> Result<bool, UnknownFieldError> {
+    /// Recursively checks whether a [`FilterAst`] uses a variable.
+    pub fn uses_variable(&self, field_name: &str) -> Result<bool, UnknownFieldError> {
         self.scheme.get_field(field_name).map(|field| {
-            let mut visitor = UsesListVisitor::new(field);
+            let mut visitor = UsesVariableVisitor::new(field);
             self.walk(&mut visitor);
             visitor.uses()
         })
@@ -200,5 +200,144 @@ impl<'s> FilterAst<'s> {
     pub fn compile(self) -> Filter<'s> {
         let mut compiler = DefaultCompiler::new();
         self.compile_with_compiler(&mut compiler)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::{
+        execution_context::{ExecutionContext, State},
+        functions::{
+            FunctionArgKind, FunctionArgs, SimpleFunctionDefinition, SimpleFunctionImpl,
+            SimpleFunctionOptParam, SimpleFunctionParam,
+        },
+        types::LhsValue,
+    };
+
+    #[test]
+    fn test_single_value_expr() {
+        let mut scheme = Scheme! {
+            http.request.headers: Map(Array(Bytes)),
+            http.host: Bytes,
+            http.request.headers.names: Array(Bytes),
+            http.request.headers.values: Array(Bytes),
+            http.request.headers.is_empty: Array(Bool),
+            http.version: Float,
+            ip.addr: Ip,
+            ssl: Bool,
+            tcp.port: Int,
+        };
+
+        fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+            args.next()?.ok()
+        }
+
+        scheme
+            .add_function(
+                "echo".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Complex,
+                        val_type: Type::Bytes,
+                    }],
+                    opt_params: Some(vec![
+                        SimpleFunctionOptParam {
+                            arg_kind: FunctionArgKind::Any,
+                            default_value: LhsValue::Int(10),
+                        },
+                        SimpleFunctionOptParam {
+                            arg_kind: FunctionArgKind::Literal,
+                            default_value: LhsValue::Int(1),
+                        },
+                        SimpleFunctionOptParam {
+                            arg_kind: FunctionArgKind::Literal,
+                            default_value: LhsValue::Bytes(b"test".into()),
+                        },
+                    ]),
+                    return_type: Type::Bytes,
+                    implementation: SimpleFunctionImpl::new(echo_function),
+                },
+            )
+            .unwrap();
+
+        scheme
+            .add_function(
+                "echo.int".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Any,
+                        val_type: Type::Int,
+                    }],
+                    opt_params: Some(Vec::new()),
+                    return_type: Type::Int,
+                    implementation: SimpleFunctionImpl::new(echo_function),
+                },
+            )
+            .unwrap();
+        scheme
+            .add_variable("func_test_var".to_string(), 10.into())
+            .unwrap();
+
+        let state = State::new();
+
+        let compiled = SingleValueExprAst::lex_with("http.host", &scheme)
+            .unwrap()
+            .0
+            .compile();
+
+        let mut execution_context = ExecutionContext::new(&scheme);
+        execution_context
+            .set_field_value(
+                scheme.get_field("http.host").unwrap(),
+                LhsValue::Bytes(b"example.com".into()),
+            )
+            .unwrap();
+
+        assert_eq!(
+            compiled.execute(&execution_context, &state).unwrap(),
+            LhsValue::Bytes(b"example.com".into())
+        );
+
+        let compiled = SingleValueExprAst::lex_with("echo(http.host)", &scheme)
+            .unwrap()
+            .0
+            .compile();
+
+        assert_eq!(
+            compiled.execute(&execution_context, &state).unwrap(),
+            LhsValue::Bytes(b"example.com".into())
+        );
+
+        let compiled = SingleValueExprAst::lex_with("echo(http.host, 1, 2, \"test\")", &scheme)
+            .unwrap()
+            .0
+            .compile();
+
+        assert_eq!(
+            compiled.execute(&execution_context, &state).unwrap(),
+            LhsValue::Bytes(b"example.com".into())
+        );
+
+        let compiled = SingleValueExprAst::lex_with("echo(http.host, $func_test_var, 2)", &scheme)
+            .unwrap()
+            .0
+            .compile();
+
+        assert_eq!(
+            compiled.execute(&execution_context, &state).unwrap(),
+            LhsValue::Bytes(b"example.com".into())
+        );
+
+        let compiled = SingleValueExprAst::lex_with("echo.int($func_test_var)", &scheme)
+            .unwrap()
+            .0
+            .compile();
+
+        assert_eq!(
+            compiled.execute(&execution_context, &state).unwrap(),
+            LhsValue::Int(10)
+        );
     }
 }

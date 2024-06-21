@@ -5,7 +5,7 @@
 #![warn(missing_docs)]
 
 use thiserror::Error;
-use wirefilter::{UnknownFieldError, UnknownFunctionError};
+use wirefilter::{UnknownFieldError, UnknownFunctionError, UnknownVariableError};
 
 pub mod ast;
 pub mod build;
@@ -17,7 +17,7 @@ pub use ast::{
     IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder, LhsFieldExprBuilder,
     LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder, RhsValueBuilder,
     RhsValuesBuilder, SimpleExprBuilder, SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder,
-    UnaryExprBuilder, UnaryOpBuilder,
+    UnaryExprBuilder, UnaryOpBuilder, VariableBuilder,
 };
 
 /// Result type for the builder.
@@ -32,6 +32,9 @@ pub enum BuilderError {
     /// Error when a function is not found in the scheme.
     #[error("Function not found: {0}")]
     FunctionNotFound(#[from] UnknownFunctionError),
+    /// Error when a variable is not found in the scheme.
+    #[error("Variable not found: {0}")]
+    VariableNotFound(#[from] UnknownVariableError),
     /// Error when parsing a regex.
     #[error("Invalid regex: {0}")]
     InvalidRegex(#[from] regex::Error),
@@ -44,12 +47,13 @@ pub enum BuilderError {
 mod tests {
     use super::*;
 
+    use std::net::IpAddr;
     use std::process::Command;
     use std::sync::Once;
 
     use lazy_static::lazy_static;
     use wirefilter::{
-        FunctionArgKind, FunctionArgs, LhsValue, Scheme, SimpleFunctionDefinition,
+        FunctionArgKind, FunctionArgs, LhsValue, OrderedFloat, Scheme, SimpleFunctionDefinition,
         SimpleFunctionImpl, SimpleFunctionParam, State, Type,
     };
 
@@ -128,7 +132,7 @@ mod tests {
                 "lower".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![]),
@@ -156,7 +160,7 @@ mod tests {
                 "len".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![]),
@@ -165,7 +169,53 @@ mod tests {
                 },
             )
             .unwrap();
-
+        scheme
+            .add_variable(
+                "in_var".to_string(),
+                vec![b"example.com".to_vec(), b"example.org".to_vec()].into(),
+            )
+            .unwrap();
+        scheme
+            .add_variable(
+                "has_any_var".to_string(),
+                vec![b".com".to_vec(), b".org".to_vec()].into(),
+            )
+            .unwrap();
+        scheme
+            .add_variable(
+                "has_all_var".to_string(),
+                vec![b"exam".to_vec(), b"ple".to_vec()].into(),
+            )
+            .unwrap();
+        scheme
+            .add_variable(
+                "regex_var".to_string(),
+                wirefilter::Regex::parse_str(r"^\d{3}$", wirefilter::StrType::Escaped)
+                    .unwrap()
+                    .into(),
+            )
+            .unwrap();
+        scheme
+            .add_variable("bool_var".to_string(), true.into())
+            .unwrap();
+        scheme
+            .add_variable("bytes_var".to_string(), b"example.com".to_vec().into())
+            .unwrap();
+        scheme
+            .add_variable("bytes_var2".to_string(), b"example.org".to_vec().into())
+            .unwrap();
+        scheme
+            .add_variable("int_var".to_string(), 80.into())
+            .unwrap();
+        scheme
+            .add_variable("float_var".to_string(), OrderedFloat(80.0).into())
+            .unwrap();
+        scheme
+            .add_variable(
+                "ip_var".to_string(),
+                "127.0.0.1".parse::<IpAddr>().unwrap().into(),
+            )
+            .unwrap();
         scheme
     }
 
@@ -321,6 +371,16 @@ mod tests {
     }
 
     #[test]
+    fn test_variable_builder() {
+        test_builder!(
+            VariableBuilder,
+            "variable_builder",
+            SCHEME.get_variable_ref("bytes_var").unwrap(),
+            SchemeUnwrap
+        );
+    }
+
+    #[test]
     fn test_type_builder() {
         test_builder!(TypeBuilder, "type_builder1", wirefilter::Type::Bool);
 
@@ -373,7 +433,7 @@ mod tests {
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder1",
             wirefilter::ComparisonOpExpr::IsTrue,
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -383,7 +443,7 @@ mod tests {
                 op: wirefilter::OrderingOp::LessThan(0),
                 rhs: wirefilter::RhsValue::Int(1),
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -393,7 +453,7 @@ mod tests {
                 op: wirefilter::IntOp::BitwiseAnd(0),
                 rhs: 1,
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -406,7 +466,7 @@ mod tests {
                 },
                 variant: 0,
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -417,7 +477,7 @@ mod tests {
                     .unwrap(),
                 variant: 0,
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -430,7 +490,7 @@ mod tests {
                 ]),
                 variant: 0,
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -443,7 +503,7 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            Unwrap
+            SchemeUnwrap
         );
 
         test_builder!(
@@ -456,7 +516,77 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            Unwrap
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder9",
+            wirefilter::ComparisonOpExpr::OrderingVariable {
+                op: wirefilter::OrderingOp::LessThan(0),
+                var: SCHEME.get_variable_ref("int_var").unwrap(),
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder10",
+            wirefilter::ComparisonOpExpr::IntVariable {
+                op: wirefilter::IntOp::BitwiseAnd(0),
+                var: SCHEME.get_variable_ref("int_var").unwrap(),
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder11",
+            wirefilter::ComparisonOpExpr::ContainsVariable {
+                var: SCHEME.get_variable_ref("bytes_var").unwrap(),
+                variant: 0,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder12",
+            wirefilter::ComparisonOpExpr::MatchesVariable {
+                var: SCHEME.get_variable_ref("regex_var").unwrap(),
+                variant: 0,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder13",
+            wirefilter::ComparisonOpExpr::OneOfVariable {
+                var: SCHEME.get_variable_ref("in_var").unwrap(),
+                variant: 0,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder14",
+            wirefilter::ComparisonOpExpr::HasAnyVariable {
+                var: SCHEME.get_variable_ref("has_any_var").unwrap(),
+                variant: 0,
+            },
+            SchemeUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder15",
+            wirefilter::ComparisonOpExpr::HasAllVariable {
+                var: SCHEME.get_variable_ref("has_all_var").unwrap(),
+                variant: 0,
+            },
+            SchemeUnwrap
         );
     }
 

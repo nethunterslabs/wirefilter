@@ -16,7 +16,8 @@ use crate::{
     },
     lex::{expect, skip_space, span, Lex, LexError, LexErrorKind, LexResult, LexWith},
     lhs_types::Array,
-    scheme::{Function, Scheme},
+    rhs_types::VariableName,
+    scheme::{Function, Scheme, VariableRef},
     types::{GetType, LhsValue, RhsValue, Type},
 };
 use derivative::Derivative;
@@ -36,6 +37,8 @@ pub enum FunctionCallArgExpr<'s> {
     /// or a list of true/false. It compiles to a CompiledExpr and is coerced
     /// into a CompiledValueExpr.
     SimpleExpr(SimpleExpr<'s>),
+    /// A variable.
+    Variable(VariableRef<'s>),
 }
 
 impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
@@ -45,6 +48,7 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::IndexExpr(index_expr) => visitor.visit_index_expr(index_expr),
             FunctionCallArgExpr::Literal(_) => {}
             FunctionCallArgExpr::SimpleExpr(simple_expr) => visitor.visit_simple_expr(simple_expr),
+            FunctionCallArgExpr::Variable(variable) => visitor.visit_variable(variable.value()),
         }
     }
 
@@ -54,6 +58,7 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::IndexExpr(index_expr) => visitor.visit_index_expr(index_expr),
             FunctionCallArgExpr::Literal(_) => {}
             FunctionCallArgExpr::SimpleExpr(simple_expr) => visitor.visit_simple_expr(simple_expr),
+            FunctionCallArgExpr::Variable(variable) => visitor.visit_variable(variable.value()),
         }
     }
 
@@ -89,6 +94,12 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
                     }),
                 }
             }
+            FunctionCallArgExpr::Variable(variable) => CompiledValueExpr::new(move |_, _| {
+                variable
+                    .value()
+                    .as_lhs_value()
+                    .ok_or_else(|| variable.value().get_type().unwrap())
+            }),
         }
     }
 }
@@ -99,6 +110,7 @@ impl<'s> FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::IndexExpr(index_expr) => index_expr.map_each_count(),
             FunctionCallArgExpr::Literal(_) => 0,
             FunctionCallArgExpr::SimpleExpr(_) => 0,
+            FunctionCallArgExpr::Variable(_) => 0,
         }
     }
 
@@ -154,6 +166,18 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for FunctionCallArgExpr<'s> {
             } else if c == '(' || UnaryOp::lex(input).is_ok() {
                 return SimpleExpr::lex_with(input, scheme)
                     .map(|(lhs, input)| (FunctionCallArgExpr::SimpleExpr(lhs), input));
+            } else if c == '$' {
+                let (name, input) = VariableName::lex(input)?;
+                if let Ok(variable) = scheme.get_variable_ref(name.as_str()) {
+                    return Ok((FunctionCallArgExpr::Variable(variable), input));
+                } else {
+                    return Err((
+                        LexErrorKind::UnknownVariable {
+                            name: name.take_inner(),
+                        },
+                        span(input, _initial_input),
+                    ));
+                }
             } else if c_is_field!(c)
                 || (c_is_field_or_int!(c) && c2.is_some() && c_is_field!(c2.unwrap()))
                 || (c_is_field_or_int!(c)
@@ -218,6 +242,7 @@ impl<'s> GetType for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::IndexExpr(index_expr) => index_expr.get_type(),
             FunctionCallArgExpr::Literal(literal) => literal.get_type(),
             FunctionCallArgExpr::SimpleExpr(simple_expr) => simple_expr.get_type(),
+            FunctionCallArgExpr::Variable(variable) => variable.value().get_type().unwrap(),
         }
     }
 }
@@ -225,9 +250,12 @@ impl<'s> GetType for FunctionCallArgExpr<'s> {
 impl<'a, 's> From<&'a FunctionCallArgExpr<'s>> for FunctionParam<'a> {
     fn from(arg_expr: &'a FunctionCallArgExpr<'s>) -> Self {
         match arg_expr {
-            FunctionCallArgExpr::IndexExpr(expr) => FunctionParam::Variable(expr.get_type()),
-            FunctionCallArgExpr::SimpleExpr(expr) => FunctionParam::Variable(expr.get_type()),
+            FunctionCallArgExpr::IndexExpr(expr) => FunctionParam::Complex(expr.get_type()),
+            FunctionCallArgExpr::SimpleExpr(expr) => FunctionParam::Complex(expr.get_type()),
             FunctionCallArgExpr::Literal(value) => FunctionParam::Constant(value.into()),
+            FunctionCallArgExpr::Variable(variable) => {
+                FunctionParam::Complex(variable.value().get_type().unwrap())
+            }
         }
     }
 }
@@ -497,10 +525,10 @@ mod tests {
             SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam,
         },
         scheme::{FieldIndex, IndexAccessError},
-        types::{RhsValues, Type, TypeMismatchError},
+        types::{ExpectedType, RhsValues, Type, TypeMismatchError},
     };
     use lazy_static::lazy_static;
-    use std::convert::TryFrom;
+    use std::{collections::HashSet, convert::TryFrom};
 
     fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
@@ -572,7 +600,7 @@ mod tests {
                     "any".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Array(Box::new(Type::Bool)),
                         }],
                         opt_params: Some(vec![]),
@@ -586,12 +614,12 @@ mod tests {
                     "echo".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![
                             SimpleFunctionOptParam {
-                                arg_kind: FunctionArgKind::Literal,
+                                arg_kind: FunctionArgKind::Any,
                                 default_value: LhsValue::Int(10),
                             },
                             SimpleFunctionOptParam {
@@ -613,7 +641,7 @@ mod tests {
                     "lower".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -641,7 +669,7 @@ mod tests {
                     "len".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -649,6 +677,9 @@ mod tests {
                         implementation: SimpleFunctionImpl::new(len_function),
                     },
                 )
+                .unwrap();
+            scheme
+                .add_variable("func_test_var".to_string(), 10.into())
                 .unwrap();
             scheme
         };
@@ -688,6 +719,56 @@ mod tests {
                     {
                         "kind": "Literal",
                         "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(
+                r#"echo ( http.host, $func_test_var, 2, "test" );"#,
+                &SCHEME
+            ),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Variable(VariableRef {
+                        scheme: &SCHEME,
+                        index: 0,
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Variable",
+                        "value": "func_test_var"
                     },
                     {
                         "kind": "Literal",
@@ -917,11 +998,15 @@ mod tests {
 
         assert_err!(
             FunctionCallExpr::lex_with("echo ( http.host , http.host );", &SCHEME),
-            LexErrorKind::InvalidArgumentKind {
+            LexErrorKind::InvalidArgumentType {
                 index: 1,
-                mismatch: FunctionArgKindMismatchError {
-                    actual: FunctionArgKind::Field,
-                    expected: FunctionArgKind::Literal,
+                mismatch: TypeMismatchError {
+                    expected: {
+                        let mut hash_set = HashSet::new();
+                        hash_set.insert(ExpectedType::Type(Type::Int));
+                        hash_set
+                    },
+                    actual: Type::Bytes,
                 }
             },
             "http.host"
@@ -1439,7 +1524,7 @@ mod tests {
                 index: 0,
                 mismatch: FunctionArgKindMismatchError {
                     actual: FunctionArgKind::Literal,
-                    expected: FunctionArgKind::Field,
+                    expected: FunctionArgKind::Complex,
                 }
             },
             "\"test\""
@@ -1451,7 +1536,7 @@ mod tests {
                 index: 0,
                 mismatch: FunctionArgKindMismatchError {
                     actual: FunctionArgKind::Literal,
-                    expected: FunctionArgKind::Field,
+                    expected: FunctionArgKind::Complex,
                 }
             },
             "10"

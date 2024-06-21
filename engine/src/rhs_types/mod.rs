@@ -4,9 +4,9 @@ mod bytes;
 mod float;
 mod int;
 mod ip;
-mod list;
 mod map;
 mod regex;
+mod variable;
 
 pub use self::{
     array::UninhabitedArray,
@@ -15,8 +15,8 @@ pub use self::{
     float::FloatRange,
     int::IntRange,
     ip::{ExplicitIpRange, IpRange},
-    list::ListName,
     map::UninhabitedMap,
-    regex::{Error as RegexError, Regex},
+    regex::{Error as RegexError, Regex, UninhabitedRegex},
+    variable::VariableName,
 };
 pub use ordered_float::OrderedFloat;

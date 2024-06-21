@@ -1,5 +1,4 @@
 import enum
-import json
 from typing import List, Tuple, Union, Dict, Any
 
 
@@ -189,6 +188,7 @@ class ComparisonOpExprBuilder:
     pub enum ComparisonOpExprBuilder {
         /// Boolean field verification
         IsTrue,
+
         /// Ordering comparison
         Ordering {
             /// Ordering comparison operator:
@@ -203,6 +203,20 @@ class ComparisonOpExprBuilder:
             rhs: RhsValueBuilder,
         },
 
+        /// Ordering comparison with a variable
+        OrderingVariable {
+            /// Ordering comparison operator:
+            /// * "eq" | "EQ" | "=="
+            /// * "ne" | "NE" | "!="
+            /// * "ge" | "GE" | ">="
+            /// * "le" | "LE" | "<="
+            /// * "gt" | "GT" | ">"
+            /// * "lt" | "LT" | "<"
+            op: OrderingOpBuilder,
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
+        },
+
         /// Integer comparison
         Int {
             /// Integer comparison operator:
@@ -212,10 +226,25 @@ class ComparisonOpExprBuilder:
             rhs: i32,
         },
 
+        /// Integer comparison with a variable
+        IntVariable {
+            /// Integer comparison operator:
+            /// * "&" | "bitwise_and" | "BITWISE_AND"
+            op: IntOpBuilder,
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
+        },
+
         /// "contains" / "CONTAINS" comparison
         Contains {
             /// Right-hand side bytes value
             rhs: BytesBuilder,
+        },
+
+        /// "contains" / "CONTAINS" comparison with a variable
+        ContainsVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
         },
 
         /// "matches / MATCHES / ~" comparison
@@ -224,10 +253,22 @@ class ComparisonOpExprBuilder:
             rhs: RegexBuilder,
         },
 
+        /// "matches / MATCHES / ~" comparison with a variable
+        MatchesVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
+        },
+
         /// "in {...}" / "IN {...}" comparison
         OneOf {
             /// Right-hand side values
             rhs: RhsValuesBuilder,
+        },
+
+        /// "in $..." | "IN $..." comparison with a variable
+        OneOfVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
         },
 
         /// "has_any {...}" / "HAS_ANY {...}" comparison
@@ -236,10 +277,22 @@ class ComparisonOpExprBuilder:
             rhs: RhsValuesBuilder,
         },
 
+        /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+        HasAnyVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
+        },
+
         /// "has_all {...}" / "HAS_ALL {...}" comparison
         HasAll {
             /// Right-hand side values
             rhs: RhsValuesBuilder,
+        },
+
+        /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+        HasAllVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
         },
     }
     """
@@ -248,21 +301,35 @@ class ComparisonOpExprBuilder:
         self,
         IsTrue: None | bool = None,
         Ordering: None | Tuple["OrderingOpBuilder", "RhsValueBuilder"] = None,
+        OrderingVariable: None | Tuple["OrderingOpBuilder", "VariableBuilder"] = None,
         Int: None | Tuple["IntOpBuilder", int] = None,
+        IntVariable: None | Tuple["IntOpBuilder", "VariableBuilder"] = None,
         Contains: "None | BytesBuilder" = None,
+        ContainsVariable: "None | VariableBuilder" = None,
         Matches: "None | RegexBuilder" = None,
+        MatchesVariable: "None | VariableBuilder" = None,
         OneOf: "None | RhsValuesBuilder" = None,
+        OneOfVariable: "None | VariableBuilder" = None,
         HasAny: "None | RhsValuesBuilder" = None,
+        HasAnyVariable: "None | VariableBuilder" = None,
         HasAll: "None | RhsValuesBuilder" = None,
+        HasAllVariable: "None | VariableBuilder" = None,
     ):
         self.IsTrue = IsTrue
         self.Ordering = Ordering
+        self.OrderingVariable = OrderingVariable
         self.Int = Int
+        self.IntVariable = IntVariable
         self.Contains = Contains
+        self.ContainsVariable = ContainsVariable
         self.Matches = Matches
+        self.MatchesVariable = MatchesVariable
         self.OneOf = OneOf
+        self.OneOfVariable = OneOfVariable
         self.HasAny = HasAny
+        self.HasAnyVariable = HasAnyVariable
         self.HasAll = HasAll
+        self.HasAllVariable = HasAllVariable
 
     def to_json(self) -> Dict[str, Any] | str:
         if self.IsTrue is not None:
@@ -274,12 +341,32 @@ class ComparisonOpExprBuilder:
                     "rhs": self.Ordering[1].to_json(),
                 }
             }
+        elif self.OrderingVariable is not None:
+            return {
+                "OrderingVariable": {
+                    "op": self.OrderingVariable[0].to_json(),
+                    "var": self.OrderingVariable[1].to_json(),
+                }
+            }
         elif self.Int is not None:
             return {"Int": {"op": self.Int[0].to_json(), "rhs": self.Int[1]}}
+        elif self.IntVariable is not None:
+            return {
+                "IntVariable": {
+                    "op": self.IntVariable[0].to_json(),
+                    "var": self.IntVariable[1].to_json(),
+                }
+            }
         elif self.Contains is not None:
             return {
                 "Contains": {
                     "rhs": self.Contains.to_json(),
+                }
+            }
+        elif self.ContainsVariable is not None:
+            return {
+                "ContainsVariable": {
+                    "var": self.ContainsVariable.to_json(),
                 }
             }
         elif self.Matches is not None:
@@ -288,12 +375,24 @@ class ComparisonOpExprBuilder:
                     "rhs": self.Matches.to_json(),
                 }
             }
+        elif self.MatchesVariable is not None:
+            return {
+                "MatchesVariable": {
+                    "var": self.MatchesVariable.to_json(),
+                }
+            }
         elif self.OneOf is not None:
             return {"OneOf": {"rhs": self.OneOf.to_json()}}
+        elif self.OneOfVariable is not None:
+            return {"OneOfVariable": {"var": self.OneOfVariable.to_json()}}
         elif self.HasAny is not None:
             return {"HasAny": {"rhs": self.HasAny.to_json()}}
+        elif self.HasAnyVariable is not None:
+            return {"HasAnyVariable": {"var": self.HasAnyVariable.to_json()}}
         elif self.HasAll is not None:
             return {"HasAll": {"rhs": self.HasAll.to_json()}}
+        elif self.HasAllVariable is not None:
+            return {"HasAllVariable": {"var": self.HasAllVariable.to_json()}}
         else:
             raise ValueError("No valid field set")
 
@@ -797,6 +896,8 @@ class FunctionCallArgExprBuilder:
         /// or a list of true/false. It compiles to a CompiledExpr and is coerced
         /// into a CompiledValueExpr.
         SimpleExpr(SimpleExprBuilder),
+        /// A variable.
+        Variable(VariableBuilder),
     }
     """
 
@@ -805,10 +906,12 @@ class FunctionCallArgExprBuilder:
         IndexExpr: "None | IndexExprBuilder" = None,
         Literal: "None | RhsValueBuilder" = None,
         SimpleExpr: "None | SimpleExprBuilder" = None,
+        Variable: "None | VariableBuilder" = None,
     ):
         self.IndexExpr = IndexExpr
         self.Literal = Literal
         self.SimpleExpr = SimpleExpr
+        self.Variable = Variable
 
     def to_json(self) -> Dict[str, Any]:
         if self.IndexExpr is not None:
@@ -817,8 +920,26 @@ class FunctionCallArgExprBuilder:
             return {"Literal": self.Literal.to_json()}
         elif self.SimpleExpr is not None:
             return {"SimpleExpr": self.SimpleExpr.to_json()}
+        elif self.Variable is not None:
+            return {"Variable": self.Variable.to_json()}
         else:
             raise ValueError("No valid field set")
+
+
+class VariableBuilder:
+    """
+    Builder for `Variable`.
+    pub struct VariableBuilder {
+        /// Name of the variable.
+        pub name: String,
+    }
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def to_json(self) -> Dict[str, Any]:
+        return {"name": self.name}
 
 
 class FunctionBuilder:

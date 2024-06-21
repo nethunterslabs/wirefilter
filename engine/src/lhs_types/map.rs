@@ -7,12 +7,12 @@ use serde::{
     ser::{SerializeMap, SerializeSeq},
     Serialize, Serializer,
 };
-use std::{borrow::Cow, collections::HashMap, fmt, ops::Deref};
+use std::{borrow::Cow, collections::BTreeMap, fmt, ops::Deref};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum InnerMap<'a> {
-    Owned(HashMap<Box<[u8]>, LhsValue<'a>>),
-    Borrowed(&'a HashMap<Box<[u8]>, LhsValue<'a>>),
+    Owned(BTreeMap<Box<[u8]>, LhsValue<'a>>),
+    Borrowed(&'a BTreeMap<Box<[u8]>, LhsValue<'a>>),
 }
 
 impl<'a> InnerMap<'a> {
@@ -38,7 +38,7 @@ impl<'a> InnerMap<'a> {
 }
 
 impl<'a> Deref for InnerMap<'a> {
-    type Target = HashMap<Box<[u8]>, LhsValue<'a>>;
+    type Target = BTreeMap<Box<[u8]>, LhsValue<'a>>;
 
     fn deref(&self) -> &Self::Target {
         match self {
@@ -49,7 +49,7 @@ impl<'a> Deref for InnerMap<'a> {
 }
 
 /// A map of string to [`Type`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Map<'a> {
     val_type: Cow<'a, Type>,
     data: InnerMap<'a>,
@@ -60,7 +60,7 @@ impl<'a> Map<'a> {
     pub fn new(val_type: Type) -> Self {
         Self {
             val_type: Cow::Owned(val_type),
-            data: InnerMap::Owned(HashMap::new()),
+            data: InnerMap::Owned(BTreeMap::new()),
         }
     }
 
@@ -166,7 +166,7 @@ impl<'a> GetType for Map<'a> {
     }
 }
 
-pub struct MapIter<'a, 'b>(std::collections::hash_map::Iter<'b, Box<[u8]>, LhsValue<'a>>);
+pub struct MapIter<'a, 'b>(std::collections::btree_map::Iter<'b, Box<[u8]>, LhsValue<'a>>);
 
 impl<'a, 'b> Iterator for MapIter<'a, 'b> {
     type Item = (&'b [u8], &'b LhsValue<'a>);
@@ -177,8 +177,8 @@ impl<'a, 'b> Iterator for MapIter<'a, 'b> {
 }
 
 pub enum MapValuesIntoIter<'a> {
-    Owned(std::collections::hash_map::IntoIter<Box<[u8]>, LhsValue<'a>>),
-    Borrowed(AsRefIterator<'a, std::collections::hash_map::Values<'a, Box<[u8]>, LhsValue<'a>>>),
+    Owned(std::collections::btree_map::IntoIter<Box<[u8]>, LhsValue<'a>>),
+    Borrowed(AsRefIterator<'a, std::collections::btree_map::Values<'a, Box<[u8]>, LhsValue<'a>>>),
 }
 
 impl<'a> Iterator for MapValuesIntoIter<'a> {
@@ -194,7 +194,7 @@ impl<'a> Iterator for MapValuesIntoIter<'a> {
 
 impl<'a> IntoIterator for Map<'a> {
     type Item = (Box<[u8]>, LhsValue<'a>);
-    type IntoIter = std::collections::hash_map::IntoIter<Box<[u8]>, LhsValue<'a>>;
+    type IntoIter = std::collections::btree_map::IntoIter<Box<[u8]>, LhsValue<'a>>;
     fn into_iter(self) -> Self::IntoIter {
         match self.data {
             InnerMap::Owned(map) => map.into_iter(),

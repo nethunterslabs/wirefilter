@@ -1,7 +1,11 @@
-use crate::lex::{expect, span, Lex, LexErrorKind, LexResult};
+use crate::{
+    lex::{expect, span, Lex, LexErrorKind, LexResult},
+    strict_partial_ord::StrictPartialOrd,
+};
 use cfg_if::cfg_if;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use std::{
+    cmp::Ordering,
     fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
 };
@@ -21,6 +25,12 @@ cfg_if! {
 impl PartialEq for Regex {
     fn eq(&self, other: &Regex) -> bool {
         self.as_str() == other.as_str()
+    }
+}
+
+impl PartialOrd for Regex {
+    fn partial_cmp(&self, other: &Regex) -> Option<Ordering> {
+        self.as_str().partial_cmp(other.as_str())
     }
 }
 
@@ -162,6 +172,35 @@ impl<'i> Lex<'i> for Regex {
 impl Serialize for Regex {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         self.as_str().serialize(ser)
+    }
+}
+
+/// [Uninhabited / empty type](https://doc.rust-lang.org/nomicon/exotic-sizes.html#empty-types)
+/// for `Regex` with traits we need for RHS values.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash, Serialize, Deserialize)]
+pub enum UninhabitedRegex {}
+
+impl PartialEq<UninhabitedRegex> for Regex {
+    fn eq(&self, other: &UninhabitedRegex) -> bool {
+        match *other {}
+    }
+}
+
+impl PartialOrd<UninhabitedRegex> for Regex {
+    fn partial_cmp(&self, other: &UninhabitedRegex) -> Option<Ordering> {
+        match *other {}
+    }
+}
+
+impl StrictPartialOrd<UninhabitedRegex> for Regex {}
+
+impl StrictPartialOrd<UninhabitedRegex> for UninhabitedRegex {}
+
+impl StrictPartialOrd<Regex> for Regex {}
+
+impl<'i> Lex<'i> for UninhabitedRegex {
+    fn lex(_input: &str) -> LexResult<'_, Self> {
+        unreachable!()
     }
 }
 

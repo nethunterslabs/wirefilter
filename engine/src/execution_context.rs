@@ -1,15 +1,13 @@
 use crate::{
-    list_matcher::ListMatcherWrapper,
-    scheme::{Field, List, Scheme, SchemeMismatchError},
-    types::{GetType, LhsValue, LhsValueSeed, Type, TypeMismatchError},
-    ListMatcher,
+    scheme::{Field, Scheme, SchemeMismatchError},
+    types::{GetType, LhsValue, LhsValueSeed, TypeMismatchError},
 };
 use serde::{
     de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor},
-    ser::{SerializeMap, SerializeSeq, Serializer},
-    Deserialize, Serialize,
+    ser::{SerializeMap, Serializer},
+    Serialize,
 };
-use std::{any::Any, borrow::Cow, collections::HashMap, fmt, fmt::Debug};
+use std::{borrow::Cow, collections::HashMap, fmt, fmt::Debug};
 use thiserror::Error;
 
 /// An error that occurs when setting the field value in the
@@ -25,14 +23,6 @@ pub enum SetFieldValueError {
     /// different scheme.
     #[error("{0}")]
     SchemeMismatchError(#[source] SchemeMismatchError),
-}
-
-/// An error that occurs when previously defined list gets redefined.
-#[derive(Debug, PartialEq, Error)]
-#[error("Invalid list matcher {matcher} for list {list}")]
-pub struct InvalidListMatcherError {
-    matcher: String,
-    list: String,
 }
 
 /// A state to be used to pass internal data to filters.
@@ -93,7 +83,6 @@ impl<'e> State<'e> {
 pub struct ExecutionContext<'e, U = ()> {
     scheme: &'e Scheme,
     values: Box<[Option<LhsValue<'e>>]>,
-    list_data: Box<[Option<ListMatcherWrapper>]>,
     user_data: U,
 }
 
@@ -112,16 +101,10 @@ impl<'e, U> ExecutionContext<'e, U> {
     ///
     /// This scheme will be used for resolving any field names and indices.
     pub fn new_with<'s: 'e>(scheme: &'s Scheme, f: impl Fn() -> U) -> Self {
-        let (values_len, lists_len) = scheme.len();
+        let (values_len, _) = scheme.len();
         ExecutionContext {
             scheme,
             values: vec![None; values_len].into(),
-            list_data: {
-                let mut vec = Vec::new();
-                vec.resize_with(lists_len, || None);
-                vec
-            }
-            .into(),
             user_data: f(),
         }
     }
@@ -156,22 +139,6 @@ impl<'e, U> ExecutionContext<'e, U> {
         }
     }
 
-    /// Set the `ListMatcher` for the specified type.
-    pub fn set_list_matcher<T: Any + Clone + Debug + PartialEq + ListMatcher + Send + Sync>(
-        &mut self,
-        list: List<'e>,
-        matcher: T,
-    ) -> Result<(), InvalidListMatcherError> {
-        if !list.definition().is_valid_matcher(&matcher) {
-            return Err(InvalidListMatcherError {
-                matcher: format!("{:?}", matcher),
-                list: format!("{:?}", list),
-            });
-        }
-        self.list_data[list.index()] = Some(ListMatcherWrapper::new(matcher));
-        Ok(())
-    }
-
     #[inline]
     pub(crate) fn get_field_value_unchecked(&self, field: Field<'_>) -> &LhsValue<'_> {
         // This is safe because this code is reachable only from Filter::execute
@@ -197,16 +164,6 @@ impl<'e, U> ExecutionContext<'e, U> {
         self.values[field.index()].as_ref()
     }
 
-    /// Get the `ListMatcher` for the specified type.
-    #[inline]
-    pub(crate) fn get_list_matcher_unchecked(&self, list: List<'_>) -> &ListMatcherWrapper {
-        debug_assert!(self.scheme() == list.scheme());
-
-        self.list_data[list.index()]
-            .as_ref()
-            .expect("no list matcher for the given type")
-    }
-
     /// Get immutable reference to user data stored in
     /// this execution context with [`ExecutionContext::new_with`].
     #[inline]
@@ -221,23 +178,15 @@ impl<'e, U> ExecutionContext<'e, U> {
         &mut self.user_data
     }
 
-    /// Extract all values and list data into a new [`ExecutionContext`].
+    /// Extract all values into a new [`ExecutionContext`].
     #[inline]
     pub fn take_with<T>(&mut self, default: impl Fn(&mut U) -> T) -> ExecutionContext<'e, T> {
         ExecutionContext {
             scheme: self.scheme,
             values: std::mem::take(&mut self.values),
-            list_data: std::mem::take(&mut self.list_data),
             user_data: default(&mut self.user_data),
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct ListData<'b> {
-    #[serde(rename = "type")]
-    ty: Cow<'b, Type>,
-    data: serde_json::Value,
 }
 
 impl<'de, 'a, U> DeserializeSeed<'de> for &'a mut ExecutionContext<'de, U> {
@@ -261,43 +210,25 @@ impl<'de, 'a, U> DeserializeSeed<'de> for &'a mut ExecutionContext<'de, U> {
                 M: MapAccess<'de>,
             {
                 while let Some(key) = access.next_key::<Cow<'_, str>>()? {
-                    if key == "$lists" {
-                        // Deserialize lists
-                        let vec = access.next_value::<Vec<ListData<'_>>>()?;
-                        for ListData { ty, data } in vec.into_iter() {
-                            let list = self.0.scheme.get_list(&ty).ok_or_else(|| {
-                                de::Error::custom(format!("unknown list for type: {:?}", ty))
-                            })?;
-                            self.0.list_data[list.index()] = Some(
-                                list.definition()
-                                    .matcher_from_json_value(ty.into_owned(), data)
-                                    .map_err(|err| {
-                                        de::Error::custom(format!(
-                                            "failed to deserialize list matcher: {:?}",
-                                            err
-                                        ))
-                                    })?,
-                            );
-                        }
-                    } else {
-                        let field =
-                            self.0.scheme.get_field(&key).map_err(|_| {
-                                de::Error::custom(format!("unknown field: {}", key))
-                            })?;
-                        let value = access
-                            .next_value_seed::<LhsValueSeed<'_>>(LhsValueSeed(&field.get_type()))?;
-                        let field =
-                            self.0.scheme().get_field(&key).map_err(|_| {
-                                de::Error::custom(format!("unknown field: {}", key))
-                            })?;
-                        self.0.set_field_value(field, value).map_err(|e| match e {
-                            SetFieldValueError::TypeMismatchError(e) => de::Error::custom(format!(
-                                "invalid type: {:?}, expected {:?}",
-                                e.actual, e.expected
-                            )),
-                            SetFieldValueError::SchemeMismatchError(_) => unreachable!(),
-                        })?;
-                    }
+                    let field = self
+                        .0
+                        .scheme
+                        .get_field(&key)
+                        .map_err(|_| de::Error::custom(format!("unknown field: {}", key)))?;
+                    let value = access
+                        .next_value_seed::<LhsValueSeed<'_>>(LhsValueSeed(&field.get_type()))?;
+                    let field = self
+                        .0
+                        .scheme()
+                        .get_field(&key)
+                        .map_err(|_| de::Error::custom(format!("unknown field: {}", key)))?;
+                    self.0.set_field_value(field, value).map_err(|e| match e {
+                        SetFieldValueError::TypeMismatchError(e) => de::Error::custom(format!(
+                            "invalid type: {:?}, expected {:?}",
+                            e.actual, e.expected
+                        )),
+                        SetFieldValueError::SchemeMismatchError(_) => unreachable!(),
+                    })?;
                 }
 
                 Ok(())
@@ -324,30 +255,6 @@ impl<'e> Serialize for ExecutionContext<'e> {
             }
         }
 
-        struct ListDataSlice<'a>(&'a Scheme, &'a [Option<ListMatcherWrapper>]);
-
-        impl<'a> Serialize for ListDataSlice<'a> {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                let mut seq = serializer
-                    .serialize_seq(Some(self.1.iter().filter(|list| list.is_some()).count()))?;
-                for (ty, list) in self.0.lists() {
-                    if let Some(list_data) = &self.1[list.index()] {
-                        seq.serialize_element(&ListData {
-                            ty: Cow::Borrowed(ty),
-                            data: list_data.to_json_value(),
-                        })?;
-                    }
-                }
-                seq.end()
-            }
-        }
-
-        if self.list_data.iter().any(|list_data| list_data.is_some()) {
-            map.serialize_entry("$lists", &ListDataSlice(self.scheme, &self.list_data))?;
-        }
         map.end()
     }
 }

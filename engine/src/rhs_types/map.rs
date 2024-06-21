@@ -9,7 +9,7 @@ use std::{borrow::Borrow, cmp::Ordering};
 
 /// [Uninhabited / empty type](https://doc.rust-lang.org/nomicon/exotic-sizes.html#empty-types)
 /// for `map` with traits we need for RHS values.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Serialize)]
 pub enum UninhabitedMap {}
 
 impl<'a> Borrow<Map<'a>> for UninhabitedMap {

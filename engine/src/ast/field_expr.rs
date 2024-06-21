@@ -8,13 +8,12 @@ use crate::{
     compiler::Compiler,
     filter::{CompiledExpr, CompiledValueExpr},
     lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith},
-    list_matcher::ListMatcher,
     range_set::RangeSet,
-    rhs_types::{Bytes, ExplicitIpRange, ListName, Regex},
-    scheme::{Field, Identifier, List, Scheme},
+    rhs_types::{Bytes, ExplicitIpRange, Regex, VariableName},
+    scheme::{Field, Identifier, Scheme, VariableRef},
     searcher::{EmptySearcher, TwoWaySearcher},
     strict_partial_ord::StrictPartialOrd,
-    types::{GetType, LhsValue, RhsValue, RhsValues, Type},
+    types::{GetType, LhsValue, RhsValue, RhsValues, Type, VariableValue},
 };
 use aho_corasick::AhoCorasickBuilder;
 use fnv::FnvBuildHasher;
@@ -130,6 +129,20 @@ pub enum ComparisonOpExpr<'s> {
         rhs: RhsValue,
     },
 
+    /// Ordering comparison with a variable
+    OrderingVariable {
+        /// Ordering comparison operator:
+        /// * "eq" | "EQ" | "=="
+        /// * "ne" | "NE" | "!="
+        /// * "ge" | "GE" | ">="
+        /// * "le" | "LE" | "<="
+        /// * "gt" | "GT" | ">"
+        /// * "lt" | "LT" | "<"
+        op: OrderingOp,
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
+    },
+
     /// Integer comparison
     Int {
         /// Integer comparison operator:
@@ -139,11 +152,28 @@ pub enum ComparisonOpExpr<'s> {
         rhs: i32,
     },
 
+    /// Integer comparison with a variable
+    IntVariable {
+        /// Integer comparison operator:
+        /// * "&" | "bitwise_and" | "BITWISE_AND"
+        op: IntOp,
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
+    },
+
     /// "contains" / "CONTAINS" comparison
     #[serde(serialize_with = "serialize_contains")]
     Contains {
         /// Right-hand side bytes value
         rhs: Bytes,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
+    /// "contains" / "CONTAINS" comparison with a variable
+    ContainsVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -157,11 +187,27 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
+    /// "matches / MATCHES / ~" comparison with a variable
+    MatchesVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
     /// "in {...}" / "IN {...}" comparison
     #[serde(serialize_with = "serialize_one_of")]
     OneOf {
         /// Right-hand side values
         rhs: RhsValues,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
+    /// "in $..." | "IN $..." comparison with a variable
+    OneOfVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -175,6 +221,14 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
+    /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+    HasAnyVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
     /// "has_all {...}" / "HAS_ALL {...}" comparison
     #[serde(serialize_with = "serialize_has_all")]
     HasAll {
@@ -184,13 +238,10 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
-    /// "in $..." | "IN $..." comparison
-    #[serde(serialize_with = "serialize_list")]
-    InList {
-        /// `List` from the `Scheme`
-        list: List<'s>,
-        /// List name
-        name: ListName,
+    /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+    HasAllVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableRef<'s>,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -235,15 +286,6 @@ fn serialize_has_any<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S
 
 fn serialize_has_all<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("HasAll", rhs, ser)
-}
-
-fn serialize_list<S: Serializer>(
-    _: &List<'_>,
-    name: &ListName,
-    _: &u8,
-    ser: S,
-) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("InList", name, ser)
 }
 
 /// Left-hand side of a field expression
@@ -363,15 +405,27 @@ impl<'s> ComparisonExpr<'s> {
                 | (Type::Int, ComparisonOp::In(variant))
                 | (Type::Float, ComparisonOp::In(variant)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = ListName::lex(input)?;
-                        let list = scheme.get_list(&lhs_type).ok_or((
-                            LexErrorKind::UnsupportedOp { lhs_type },
-                            span(initial_input, input),
-                        ))?;
+                        let (name, input) = VariableName::lex(input)?;
+                        let (variable, variable_ref) =
+                            scheme.get_variable_and_ref(name.as_str()).ok_or((
+                                LexErrorKind::UnknownVariable {
+                                    name: name.as_str().into(),
+                                },
+                                span(initial_input, input),
+                            ))?;
+                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                            return Err((
+                                LexErrorKind::VariableTypeMismatch {
+                                    name: name.take_inner(),
+                                    expected: lhs_type,
+                                    actual: variable.get_variable_type(),
+                                },
+                                span(initial_input, input),
+                            ));
+                        }
                         (
-                            ComparisonOpExpr::InList {
-                                name,
-                                list,
+                            ComparisonOpExpr::OneOfVariable {
+                                var: variable_ref,
                                 variant,
                             },
                             input,
@@ -382,53 +436,186 @@ impl<'s> ComparisonExpr<'s> {
                     }
                 }
                 (Type::Bytes, ComparisonOp::HasAny(_)) | (Type::Bytes, ComparisonOp::HasAll(_)) => {
-                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
-                    (
-                        match op {
-                            ComparisonOp::HasAny(variant) => {
-                                ComparisonOpExpr::HasAny { rhs, variant }
-                            }
-                            ComparisonOp::HasAll(variant) => {
-                                ComparisonOpExpr::HasAll { rhs, variant }
-                            }
-                            _ => unreachable!(),
-                        },
-                        input,
-                    )
+                    if expect(input, "$").is_ok() {
+                        let (name, input) = VariableName::lex(input)?;
+                        let (variable, variable_ref) =
+                            scheme.get_variable_and_ref(name.as_str()).ok_or((
+                                LexErrorKind::UnknownVariable {
+                                    name: name.as_str().into(),
+                                },
+                                span(initial_input, input),
+                            ))?;
+                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                            return Err((
+                                LexErrorKind::VariableTypeMismatch {
+                                    name: name.take_inner(),
+                                    expected: lhs_type,
+                                    actual: variable.get_variable_type(),
+                                },
+                                span(initial_input, input),
+                            ));
+                        }
+                        (
+                            match op {
+                                ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAnyVariable {
+                                    var: variable_ref,
+                                    variant,
+                                },
+                                ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAllVariable {
+                                    var: variable_ref,
+                                    variant,
+                                },
+                                _ => unreachable!(),
+                            },
+                            input,
+                        )
+                    } else {
+                        let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                        (
+                            match op {
+                                ComparisonOp::HasAny(variant) => {
+                                    ComparisonOpExpr::HasAny { rhs, variant }
+                                }
+                                ComparisonOp::HasAll(variant) => {
+                                    ComparisonOpExpr::HasAll { rhs, variant }
+                                }
+                                _ => unreachable!(),
+                            },
+                            input,
+                        )
+                    }
                 }
                 (Type::Ip, ComparisonOp::Ordering(op))
                 | (Type::Bytes, ComparisonOp::Ordering(op))
                 | (Type::Int, ComparisonOp::Ordering(op))
                 | (Type::Float, ComparisonOp::Ordering(op)) => {
-                    let (rhs, input) = RhsValue::lex_with(input, lhs_type)?;
-                    (ComparisonOpExpr::Ordering { op, rhs }, input)
+                    if expect(input, "$").is_ok() {
+                        let (name, input) = VariableName::lex(input)?;
+                        let (variable, variable_ref) =
+                            scheme.get_variable_and_ref(name.as_str()).ok_or((
+                                LexErrorKind::UnknownVariable {
+                                    name: name.as_str().into(),
+                                },
+                                span(initial_input, input),
+                            ))?;
+                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                            return Err((
+                                LexErrorKind::VariableTypeMismatch {
+                                    name: name.take_inner(),
+                                    expected: lhs_type,
+                                    actual: variable.get_variable_type(),
+                                },
+                                span(initial_input, input),
+                            ));
+                        }
+                        (
+                            ComparisonOpExpr::OrderingVariable {
+                                op,
+                                var: variable_ref,
+                            },
+                            input,
+                        )
+                    } else {
+                        let (rhs, input) = RhsValue::lex_with(input, lhs_type)?;
+                        (ComparisonOpExpr::Ordering { op, rhs }, input)
+                    }
                 }
                 (Type::Int, ComparisonOp::Int(op)) => {
-                    let (rhs, input) = i32::lex(input)?;
-                    (ComparisonOpExpr::Int { op, rhs }, input)
+                    if expect(input, "$").is_ok() {
+                        let (name, input) = VariableName::lex(input)?;
+                        let (variable, variable_ref) =
+                            scheme.get_variable_and_ref(name.as_str()).ok_or((
+                                LexErrorKind::UnknownVariable {
+                                    name: name.as_str().into(),
+                                },
+                                span(initial_input, input),
+                            ))?;
+                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                            return Err((
+                                LexErrorKind::VariableTypeMismatch {
+                                    name: name.take_inner(),
+                                    expected: lhs_type,
+                                    actual: variable.get_variable_type(),
+                                },
+                                span(initial_input, input),
+                            ));
+                        }
+                        (
+                            ComparisonOpExpr::IntVariable {
+                                op,
+                                var: variable_ref,
+                            },
+                            input,
+                        )
+                    } else {
+                        let (rhs, input) = i32::lex(input)?;
+                        (ComparisonOpExpr::Int { op, rhs }, input)
+                    }
                 }
-                (Type::Bytes, ComparisonOp::Bytes(op)) => match op {
-                    BytesOp::Contains(variant) => {
-                        let (bytes, input) = Bytes::lex(input)?;
-                        (
-                            ComparisonOpExpr::Contains {
-                                rhs: bytes,
-                                variant,
-                            },
-                            input,
-                        )
+                (Type::Bytes, ComparisonOp::Bytes(op)) => {
+                    if expect(input, "$").is_ok() {
+                        let (name, input) = VariableName::lex(input)?;
+                        let (variable, variable_ref) =
+                            scheme.get_variable_and_ref(name.as_str()).ok_or((
+                                LexErrorKind::UnknownVariable {
+                                    name: name.as_str().into(),
+                                },
+                                span(initial_input, input),
+                            ))?;
+                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                            return Err((
+                                LexErrorKind::VariableTypeMismatch {
+                                    name: name.take_inner(),
+                                    expected: lhs_type,
+                                    actual: variable.get_variable_type(),
+                                },
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        match op {
+                            BytesOp::Contains(variant) => (
+                                ComparisonOpExpr::ContainsVariable {
+                                    var: variable_ref,
+                                    variant,
+                                },
+                                input,
+                            ),
+                            BytesOp::Matches(variant) => (
+                                ComparisonOpExpr::MatchesVariable {
+                                    var: variable_ref,
+                                    variant,
+                                },
+                                input,
+                            ),
+                        }
+                    } else {
+                        {
+                            match op {
+                                BytesOp::Contains(variant) => {
+                                    let (bytes, input) = Bytes::lex(input)?;
+                                    (
+                                        ComparisonOpExpr::Contains {
+                                            rhs: bytes,
+                                            variant,
+                                        },
+                                        input,
+                                    )
+                                }
+                                BytesOp::Matches(variant) => {
+                                    let (regex, input) = Regex::lex(input)?;
+                                    (
+                                        ComparisonOpExpr::Matches {
+                                            rhs: regex,
+                                            variant,
+                                        },
+                                        input,
+                                    )
+                                }
+                            }
+                        }
                     }
-                    BytesOp::Matches(variant) => {
-                        let (regex, input) = Regex::lex(input)?;
-                        (
-                            ComparisonOpExpr::Matches {
-                                rhs: regex,
-                                variant,
-                            },
-                            input,
-                        )
-                    }
-                },
+                }
                 _ => {
                     return Err((
                         LexErrorKind::UnsupportedOp { lhs_type },
@@ -459,7 +646,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
     ) -> CompiledExpr<'s, U> {
         let lhs = self.lhs;
 
-        macro_rules! cast_value {
+        macro_rules! cast_lhs_rhs_value {
             ($value:expr, $ty:ident) => {
                 match $value {
                     LhsValue::$ty(value) => value,
@@ -468,20 +655,43 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             };
         }
 
+        macro_rules! cast_rhs_values {
+            ($values:expr, $ty:ident) => {
+                match $values {
+                    RhsValues::$ty(values) => values,
+                    _ => unreachable!(),
+                }
+            };
+        }
+
+        macro_rules! cast_variable_value {
+            ($value:expr, $ty:ident) => {
+                match $value {
+                    VariableValue::$ty(value) => value,
+                    _ => unreachable!(),
+                }
+            };
+        }
+
         match self.op {
             ComparisonOpExpr::IsTrue => {
                 if lhs.get_type() == Type::Bool {
-                    lhs.compile_with(compiler, false, move |x, _ctx| *cast_value!(x, Bool))
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        *cast_lhs_rhs_value!(x, Bool)
+                    })
                 } else if lhs.get_type().next() == Some(Type::Bool) {
                     // MapEach is impossible in this case, thus call `compile_vec_with` directly
                     // to coerce LhsValue to Vec<bool>
                     CompiledExpr::Vec(
-                        lhs.compile_vec_with(compiler, move |x, _ctx| *cast_value!(x, Bool)),
+                        lhs.compile_vec_with(compiler, move |x, _ctx| {
+                            *cast_lhs_rhs_value!(x, Bool)
+                        }),
                     )
                 } else {
                     unreachable!()
                 }
             }
+
             ComparisonOpExpr::Ordering { op, rhs } => match op {
                 OrderingOp::NotEqual(_) => lhs.compile_with(compiler, true, move |x, _ctx| {
                     op.matches_opt(x.strict_partial_cmp(&rhs))
@@ -490,12 +700,28 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     op.matches_opt(x.strict_partial_cmp(&rhs))
                 }),
             },
+            ComparisonOpExpr::OrderingVariable { op, var: variable } => match op {
+                OrderingOp::NotEqual(_) => lhs.compile_with(compiler, true, move |x, _ctx| {
+                    op.matches_opt(x.strict_partial_cmp(variable.value()))
+                }),
+                _ => lhs.compile_with(compiler, false, move |x, _ctx| {
+                    op.matches_opt(x.strict_partial_cmp(variable.value()))
+                }),
+            },
+
             ComparisonOpExpr::Int {
                 op: IntOp::BitwiseAnd(_),
                 rhs,
             } => lhs.compile_with(compiler, false, move |x, _ctx| {
-                cast_value!(x, Int) & rhs != 0
+                cast_lhs_rhs_value!(x, Int) & rhs != 0
             }),
+            ComparisonOpExpr::IntVariable {
+                op: IntOp::BitwiseAnd(_),
+                var,
+            } => lhs.compile_with(compiler, false, move |x, _ctx| {
+                cast_lhs_rhs_value!(x, Int) & cast_variable_value!(var.value(), Int) != 0
+            }),
+
             ComparisonOpExpr::Contains {
                 rhs: bytes,
                 variant: _,
@@ -504,7 +730,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
                         lhs.compile_with(compiler, false, move |x, _ctx| {
-                            searcher.search_in(cast_value!(x, Bytes).as_ref())
+                            searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
                         })
                     }};
                 }
@@ -530,12 +756,52 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 
                 search!(TwoWaySearcher::new(bytes))
             }
+            ComparisonOpExpr::ContainsVariable { var, variant: _ } => {
+                macro_rules! search {
+                    ($searcher:expr) => {{
+                        let searcher = $searcher;
+                        lhs.compile_with(compiler, false, move |x, _ctx| {
+                            searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
+                        })
+                    }};
+                }
+
+                let bytes = cast_variable_value!(var.value(), Bytes)
+                    .clone()
+                    .into_boxed_slice();
+
+                if bytes.is_empty() {
+                    return search!(EmptySearcher);
+                }
+
+                if let [byte] = *bytes {
+                    return search!(MemchrSearcher::new(byte));
+                }
+
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                if *USE_AVX2 {
+                    use rand::{thread_rng, Rng};
+                    use sliceslice::x86::*;
+
+                    let position = thread_rng().gen_range(1..bytes.len());
+                    return unsafe { search!(DynamicAvx2Searcher::with_position(bytes, position)) };
+                }
+
+                search!(TwoWaySearcher::new(bytes))
+            }
+
             ComparisonOpExpr::Matches {
                 rhs: regex,
                 variant: _,
             } => lhs.compile_with(compiler, false, move |x, _ctx| {
-                regex.is_match(cast_value!(x, Bytes))
+                regex.is_match(cast_lhs_rhs_value!(x, Bytes))
             }),
+            ComparisonOpExpr::MatchesVariable { var, variant: _ } => {
+                lhs.compile_with(compiler, false, move |x, _ctx| {
+                    cast_variable_value!(var.value(), Regex).is_match(cast_lhs_rhs_value!(x, Bytes))
+                })
+            }
+
             ComparisonOpExpr::OneOf {
                 rhs: values,
                 variant: _,
@@ -552,23 +818,25 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     let v4 = RangeSet::from(v4);
                     let v6 = RangeSet::from(v6);
 
-                    lhs.compile_with(compiler, false, move |x, _ctx| match cast_value!(x, Ip) {
-                        IpAddr::V4(addr) => v4.contains(addr),
-                        IpAddr::V6(addr) => v6.contains(addr),
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        match cast_lhs_rhs_value!(x, Ip) {
+                            IpAddr::V4(addr) => v4.contains(addr),
+                            IpAddr::V6(addr) => v6.contains(addr),
+                        }
                     })
                 }
                 RhsValues::Int(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
                     lhs.compile_with(compiler, false, move |x, _ctx| {
-                        values.contains(cast_value!(x, Int))
+                        values.contains(cast_lhs_rhs_value!(x, Int))
                     })
                 }
                 RhsValues::Float(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
                     lhs.compile_with(compiler, false, move |x, _ctx| {
-                        values.contains(cast_value!(x, Float))
+                        values.contains(cast_lhs_rhs_value!(x, Float))
                     })
                 }
                 RhsValues::Bytes(values) => {
@@ -576,70 +844,86 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                         values.into_iter().map(Into::into).collect();
 
                     lhs.compile_with(compiler, false, move |x, _ctx| {
-                        values.contains(cast_value!(x, Bytes) as &[u8])
+                        values.contains(cast_lhs_rhs_value!(x, Bytes) as &[u8])
                     })
                 }
                 RhsValues::Bool(_) => unreachable!(),
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
+                RhsValues::Regex(_) => unreachable!(),
             },
+            ComparisonOpExpr::OneOfVariable {
+                var: list,
+                variant: _,
+            } => lhs.compile_with(compiler, false, move |val, _| {
+                list.value().matches_lhs_value(val)
+            }),
+
             ComparisonOpExpr::HasAny {
                 rhs: values,
                 variant: _,
-            } => match values {
-                RhsValues::Bytes(values) => {
-                    if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
-                        lhs.compile_with(compiler, false, move |x, _ctx| {
-                            searcher.is_match(cast_value!(x, Bytes))
-                        })
-                    } else {
-                        lhs.compile_with(compiler, false, move |_x, _ctx| false)
-                    }
+            } => {
+                let values = cast_rhs_values!(values, Bytes);
+                if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
+                    })
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
                 }
-                RhsValues::Ip(_) => unreachable!(),
-                RhsValues::Int(_) => unreachable!(),
-                RhsValues::Float(_) => unreachable!(),
-                RhsValues::Bool(_) => unreachable!(),
-                RhsValues::Map(_) => unreachable!(),
-                RhsValues::Array(_) => unreachable!(),
-            },
+            }
+            ComparisonOpExpr::HasAnyVariable { var, variant: _ } => {
+                let variable_values = cast_variable_value!(var.value(), BytesList);
+                if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
+                    })
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                }
+            }
             ComparisonOpExpr::HasAll {
                 rhs: values,
                 variant: _,
-            } => match values {
-                RhsValues::Bytes(values) => {
-                    if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
-                        lhs.compile_with(compiler, false, move |x, _ctx| {
-                            let text = cast_value!(x, Bytes);
-                            let mut found = vec![false; values.len()];
-                            if let Ok(find_iter) = searcher.try_find_iter(text) {
-                                for mat in find_iter {
-                                    found[mat.pattern()] = true;
-                                }
-                                found.into_iter().all(|f| f)
-                            } else {
-                                false
+            } => {
+                let values = cast_rhs_values!(values, Bytes);
+                if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        let text = cast_lhs_rhs_value!(x, Bytes);
+                        let mut found = vec![false; values.len()];
+                        if let Ok(find_iter) = searcher.try_find_iter(text) {
+                            for mat in find_iter {
+                                found[mat.pattern()] = true;
                             }
-                        })
-                    } else {
-                        lhs.compile_with(compiler, false, move |_x, _ctx| false)
-                    }
+                            found.into_iter().all(|f| f)
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
                 }
-                RhsValues::Ip(_) => unreachable!(),
-                RhsValues::Int(_) => unreachable!(),
-                RhsValues::Float(_) => unreachable!(),
-                RhsValues::Bool(_) => unreachable!(),
-                RhsValues::Map(_) => unreachable!(),
-                RhsValues::Array(_) => unreachable!(),
-            },
-            ComparisonOpExpr::InList {
-                name,
-                list,
-                variant: _,
-            } => lhs.compile_with(compiler, false, move |val, ctx| {
-                ctx.get_list_matcher_unchecked(list)
-                    .match_value(name.as_str(), val)
-            }),
+            }
+            ComparisonOpExpr::HasAllVariable { var, variant: _ } => {
+                let variable_values = cast_variable_value!(var.value(), BytesList);
+                let variable_values_len = variable_values.len();
+                if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                        let text = cast_lhs_rhs_value!(x, Bytes);
+                        let mut found = vec![false; variable_values_len];
+                        if let Ok(find_iter) = searcher.try_find_iter(text) {
+                            for mat in find_iter {
+                                found[mat.pattern()] = true;
+                            }
+                            found.into_iter().all(|f| f)
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                }
+            }
         }
     }
 }
@@ -648,10 +932,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 mod tests {
     use super::*;
     use crate::{
-        ast::{
-            function_expr::{FunctionCallArgExpr, FunctionCallExpr},
-            simple_expr::SimpleExpr,
-        },
+        ast::function_expr::{FunctionCallArgExpr, FunctionCallExpr},
         execution_context::{ExecutionContext, State},
         functions::{
             FunctionArgKind, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,
@@ -659,14 +940,13 @@ mod tests {
             SimpleFunctionOptParam, SimpleFunctionParam,
         },
         lhs_types::{Array, Map},
-        list_matcher::{ListDefinition, ListMatcherWrapper},
         rhs_types::IpRange,
         scheme::{FieldIndex, IndexAccessError},
-        types::ExpectedType,
+        types::{ExpectedType, RhsValues},
     };
     use cidr::IpCidr;
     use lazy_static::lazy_static;
-    use std::{any::Any, convert::TryFrom, iter::once, net::IpAddr};
+    use std::{convert::TryFrom, iter::once, net::IpAddr};
 
     fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
@@ -727,11 +1007,11 @@ mod tests {
         ) -> Result<(), FunctionParamError> {
             match params.len() {
                 0 => {
-                    next_param.expect_arg_kind(FunctionArgKind::Field)?;
+                    next_param.expect_arg_kind(FunctionArgKind::Complex)?;
                     next_param.expect_val_type(once(ExpectedType::Array))?;
                 }
                 1 => {
-                    next_param.expect_arg_kind(FunctionArgKind::Field)?;
+                    next_param.expect_arg_kind(FunctionArgKind::Complex)?;
                     next_param.expect_val_type(once(ExpectedType::Type(Type::Array(Box::new(
                         Type::Bool,
                     )))))?;
@@ -788,23 +1068,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug, PartialEq, Serialize, Clone)]
-    pub struct NumMListDefinition {}
-
-    impl ListDefinition for NumMListDefinition {
-        fn matcher_from_json_value(
-            &self,
-            _: Type,
-            _: serde_json::Value,
-        ) -> Result<ListMatcherWrapper, serde_json::Error> {
-            Ok(ListMatcherWrapper::new(NumMatcher {}))
-        }
-
-        fn is_valid_matcher(&self, matcher: &dyn Any) -> bool {
-            matcher.is::<NumMatcher>()
-        }
-    }
-
     lazy_static! {
         static ref SCHEME: Scheme = {
             let mut scheme: Scheme = Scheme! {
@@ -823,7 +1086,7 @@ mod tests {
                     "any".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Array(Box::new(Type::Bool)),
                         }],
                         opt_params: Some(vec![]),
@@ -837,7 +1100,7 @@ mod tests {
                     "echo".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -851,7 +1114,7 @@ mod tests {
                     "lowercase".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -867,7 +1130,7 @@ mod tests {
                         params: vec![],
                         opt_params: Some(vec![
                             SimpleFunctionOptParam {
-                                arg_kind: FunctionArgKind::Field,
+                                arg_kind: FunctionArgKind::Complex,
                                 default_value: "".into(),
                             },
                             SimpleFunctionOptParam {
@@ -888,7 +1151,7 @@ mod tests {
                     "len".into(),
                     SimpleFunctionDefinition {
                         params: vec![SimpleFunctionParam {
-                            arg_kind: FunctionArgKind::Field,
+                            arg_kind: FunctionArgKind::Complex,
                             val_type: Type::Bytes,
                         }],
                         opt_params: Some(vec![]),
@@ -898,7 +1161,7 @@ mod tests {
                 )
                 .unwrap();
             scheme
-                .add_list(Type::Int, Box::new(NumMListDefinition {}))
+                .add_variable("int_list".to_string(), vec![1000].into())
                 .unwrap();
             scheme
         };
@@ -2436,65 +2699,17 @@ mod tests {
         );
     }
 
-    #[derive(Debug, PartialEq, Serialize, Clone)]
-    pub struct NumMatcher {}
-
-    impl ListMatcher for NumMatcher {
-        fn match_value(&self, list_name: &str, val: &LhsValue<'_>) -> bool {
-            // Ideally this would lookup list_name in metadata
-            let list_id = if list_name == "even" {
-                [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            } else {
-                [1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            };
-
-            match val {
-                LhsValue::Int(num) => self.num_matches(*num, list_id),
-                _ => unreachable!(), // TODO: is this unreachable?
-            }
-        }
-
-        fn to_json_value(&self) -> serde_json::Value {
-            serde_json::from_str(&serde_json::ser::to_string(self).unwrap()).unwrap()
-        }
-    }
-
-    /// Match IPs (v4 and v6) in lists.
-    ///
-    /// ```text
-    /// ip.src in $whitelist and not origin.ip in $whitelist
-    /// ```
-    impl NumMatcher {
-        pub fn new() -> Self {
-            NumMatcher {}
-        }
-
-        fn num_matches(&self, num: i32, list_id: [u8; 16]) -> bool {
-            let remainder = if list_id == [1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] {
-                1
-            } else {
-                0
-            };
-
-            num % 2 == remainder
-        }
-    }
-
     #[test]
     fn test_number_in_list() {
-        let list = SCHEME.get_list(&Type::Int).unwrap();
+        let var = SCHEME.get_variable_ref("int_list").unwrap();
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"tcp.port in $even"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"tcp.port in $int_list"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::InList {
-                    list,
-                    name: ListName::from("even".to_string()),
-                    variant: 0,
-                }
+                op: ComparisonOpExpr::OneOfVariable { var, variant: 0 }
             }
         );
 
@@ -2502,119 +2717,18 @@ mod tests {
             expr,
             {
                 "lhs": "tcp.port",
-                "op": "InList",
-                "rhs": "even"
+                "var": "int_list",
+                "variant": 0
             }
         );
 
-        // EVEN list
         let expr = expr.compile();
         let ctx = &mut ExecutionContext::new(&SCHEME);
-
-        let list_matcher = NumMatcher::new();
-        ctx.set_list_matcher(list, list_matcher).unwrap();
 
         ctx.set_field_value(field("tcp.port"), 1000).unwrap();
         assert!(expr.execute_one(ctx, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 1001).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
-
-        // ODD list
-        let expr = ComparisonExpr::lex_with(r#"tcp.port in $odd"#, &SCHEME)
-            .unwrap()
-            .0;
-        let expr = expr.compile();
-        let ctx = &mut ExecutionContext::new(&SCHEME);
-
-        let list_matcher = NumMatcher::new();
-        ctx.set_list_matcher(list, list_matcher).unwrap();
-
-        ctx.set_field_value(field("tcp.port"), 1000).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
-
-        ctx.set_field_value(field("tcp.port"), 1001).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
-
-        let json = serde_json::to_string(ctx).unwrap();
-        assert_eq!(
-            json,
-            "{\"tcp.port\":1001,\"$lists\":[{\"type\":\"Int\",\"data\":{}}]}"
-        );
-    }
-
-    #[test]
-    fn test_any_number_in_list() {
-        let list = SCHEME.get_list(&Type::Int).unwrap();
-        let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"any(tcp.ports[*] IN $even)"#, &SCHEME),
-            ComparisonExpr {
-                lhs: IndexExpr {
-                    lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
-                        function: SCHEME.get_function("any").unwrap(),
-                        args: vec![FunctionCallArgExpr::SimpleExpr(SimpleExpr::Comparison(
-                            ComparisonExpr {
-                                lhs: IndexExpr {
-                                    lhs: LhsFieldExpr::Field(field("tcp.ports")),
-                                    indexes: vec![FieldIndex::MapEach],
-                                },
-                                op: ComparisonOpExpr::InList {
-                                    list,
-                                    name: ListName::from("even".to_string()),
-                                    variant: 1,
-                                },
-                            }
-                        ))],
-                        return_type: Type::Bool,
-                        context: None,
-                    }),
-                    indexes: vec![],
-                },
-                op: ComparisonOpExpr::IsTrue
-            }
-        );
-
-        assert_json!(
-            expr,
-            {
-                "lhs": {
-                    "name": "any",
-                    "args": [
-                        {
-                            "kind": "SimpleExpr",
-                            "value": {
-                                "lhs": ["tcp.ports", {"kind": "MapEach"}],
-                                "op": "InList",
-                                "rhs": "even"
-                            }
-                        }
-                    ]
-                },
-                "op": "IsTrue"
-            }
-        );
-
-        // EVEN list
-        let expr = expr.compile();
-        let ctx = &mut ExecutionContext::new(&SCHEME);
-
-        let list_matcher = NumMatcher::new();
-        ctx.set_list_matcher(list, list_matcher).unwrap();
-
-        let mut arr1 = Array::new(Type::Int);
-        // 1 odd, 1 even
-        arr1.push(1001.into()).unwrap();
-        arr1.push(1000.into()).unwrap();
-
-        ctx.set_field_value(field("tcp.ports"), arr1).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
-
-        let mut arr2 = Array::new(Type::Int);
-        // all odd numbers
-        arr2.push(1001.into()).unwrap();
-        arr2.push(1003.into()).unwrap();
-
-        ctx.set_field_value(field("tcp.ports"), arr2).unwrap();
         assert!(!expr.execute_one(ctx, &Default::default()));
     }
 

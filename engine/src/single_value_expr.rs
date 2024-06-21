@@ -104,7 +104,7 @@ mod tests {
                 "lower".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bytes,
                     }],
                     opt_params: Some(vec![]),
@@ -118,7 +118,7 @@ mod tests {
                 "is_true".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Bool,
                     }],
                     opt_params: Some(vec![]),

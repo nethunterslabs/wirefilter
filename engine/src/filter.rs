@@ -239,7 +239,7 @@ mod tests {
                 "multiply_by_secret_number".into(),
                 SimpleFunctionDefinition {
                     params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Field,
+                        arg_kind: FunctionArgKind::Complex,
                         val_type: Type::Int,
                     }],
                     opt_params: Some(vec![]),

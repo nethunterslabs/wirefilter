@@ -31,6 +31,7 @@ from python_ast_builder import (
     TypeBuilder,
     UnaryExprBuilder,
     UnaryOpBuilder,
+    VariableBuilder,
 )
 
 
@@ -60,6 +61,9 @@ if __name__ == "__main__":
 
     function_builder = FunctionBuilder("len")
     write_to_file(function_builder, "function_builder")
+
+    variable_builder = VariableBuilder("bytes_var")
+    write_to_file(variable_builder, "variable_builder")
 
     type_builder1 = TypeBuilder(Bool=True)
     write_to_file(type_builder1, "type_builder1")
@@ -155,6 +159,41 @@ if __name__ == "__main__":
 
     comparison_op_expr_builder8 = ComparisonOpExprBuilder(HasAll=(rhs_values_builder4))
     write_to_file(comparison_op_expr_builder8, "comparison_op_expr_builder8")
+
+    comparison_op_expr_builder9 = ComparisonOpExprBuilder(
+        OrderingVariable=(ordering_op_builder, VariableBuilder("int_var"))
+    )
+    write_to_file(comparison_op_expr_builder9, "comparison_op_expr_builder9")
+
+    comparison_op_expr_builder10 = ComparisonOpExprBuilder(
+        IntVariable=(int_op_builder, VariableBuilder("int_var"))
+    )
+    write_to_file(comparison_op_expr_builder10, "comparison_op_expr_builder10")
+
+    comparison_op_expr_builder11 = ComparisonOpExprBuilder(
+        ContainsVariable=(VariableBuilder("bytes_var"))
+    )
+    write_to_file(comparison_op_expr_builder11, "comparison_op_expr_builder11")
+
+    comparison_op_expr_builder12 = ComparisonOpExprBuilder(
+        MatchesVariable=(VariableBuilder("regex_var"))
+    )
+    write_to_file(comparison_op_expr_builder12, "comparison_op_expr_builder12")
+
+    comparison_op_expr_builder13 = ComparisonOpExprBuilder(
+        OneOfVariable=(VariableBuilder("in_var"))
+    )
+    write_to_file(comparison_op_expr_builder13, "comparison_op_expr_builder13")
+
+    comparison_op_expr_builder14 = ComparisonOpExprBuilder(
+        HasAnyVariable=(VariableBuilder("has_any_var"))
+    )
+    write_to_file(comparison_op_expr_builder14, "comparison_op_expr_builder14")
+
+    comparison_op_expr_builder15 = ComparisonOpExprBuilder(
+        HasAllVariable=(VariableBuilder("has_all_var"))
+    )
+    write_to_file(comparison_op_expr_builder15, "comparison_op_expr_builder15")
 
     unary_expr_builder = UnaryExprBuilder(
         unary_op_builder,

@@ -41,6 +41,18 @@ pub enum Bytes {
     },
 }
 
+impl Bytes {
+    /// Creates a new `Bytes` from a string.
+    pub fn new_str(value: Box<str>, ty: StrType) -> Self {
+        Self::Str { value, ty }
+    }
+
+    /// Creates a new `Bytes` from raw bytes.
+    pub fn new_raw(value: Box<[u8]>, separator: ByteSeparator) -> Self {
+        Self::Raw { value, separator }
+    }
+}
+
 impl Serialize for Bytes {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {

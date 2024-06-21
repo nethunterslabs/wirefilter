@@ -55,6 +55,20 @@ pub enum IpRange {
     Cidr(IpCidr),
 }
 
+impl IpRange {
+    /// Returns `true` if the range contains the given IP address.
+    pub fn contains(&self, addr: &IpAddr) -> bool {
+        match self {
+            IpRange::Explicit(range) => match (range, addr) {
+                (ExplicitIpRange::V4(range), IpAddr::V4(addr)) => range.contains(addr),
+                (ExplicitIpRange::V6(range), IpAddr::V6(addr)) => range.contains(addr),
+                _ => false,
+            },
+            IpRange::Cidr(cidr) => cidr.contains(addr),
+        }
+    }
+}
+
 impl From<IpAddr> for IpRange {
     fn from(ip: IpAddr) -> Self {
         match ip {

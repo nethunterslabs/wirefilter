@@ -2,7 +2,7 @@ use crate::{
     functions::{FunctionArgInvalidConstantError, FunctionArgKindMismatchError},
     rhs_types::RegexError,
     scheme::{IndexAccessError, UnknownFieldError, UnknownFunctionError},
-    types::{Type, TypeMismatchError},
+    types::{Type, TypeMismatchError, VariableType},
 };
 use cidr::errors::NetworkParseError;
 use std::num::{ParseFloatError, ParseIntError};
@@ -154,11 +154,29 @@ pub enum LexErrorKind {
     #[error("invalid use of map each access operator")]
     InvalidMapEachAccess,
 
-    /// Invalid list name
-    #[error("invalid list name {name:?}")]
-    InvalidListName {
-        /// Name of the list
+    /// Invalid variable name
+    #[error("invalid variable name {name:?}")]
+    InvalidVariableName {
+        /// Name of the variable
         name: String,
+    },
+
+    /// Unknown variable
+    #[error("unknown variable {name:?}")]
+    UnknownVariable {
+        /// Name of the variable
+        name: Box<str>,
+    },
+
+    /// Variable type mismatch
+    #[error("variable type mismatch for {name:?} - expected type compatible with {expected:?}, got {actual:?}")]
+    VariableTypeMismatch {
+        /// Name of the variable
+        name: Box<str>,
+        /// Expected compatible type
+        expected: Type,
+        /// Actual type
+        actual: VariableType,
     },
 }
 
