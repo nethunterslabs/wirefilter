@@ -19,4 +19,5 @@ pub use self::{
     regex::{Error as RegexError, Regex, UninhabitedRegex},
     variable::VariableName,
 };
+pub use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
 pub use ordered_float::OrderedFloat;

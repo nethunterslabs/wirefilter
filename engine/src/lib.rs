@@ -97,8 +97,8 @@ pub use self::{
     lex::LexErrorKind,
     lhs_types::{Array, Map},
     rhs_types::{
-        ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, OrderedFloat, Regex,
-        RegexError, StrType,
+        ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpCidr, IpRange, Ipv4Cidr,
+        Ipv6Cidr, OrderedFloat, Regex, RegexError, StrType,
     },
     scheme::{
         Field, FieldIndex, FieldRedefinitionError, Function, FunctionRedefinitionError, Identifier,
