@@ -211,11 +211,34 @@ mod tests {
 
     #[test]
     fn test_scheme_mismatch() {
-        let scheme1 = Scheme! { foo: Int };
-        let scheme2 = Scheme! { foo: Int, bar: Int };
+        let mut scheme1 = Scheme! { foo: Int };
+        let mut scheme2 = Scheme! { foo: Int };
         let filter = scheme1.parse("foo == 42").unwrap().compile();
         let ctx = ExecutionContext::new(&scheme2);
 
+        assert_eq!(
+            filter.execute(&ctx, &Default::default()),
+            Err(SchemeMismatchError)
+        );
+
+        drop(filter);
+        drop(ctx);
+        scheme1.set_relaxed_equality();
+        scheme2.set_relaxed_equality();
+
+        let filter = scheme1.parse("foo == 42").unwrap().compile();
+        let mut ctx = ExecutionContext::new(&scheme2);
+
+        assert!(ctx
+            .set_field_value(scheme1.get_field("foo").unwrap(), LhsValue::Int(42))
+            .is_ok());
+        assert_eq!(filter.execute(&ctx, &Default::default()), Ok(true));
+
+        let mut scheme3 = Scheme! { foo: Int, bar: Int };
+        scheme3.set_relaxed_equality();
+
+        let ctx = ExecutionContext::new(&scheme3);
+        let filter = scheme1.parse("foo == 42").unwrap().compile();
         assert_eq!(
             filter.execute(&ctx, &Default::default()),
             Err(SchemeMismatchError)

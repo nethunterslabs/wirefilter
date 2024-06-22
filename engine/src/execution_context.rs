@@ -120,7 +120,7 @@ impl<'e, U> ExecutionContext<'e, U> {
         field: Field<'e>,
         value: V,
     ) -> Result<(), SetFieldValueError> {
-        if !std::ptr::eq(self.scheme, field.scheme()) {
+        if field.scheme() != self.scheme {
             return Err(SetFieldValueError::SchemeMismatchError(SchemeMismatchError));
         }
         let value = value.into();
@@ -278,17 +278,27 @@ fn test_field_value_type_mismatch() {
 
 #[test]
 fn test_scheme_mismatch() {
-    let scheme = Scheme! { foo: Bool };
+    let mut scheme = Scheme! { foo: Bool };
 
     let mut ctx = ExecutionContext::<()>::new(&scheme);
 
-    let scheme2 = Scheme! { foo: Bool };
+    let mut scheme2 = Scheme! { foo: Bool };
 
     assert_eq!(
         ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
         Err(SetFieldValueError::SchemeMismatchError(
             SchemeMismatchError {}
         ))
+    );
+
+    scheme.set_relaxed_equality();
+    scheme2.set_relaxed_equality();
+
+    let mut ctx = ExecutionContext::<()>::new(&scheme);
+
+    assert_eq!(
+        ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
+        Ok(())
     );
 }
 

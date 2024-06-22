@@ -456,11 +456,21 @@ pub struct VariableRedefinitionError(String);
 pub struct Scheme {
     items: IndexMap<String, SchemeItem, FnvBuildHasher>,
     variables: IndexMap<String, VariableValue>,
+    relaxed_equality: bool,
 }
 
 impl PartialEq for Scheme {
     fn eq(&self, other: &Self) -> bool {
-        ptr::eq(self, other)
+        if self.relaxed_equality {
+            self.items.len() == other.items.len()
+                && self
+                    .items
+                    .keys()
+                    .zip(other.items.keys())
+                    .all(|(a, b)| a == b)
+        } else {
+            ptr::eq(self, other)
+        }
     }
 }
 
@@ -510,6 +520,15 @@ impl<'s> Scheme {
             items: IndexMap::with_capacity_and_hasher(n, FnvBuildHasher::default()),
             ..Default::default()
         }
+    }
+
+    /// Sets the relaxed equality mode for the scheme.
+    ///
+    /// In relaxed equality mode, two schemes are considered equal if they have
+    /// the same fields and functions in the same order, regardless of the actual
+    /// contents of the fields and functions.
+    pub fn set_relaxed_equality(&mut self) {
+        self.relaxed_equality = true;
     }
 
     /// Returns the [`identifier`](struct@Identifier) with name [`name`]
