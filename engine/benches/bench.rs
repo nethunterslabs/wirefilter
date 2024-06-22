@@ -71,7 +71,7 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
 
             // trim ranges because they are usually too long and
             // pollute bench names in HTML and folder names
-            let name = if let Some(pos) = filter.find(" in {") {
+            let name = if let Some(pos) = filter.find(" in [") {
                 owned_name = format!("{} in ...", &filter[..pos]);
                 &owned_name
             } else {
@@ -154,7 +154,7 @@ fn bench_ip_comparisons(c: &mut Criterion) {
             "ip.addr == 2606:4700:4700::1111",
             "ip.addr >= 173.245.48.0 && ip.addr < 173.245.49.0",
             "ip.addr >= 2606:4700:: && ip.addr < 2606:4701::",
-            "ip.addr in { 103.21.244.0/22 2405:8100::/32 104.16.0.0/12 2803:f800::/32 131.0.72.0/22 173.245.48.0/20 2405:b500::/32 172.64.0.0/13 190.93.240.0/20 103.22.200.0/22 2606:4700::/32 198.41.128.0/17 197.234.240.0/22 162.158.0.0/15 108.162.192.0/18 2c0f:f248::/32 2400:cb00::/32 103.31.4.0/22 2a06:98c0::/29 141.101.64.0/18 188.114.96.0/20 }"
+            "ip.addr in [103.21.244.0/22, 2405:8100::/32, 104.16.0.0/12, 2803:f800::/32, 131.0.72.0/22, 173.245.48.0/20, 2405:b500::/32, 172.64.0.0/13, 190.93.240.0/20, 103.22.200.0/22, 2606:4700::/32, 198.41.128.0/17, 197.234.240.0/22, 162.158.0.0/15, 108.162.192.0/18, 2c0f:f248::/32, 2400:cb00::/32, 103.31.4.0/22, 2a06:98c0::/29, 141.101.64.0/18, 188.114.96.0/20 ]"
         ],
         values: &[
             IpAddr::from([127, 0, 0, 1]),
@@ -172,7 +172,7 @@ fn bench_int_comparisons(c: &mut Criterion) {
         filters: &[
             "tcp.port == 80",
             "tcp.port >= 1024",
-            "tcp.port in { 80 8080 8880 2052 2082 2086 2095 }",
+            "tcp.port in [80, 8080, 8880, 2052, 2082, 2086, 2095 ]",
         ],
         values: &[80, 8081],
     }
@@ -185,7 +185,7 @@ fn bench_string_comparisons(c: &mut Criterion) {
         functions: &[],
         filters: &[
             r#"ip.geoip.country == "GB""#,
-            r#"ip.geoip.country in { "AT" "BE" "BG" "HR" "CY" "CZ" "DK" "EE" "FI" "FR" "DE" "GR" "HU" "IE" "IT" "LV" "LT" "LU" "MT" "NL" "PL" "PT" "RO" "SK" "SI" "ES" "SE" "GB" "GF" "GP" "MQ" "ME" "YT" "RE" "MF" "GI" "AX" "PM" "GL" "BL" "SX" "AW" "CW" "WF" "PF" "NC" "TF" "AI" "BM" "IO" "VG" "KY" "FK" "MS" "PN" "SH" "GS" "TC" "AD" "LI" "MC" "SM" "VA" "JE" "GG" "GI" "CH" }"#,
+            r#"ip.geoip.country in ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "GF", "GP", "MQ", "ME", "YT", "RE", "MF", "GI", "AX", "PM", "GL", "BL", "SX", "AW", "CW", "WF", "PF", "NC", "TF", "AI", "BM", "IO", "VG", "KY", "FK", "MS", "PN", "SH", "GS", "TC", "AD", "LI", "MC", "SM", "VA", "JE", "GG", "GI", "CH" ]"#,
         ],
         values: &["GB", "T1"],
     }.run(c)

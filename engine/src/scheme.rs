@@ -895,12 +895,12 @@ fn test_parse_error_in_op() {
     };
 
     {
-        let err = scheme.parse("bool in {0}").unwrap_err();
+        let err = scheme.parse("bool in [0]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::EOF,
-                input: "bool in {0}",
+                input: "bool in [0]",
                 line_number: 0,
                 span_start: 4,
                 span_len: 7
@@ -911,7 +911,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:5):
-                bool in {0}
+                bool in [0]
                     ^^^^^^^ unrecognised input
                 "#
             )
@@ -919,12 +919,12 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("bool in {127.0.0.1}").unwrap_err();
+        let err = scheme.parse("bool in [127.0.0.1]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::EOF,
-                input: "bool in {127.0.0.1}",
+                input: "bool in [127.0.0.1]",
                 line_number: 0,
                 span_start: 4,
                 span_len: 15
@@ -935,7 +935,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:5):
-                bool in {127.0.0.1}
+                bool in [127.0.0.1]
                     ^^^^^^^^^^^^^^^ unrecognised input
                 "#
             )
@@ -943,12 +943,12 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("bool in {\"test\"}").unwrap_err();
+        let err = scheme.parse("bool in [\"test\"]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::EOF,
-                input: "bool in {\"test\"}",
+                input: "bool in [\"test\"]",
                 line_number: 0,
                 span_start: 4,
                 span_len: 12
@@ -959,7 +959,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:5):
-                bool in {"test"}
+                bool in ["test"]
                     ^^^^^^^^^^^^ unrecognised input
                 "#
             )
@@ -967,12 +967,12 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("num in {127.0.0.1}").unwrap_err();
+        let err = scheme.parse("num in [127.0.0.1]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::ExpectedName("digit"),
-                input: "num in {127.0.0.1}",
+                input: "num in [127.0.0.1]",
                 line_number: 0,
                 span_start: 11,
                 span_len: 7
@@ -983,7 +983,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:12):
-                num in {127.0.0.1}
+                num in [127.0.0.1]
                            ^^^^^^^ expected digit
                 "#
             )
@@ -991,12 +991,12 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("num in {\"test\"}").unwrap_err();
+        let err = scheme.parse("num in [\"test\"]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::ExpectedName("digit"),
-                input: "num in {\"test\"}",
+                input: "num in [\"test\"]",
                 line_number: 0,
                 span_start: 8,
                 span_len: 7
@@ -1007,14 +1007,14 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:9):
-                num in {"test"}
+                num in ["test"]
                         ^^^^^^^ expected digit
                 "#
             )
         );
     }
     {
-        let err = scheme.parse("ip in {666}").unwrap_err();
+        let err = scheme.parse("ip in [666]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
@@ -1023,7 +1023,7 @@ fn test_parse_error_in_op() {
                         .map_err(NetworkParseError::AddrParseError)
                         .unwrap_err()
                 ),
-                input: "ip in {666}",
+                input: "ip in [666]",
                 line_number: 0,
                 span_start: 7,
                 span_len: 3
@@ -1034,19 +1034,19 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:8):
-                ip in {666}
+                ip in [666]
                        ^^^ couldn't parse address in network: invalid IP address syntax
                 "#
             )
         );
     }
     {
-        let err = scheme.parse("ip in {\"test\"}").unwrap_err();
+        let err = scheme.parse("ip in [\"test\"]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
                 kind: LexErrorKind::ExpectedName("IP address character"),
-                input: "ip in {\"test\"}",
+                input: "ip in [\"test\"]",
                 line_number: 0,
                 span_start: 7,
                 span_len: 7
@@ -1057,7 +1057,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:8):
-                ip in {"test"}
+                ip in ["test"]
                        ^^^^^^^ expected IP address character
                 "#
             )
@@ -1065,7 +1065,7 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("str in {0}").unwrap_err();
+        let err = scheme.parse("str in [0]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
@@ -1073,7 +1073,7 @@ fn test_parse_error_in_op() {
                     err: u8::from_str_radix("0}", 16).unwrap_err(),
                     radix: 16,
                 },
-                input: "str in {0}",
+                input: "str in [0]",
                 line_number: 0,
                 span_start: 8,
                 span_len: 2
@@ -1084,7 +1084,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:9):
-                str in {0}
+                str in [0]
                         ^^ invalid digit found in string while parsing with radix 16
                 "#
             )
@@ -1092,7 +1092,7 @@ fn test_parse_error_in_op() {
     }
 
     {
-        let err = scheme.parse("str in {127.0.0.1}").unwrap_err();
+        let err = scheme.parse("str in [127.0.0.1]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
@@ -1100,7 +1100,7 @@ fn test_parse_error_in_op() {
                     err: u8::from_str_radix("7.}", 16).unwrap_err(),
                     radix: 16,
                 },
-                input: "str in {127.0.0.1}",
+                input: "str in [127.0.0.1]",
                 line_number: 0,
                 span_start: 10,
                 span_len: 2
@@ -1111,7 +1111,7 @@ fn test_parse_error_in_op() {
             indoc!(
                 r#"
                 Filter parsing error (1:11):
-                str in {127.0.0.1}
+                str in [127.0.0.1]
                           ^^ invalid digit found in string while parsing with radix 16
                 "#
             )
@@ -1120,7 +1120,7 @@ fn test_parse_error_in_op() {
 
     for pattern in &["0", "127.0.0.1", "\"test\""] {
         {
-            let filter = format!("str_arr in {{{}}}", pattern);
+            let filter = format!("str_arr in [{}]", pattern);
             let err = scheme.parse(&filter).unwrap_err();
             assert_eq!(
                 err,
@@ -1137,7 +1137,7 @@ fn test_parse_error_in_op() {
         }
 
         {
-            let filter = format!("str_map in {{{}}}", pattern);
+            let filter = format!("str_map in [{}]", pattern);
             let err = scheme.parse(&filter).unwrap_err();
             assert_eq!(
                 err,

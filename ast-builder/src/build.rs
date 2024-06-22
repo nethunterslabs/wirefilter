@@ -148,7 +148,10 @@ impl RegexBuilder {
 
     /// Builds a `Regex` from the `RegexBuilder`.
     pub fn build(self) -> Result<Regex> {
-        Ok(Regex::parse_str_with_str_type(&self.value, self.ty.build())?)
+        Ok(Regex::parse_str_with_str_type(
+            &self.value,
+            self.ty.build(),
+        )?)
     }
 }
 

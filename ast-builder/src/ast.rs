@@ -155,7 +155,7 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
-    /// "in {...}" / "IN {...}" comparison
+    /// "in [...]" / "IN [...]" comparison
     OneOf {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
@@ -167,7 +167,7 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
-    /// "has_any {...}" / "HAS_ANY {...}" comparison
+    /// "has_any [...]" / "HAS_ANY [...]" comparison
     HasAny {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
@@ -179,7 +179,7 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
-    /// "has_all {...}" / "HAS_ALL {...}" comparison
+    /// "has_all [...]" / "HAS_ALL [...]" comparison
     HasAll {
         /// Right-hand side values
         rhs: RhsValuesBuilder,

@@ -21,7 +21,7 @@
 //!         r#"
 //!             http.method != "POST" &&
 //!             not http.ua matches "(googlebot|facebook)" &&
-//!             port in {80 443}
+//!             port in [80, 443]
 //!         "#,
 //!     )?;
 //!

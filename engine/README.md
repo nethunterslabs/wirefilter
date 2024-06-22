@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ast = scheme.parse(r#"
         http.method != "POST" &&
         not http.ua matches "(googlebot|facebook)" &&
-        port in {80 443}
+        port in [80, 443]
     "#)?;
 
     println!("Parsed filter representation: {:?}", ast);

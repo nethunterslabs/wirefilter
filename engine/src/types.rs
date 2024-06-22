@@ -26,18 +26,41 @@ use std::{
 use thiserror::Error;
 
 fn lex_rhs_values<'i, T: Lex<'i>>(input: &'i str) -> LexResult<'i, Vec<T>> {
-    let mut input = expect(input, "{")?;
+    let mut input = expect(input, "[")?;
     let mut res = Vec::new();
+    let mut index = 0;
+    input = skip_space(input);
     loop {
-        input = skip_space(input);
-        if let Ok(rest) = expect(input, "}") {
+        if let Ok(rest) = expect(input, "]") {
             input = rest;
             return Ok((res, input));
         } else {
             let (item, rest) = T::lex(input)?;
             res.push(item);
             input = rest;
+            input = skip_space(input);
+
+            match expect(input, ",") {
+                Ok(rest) => {
+                    input = rest;
+                    input = skip_space(input);
+
+                    if let Ok(rest) = expect(input, "]") {
+                        input = rest;
+                        return Ok((res, input));
+                    }
+                }
+                Err(e) => {
+                    if let Ok(rest) = expect(input, "]") {
+                        input = rest;
+                        return Ok((res, input));
+                    } else if index > 0 {
+                        return Err(e);
+                    }
+                }
+            }
         }
+        index += 1;
     }
 }
 
@@ -136,7 +159,7 @@ macro_rules! specialized_try_from {
 /// (`LhsValue::Ip(IpAddr)`). Second argument is the corresponding `RhsValue`
 /// variant (`RhsValue::Ip(IpAddr)`). Third argument is the corresponding
 /// `RhsValues` variant (`RhsValues::Ip(Vec<IpRange>)`) for the curly bracket
-/// syntax. eg `num in {1, 5}`
+/// syntax. eg `num in [1, 5]`
 ///
 /// ```ignore
 /// declare_types! {
@@ -306,7 +329,7 @@ macro_rules! declare_types {
         declare_types! {
             /// A typed group of a list of values.
             ///
-            /// This is used for `field in { ... }` operation that allows
+            /// This is used for `field in [... ]` operation that allows
             /// only same-typed values in a list.
             #[derive(PartialEq, Eq, Clone, Hash, Serialize)]
             #[serde(untagged)]

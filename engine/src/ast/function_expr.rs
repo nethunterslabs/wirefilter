@@ -451,6 +451,20 @@ impl<'s> FunctionCallExpr<'s> {
 
             input = skip_space(rest);
 
+            // Check if the next character is a comma, indicating a possible trailing comma
+            if let Some(next_char) = input.chars().next() {
+                if next_char == ',' {
+                    let mut input2 = &input[1..];
+
+                    input2 = skip_space(input2);
+
+                    if input2.starts_with(')') {
+                        input = input2;
+                        break;
+                    }
+                }
+            }
+
             index += 1;
         }
 
@@ -690,6 +704,94 @@ mod tests {
         // test that adjacent single digit int literals are parsed properly
         let expr = assert_ok!(
             FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, "test" );"#, &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(1)),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, "test", );"#, &SCHEME),
+            FunctionCallExpr {
+                function: SCHEME.get_function("echo").unwrap(),
+                args: vec![
+                    FunctionCallArgExpr::IndexExpr(IndexExpr {
+                        lhs: LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
+                        indexes: vec![],
+                    }),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(1)),
+                    FunctionCallArgExpr::Literal(RhsValue::Int(2)),
+                    FunctionCallArgExpr::Literal(RhsValue::Bytes("test".to_owned().into())),
+                ],
+                return_type: Type::Bytes,
+                context: None,
+            },
+            ";"
+        );
+
+        assert_json!(
+            expr,
+            {
+                "name": "echo",
+                "args": [
+                    {
+                        "kind": "IndexExpr",
+                        "value": "http.host"
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 1
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": 2
+                    },
+                    {
+                        "kind": "Literal",
+                        "value": "test"
+                    }
+                ]
+            }
+        );
+
+        let expr = assert_ok!(
+            FunctionCallExpr::lex_with(r#"echo ( http.host, 1, 2, "test" , );"#, &SCHEME),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![
@@ -1285,7 +1387,7 @@ mod tests {
     fn test_lex_function_with_unary_expression_as_argument() {
         let expr = assert_ok!(
             FunctionCallExpr::lex_with(
-                "any(not(http.request.headers.names[*] in {\"Cookie\" \"Cookies\"}))",
+                "any(not(http.request.headers.names[*] in [\"Cookie\", \"Cookies\"]))",
                 &SCHEME
             ),
             FunctionCallExpr {
@@ -1346,7 +1448,7 @@ mod tests {
 
         let expr = assert_ok!(
             FunctionCallExpr::lex_with(
-                "any(!(http.request.headers.names[*] in {\"Cookie\" \"Cookies\"}))",
+                "any(!(http.request.headers.names[*] in [\"Cookie\", \"Cookies\"]))",
                 &SCHEME
             ),
             FunctionCallExpr {

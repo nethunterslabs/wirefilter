@@ -195,7 +195,7 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
-    /// "in {...}" / "IN {...}" comparison
+    /// "in [...]" / "IN [...]" comparison
     #[serde(serialize_with = "serialize_one_of")]
     OneOf {
         /// Right-hand side values
@@ -212,7 +212,7 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
-    /// "has_any {...}" / "HAS_ANY {...}" comparison
+    /// "has_any [...]" / "HAS_ANY [...]" comparison
     #[serde(serialize_with = "serialize_has_any")]
     HasAny {
         /// Right-hand side values
@@ -229,7 +229,7 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
-    /// "has_all {...}" / "HAS_ALL {...}" comparison
+    /// "has_all [...]" / "HAS_ALL [...]" comparison
     #[serde(serialize_with = "serialize_has_all")]
     HasAll {
         /// Right-hand side values
@@ -1384,7 +1384,7 @@ mod tests {
     #[test]
     fn test_int_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"tcp.port in { 80 443 2082..2083 }"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"tcp.port in [ 80, 443, 2082..2083 ]"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -1438,7 +1438,7 @@ mod tests {
     #[test]
     fn test_bytes_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host in { "example.org" "example.com" }"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"http.host in [ "example.org", "example.com" ]"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1487,7 +1487,7 @@ mod tests {
     #[test]
     fn test_bytes_has_all() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host has_all { "exam" "ple" }"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"http.host has_all [ "exam", "ple" ]"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1535,7 +1535,7 @@ mod tests {
     #[test]
     fn test_bytes_has_any() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host has_any { "com" "org" }"#, &SCHEME),
+            ComparisonExpr::lex_with(r#"http.host has_any [ "com", "org", ]"#, &SCHEME),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1585,7 +1585,7 @@ mod tests {
     fn test_ip_in() {
         let expr = assert_ok!(
             ComparisonExpr::lex_with(
-                r#"ip.addr in { 127.0.0.0/8 ::1 10.0.0.0..10.0.255.255 }"#,
+                r#"ip.addr in [ 127.0.0.0/8, ::1, 10.0.0.0..10.0.255.255 ]"#,
                 &SCHEME
             ),
             ComparisonExpr {
@@ -2358,7 +2358,7 @@ mod tests {
     fn test_map_each_on_map_with_function() {
         let expr = assert_ok!(
             ComparisonExpr::lex_with(
-                r#"concat(http.headers[*], "-cf")[2] in {"one-cf" "two-cf" "three-cf"}"#,
+                r#"concat(http.headers[*], "-cf")[2] in ["one-cf", "two-cf", "three-cf"]"#,
                 &SCHEME
             ),
             ComparisonExpr {

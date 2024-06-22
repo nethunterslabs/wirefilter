@@ -50,38 +50,82 @@ impl Fmt for RhsValue {
 
 impl Fmt for RhsValues {
     fn fmt(&self, _indent: usize, output: &mut String) {
-        output.push('{');
+        let indent = output.split('\n').last().unwrap().len();
+        let indent_str = " ".repeat(indent);
+        let len;
+
+        output.push('[');
         match self {
             RhsValues::Ip(ips) => {
-                for (i, ip) in ips.iter().enumerate() {
-                    if i > 0 {
+                len = ips.len();
+                for ip in ips {
+                    if len > 1 {
+                        output.push('\n');
+                        output.push_str(&indent_str);
+                        output.push_str("  ");
+                    } else {
                         output.push(' ');
                     }
                     ip.fmt(0, output);
+                    if len > 0 {
+                        output.push(',');
+                    } else {
+                        output.push(' ');
+                    }
                 }
             }
             RhsValues::Bytes(bytes) => {
-                for (i, byte) in bytes.iter().enumerate() {
-                    if i > 0 {
+                len = bytes.len();
+                for byte in bytes {
+                    if len > 1 {
+                        output.push('\n');
+                        output.push_str(&indent_str);
+                        output.push_str("  ");
+                    } else {
                         output.push(' ');
                     }
                     byte.fmt(0, output);
+                    if len > 0 {
+                        output.push(',');
+                    } else {
+                        output.push(' ');
+                    }
                 }
             }
             RhsValues::Int(ints) => {
-                for (i, int) in ints.iter().enumerate() {
-                    if i > 0 {
+                len = ints.len();
+                for int in ints {
+                    if len > 1 {
+                        output.push('\n');
+                        output.push_str(&indent_str);
+                        output.push_str("  ");
+                    } else {
                         output.push(' ');
                     }
                     int.fmt(0, output);
+                    if len > 0 {
+                        output.push(',');
+                    } else {
+                        output.push(' ');
+                    }
                 }
             }
             RhsValues::Float(floats) => {
-                for (i, float) in floats.iter().enumerate() {
-                    if i > 0 {
+                len = floats.len();
+                for float in floats {
+                    if len > 1 {
+                        output.push('\n');
+                        output.push_str(&indent_str);
+                        output.push_str("  ");
+                    } else {
                         output.push(' ');
                     }
                     float.fmt(0, output);
+                    if len > 0 {
+                        output.push(',');
+                    } else {
+                        output.push(' ');
+                    }
                 }
             }
             RhsValues::Bool(_) => unreachable!(),
@@ -89,7 +133,12 @@ impl Fmt for RhsValues {
             RhsValues::Map(_) => unreachable!(),
             RhsValues::Regex(_) => unreachable!(),
         }
-        output.push('}');
+
+        if len > 1 {
+            output.push('\n');
+            output.push_str(&" ".repeat(indent));
+        }
+        output.push(']');
     }
 }
 
@@ -334,11 +383,14 @@ impl<'s> Fmt for SimpleExpr<'s> {
             SimpleExpr::Comparison(node) => node.fmt(indent, output),
             SimpleExpr::Parenthesized(node) => {
                 if node.is_combining() {
+                    let indent_str = " ".repeat(indent);
+
                     output.push_str("(\n");
-                    output.push_str(&" ".repeat(indent + 2));
+                    output.push_str(&indent_str);
+                    output.push_str("  ");
                     node.fmt(indent + 2, output);
                     output.push('\n');
-                    output.push_str(&" ".repeat(indent));
+                    output.push_str(&indent_str);
                     output.push(')');
                 } else {
                     output.push_str("( ");
@@ -1002,57 +1054,90 @@ mod tests {
     fn test_fmt_in() {
         test_fmt!(r#"http.host in $in_var"#, r#"http.host in $in_var"#);
         test_fmt!(
-            r#"http.host in {"example.com" "example.org"}"#,
-            r#"http.host in {"example.com" "example.org"}"#
+            r#"http.host in ["example.com", "example.org"]"#,
+            r#"http.host in [
+               "example.com",
+               "example.org",
+             ]"#
         );
         test_fmt!(
-            r#"http.host IN {"example.com" "example.org"}"#,
-            r#"http.host IN {"example.com" "example.org"}"#
-        );
-        test_fmt!(r#"tcp.port in {80 443}"#, r#"tcp.port in {80 443}"#);
-        test_fmt!(
-            r#"tcp.port in {80..443 8000..8080}"#,
-            r#"tcp.port in {80..443 8000..8080}"#
+            r#"http.host IN ["example.com", "example.org"]"#,
+            r#"http.host IN [
+               "example.com",
+               "example.org",
+             ]"#
         );
         test_fmt!(
-            r#"http.version in {1.0 1.1}"#,
-            r#"http.version in {1.0 1.1}"#
+            r#"tcp.port in [80, 443]"#,
+            r#"tcp.port in [
+              80,
+              443,
+            ]"#
         );
         test_fmt!(
-            r#"http.version in {1.0..1.1 2.0..3.0}"#,
-            r#"http.version in {1.0..1.1 2.0..3.0}"#
+            r#"tcp.port in [80..443, 8000..8080]"#,
+            r#"tcp.port in [
+              80..443,
+              8000..8080,
+            ]"#
+        );
+        test_fmt!(
+            r#"http.version in [1.0, 1.1]"#,
+            r#"http.version in [
+                  1.0,
+                  1.1,
+                ]"#
+        );
+        test_fmt!(
+            r#"http.version in [1.0..1.1, 2.0..3.0]"#,
+            r#"http.version in [
+                  1.0..1.1,
+                  2.0..3.0,
+                ]"#
         );
     }
 
     #[test]
     fn test_fmt_has_any() {
         test_fmt!(
-            r#"http.host has_any {".com" ".org"}"#,
-            r#"http.host has_any {".com" ".org"}"#
+            r#"http.host has_any [".com", ".org"]"#,
+            r#"http.host has_any [
+                    ".com",
+                    ".org",
+                  ]"#
         );
         test_fmt!(
             r#"http.host has_any $has_any_var"#,
             r#"http.host has_any $has_any_var"#
         );
         test_fmt!(
-            r#"http.host HAS_ANY {".com" ".org"}"#,
-            r#"http.host HAS_ANY {".com" ".org"}"#
+            r#"http.host HAS_ANY [".com", ".org"]"#,
+            r#"http.host HAS_ANY [
+                    ".com",
+                    ".org",
+                  ]"#
         );
     }
 
     #[test]
     fn test_fmt_has_all() {
         test_fmt!(
-            r#"http.host has_all {"exam" "ple"}"#,
-            r#"http.host has_all {"exam" "ple"}"#
+            r#"http.host has_all ["exam", "ple"]"#,
+            r#"http.host has_all [
+                    "exam",
+                    "ple",
+                  ]"#
         );
         test_fmt!(
             r#"http.host has_all $has_all_var"#,
             r#"http.host has_all $has_all_var"#
         );
         test_fmt!(
-            r#"http.host HAS_ALL {"exam" "ple"}"#,
-            r#"http.host HAS_ALL {"exam" "ple"}"#
+            r#"http.host HAS_ALL ["exam", "ple"]"#,
+            r#"http.host HAS_ALL [
+                    "exam",
+                    "ple",
+                  ]"#
         );
     }
 
@@ -1060,12 +1145,18 @@ mod tests {
     fn test_fmt_ip_addr() {
         test_fmt!(r#"ip.addr == 127.0.0.1"#, r#"ip.addr == 127.0.0.1"#);
         test_fmt!(
-            r#"ip.addr in {127.0.0.1 127.0.0.2}"#,
-            r#"ip.addr in {127.0.0.1 127.0.0.2}"#
+            r#"ip.addr in [127.0.0.1, 127.0.0.2]"#,
+            r#"ip.addr in [
+             127.0.0.1,
+             127.0.0.2,
+           ]"#
         );
         test_fmt!(
-            r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#,
-            r#"ip.addr in {127.0.0.1..127.0.0.2 127.0.0.0/24}"#
+            r#"ip.addr in [127.0.0.1..127.0.0.2, 127.0.0.0/24]"#,
+            r#"ip.addr in [
+             127.0.0.1..127.0.0.2,
+             127.0.0.0/24,
+           ]"#
         );
     }
 
@@ -1300,6 +1391,18 @@ XOR http.request.headers["content-type"][0] == "application/json""#
             r#"(((http.host == "example.com") && (echo(http.request.headers["content-type"][0],100   , 200,74:65:65:65:65:65:65:65:73:74) == "application/json")))"#,
             r#"( (
   ( http.host == "example.com" )
+  && ( echo(http.request.headers["content-type"][0], 100, 200, 74:65:65:65:65:65:65:65:73:74) == "application/json" )
+) )"#
+        );
+
+        test_fmt!(
+            r#"(((http.host == "example.com") && (http.host has_all ["exam", "ple"]) && (echo(http.request.headers["content-type"][0],100   , 200,74:65:65:65:65:65:65:65:73:74) == "application/json")))"#,
+            r#"( (
+  ( http.host == "example.com" )
+  && ( http.host has_all [
+                           "exam",
+                           "ple",
+                         ] )
   && ( echo(http.request.headers["content-type"][0], 100, 200, 74:65:65:65:65:65:65:65:73:74) == "application/json" )
 ) )"#
         );
