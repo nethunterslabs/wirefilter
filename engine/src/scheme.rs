@@ -16,6 +16,7 @@ use std::{
     hash::{Hash, Hasher},
     iter::Iterator,
     ptr,
+    sync::Arc,
 };
 use thiserror::Error;
 
@@ -201,7 +202,7 @@ impl<'s> Function<'s> {
     pub(crate) fn as_definition(&self) -> &'s dyn FunctionDefinition {
         match self.scheme.items.get_index(self.index).unwrap().1 {
             SchemeItem::Field(_) => unreachable!(),
-            SchemeItem::Function(func) => &**func,
+            SchemeItem::Function(func) => &***func,
         }
     }
 }
@@ -391,10 +392,10 @@ impl<'i> Display for ParseError<'i> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SchemeItem {
     Field(Type),
-    Function(Box<dyn FunctionDefinition>),
+    Function(Arc<Box<dyn FunctionDefinition>>),
 }
 
 impl<T: FunctionDefinition + 'static> From<T> for Box<dyn FunctionDefinition> {
@@ -452,7 +453,7 @@ pub struct VariableRedefinitionError(String);
 /// This is necessary to provide typechecking for runtime values provided
 /// to the [execution context](::ExecutionContext) and also to aid parser
 /// in ambiguous contexts.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Scheme {
     items: IndexMap<String, SchemeItem, FnvBuildHasher>,
     variables: IndexMap<String, VariableValue>,
@@ -617,7 +618,7 @@ impl<'s> Scheme {
                 )),
             },
             Entry::Vacant(entry) => {
-                entry.insert(SchemeItem::Function(function.into()));
+                entry.insert(SchemeItem::Function(Arc::new(function.into())));
                 Ok(())
             }
         }
