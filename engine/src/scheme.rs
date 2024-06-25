@@ -695,6 +695,17 @@ impl<'s> Scheme {
         }
     }
 
+    /// Registers a list of variables
+    pub fn add_variables(
+        &mut self,
+        variables: impl IntoIterator<Item = (String, VariableValue)>,
+    ) -> Result<(), VariableRedefinitionError> {
+        for (name, variable) in variables {
+            self.add_variable(name, variable)?;
+        }
+        Ok(())
+    }
+
     /// Returns the [`VariableValue`](enum@VariableValue) for a given name.
     pub fn get_variable(&self, name: &str) -> Option<&VariableValue> {
         self.variables.get(name)
