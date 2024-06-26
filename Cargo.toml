@@ -1,5 +1,5 @@
 [workspace]
-members = ["ast-builder", "engine", "fuzz/bytes", "fuzz/map-keys", "wasm"]
+members = ["ast-builder", "engine", "fuzz/bytes", "fuzz/map-keys"]
 
 default-members = ["ast-builder", "engine"]
 
