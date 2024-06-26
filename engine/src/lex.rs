@@ -192,8 +192,28 @@ pub trait LexWith<'i, E>: Sized {
     fn lex_with(input: &'i str, extra: E) -> LexResult<'i, Self>;
 }
 
+pub trait LexWith2<'i, E1, E2>: Sized {
+    fn lex_with_2(input: &'i str, extra1: E1, extra2: E2) -> LexResult<'i, Self>;
+}
+
+pub trait LexWith3<'i, E1, E2, E3>: Sized {
+    fn lex_with_3(input: &'i str, extra1: E1, extra2: E2, extra3: E3) -> LexResult<'i, Self>;
+}
+
 impl<'i, T: Lex<'i>, E> LexWith<'i, E> for T {
     fn lex_with(input: &'i str, _extra: E) -> LexResult<'i, Self> {
+        Self::lex(input)
+    }
+}
+
+impl<'i, T: Lex<'i>, E1, E2> LexWith2<'i, E1, E2> for T {
+    fn lex_with_2(input: &'i str, _extra1: E1, _extra2: E2) -> LexResult<'i, Self> {
+        Self::lex(input)
+    }
+}
+
+impl<'i, T: Lex<'i>, E1, E2, E3> LexWith3<'i, E1, E2, E3> for T {
+    fn lex_with_3(input: &'i str, _extra1: E1, _extra2: E2, _extra3: E3) -> LexResult<'i, Self> {
         Self::lex(input)
     }
 }

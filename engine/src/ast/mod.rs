@@ -9,8 +9,9 @@ pub mod visitor;
 use self::{field_expr::LhsFieldExpr, logical_expr::LogicalExpr};
 use crate::{
     compiler::{Compiler, DefaultCompiler},
+    execution_context::Variables,
     filter::{CompiledExpr, CompiledValueExpr, Filter},
-    lex::{LexErrorKind, LexResult, LexWith},
+    lex::{LexErrorKind, LexResult, LexWith2},
     scheme::{Scheme, UnknownFieldError},
     single_value_expr::SingleValueExpr,
     types::{GetType, Type, TypeMismatchError},
@@ -21,7 +22,7 @@ use visitor::{UsesVariableVisitor, UsesVisitor, Visitor, VisitorMut};
 
 /// Trait used to represent node that evaluates to a [`bool`] (or a
 /// [`Vec<bool>`]).
-pub trait Expr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + Serialize {
+pub trait Expr<'s>: Sized + Eq + Debug + Serialize {
     /// Recursively visit all nodes in the AST using a [`Visitor`].
     fn walk<V: Visitor<'s>>(&self, visitor: &mut V);
     /// Recursively visit all nodes in the AST using a [`VisitorMut`].
@@ -32,14 +33,14 @@ pub trait Expr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + Seria
         compiler: &mut C,
     ) -> CompiledExpr<'s, U>;
     /// Compiles current node into a [`CompiledExpr`] using [`DefaultCompiler`].
-    fn compile(self) -> CompiledExpr<'s> {
-        let mut compiler = DefaultCompiler::new();
+    fn compile(self, variables: &'s Variables) -> CompiledExpr<'s> {
+        let mut compiler = DefaultCompiler::new(variables);
         self.compile_with_compiler(&mut compiler)
     }
 }
 
 /// Trait used to represent node that evaluates to an [`LhsValue`].
-pub trait ValueExpr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + Serialize {
+pub trait ValueExpr<'s>: Sized + Eq + Debug + Serialize {
     /// Recursively visit all nodes in the AST using a [`Visitor`].
     fn walk<V: Visitor<'s>>(&self, visitor: &mut V);
     /// Recursively visit all nodes in the AST using a [`VisitorMut`].
@@ -51,8 +52,8 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + for<'i> LexWith<'i, &'s Scheme> + 
     ) -> CompiledValueExpr<'s, U>;
     /// Compiles current node into a [`CompiledValueExpr`] using
     /// [`DefaultCompiler`].
-    fn compile(self) -> CompiledValueExpr<'s> {
-        let mut compiler = DefaultCompiler::new();
+    fn compile(self, variables: &'s Variables) -> CompiledValueExpr<'s> {
+        let mut compiler = DefaultCompiler::new(variables);
         self.compile_with_compiler(&mut compiler)
     }
 }
@@ -78,9 +79,13 @@ impl<'s> Debug for SingleValueExprAst<'s> {
     }
 }
 
-impl<'i, 's> LexWith<'i, &'s Scheme> for SingleValueExprAst<'s> {
-    fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
-        let (op, input) = LhsFieldExpr::lex_with(input, scheme)?;
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for SingleValueExprAst<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (op, input) = LhsFieldExpr::lex_with_2(input, scheme, variables)?;
         Ok((SingleValueExprAst { scheme, op }, input))
     }
 }
@@ -97,8 +102,8 @@ impl<'s> SingleValueExprAst<'s> {
     }
 
     /// Compiles a [`SingleValueExprAst`] into a [`SingleValueExpr`] using [`DefaultCompiler`].
-    pub fn compile(self) -> SingleValueExpr<'s> {
-        let mut compiler = DefaultCompiler::new();
+    pub fn compile(self, variables: &'s Variables) -> SingleValueExpr<'s> {
+        let mut compiler = DefaultCompiler::new(variables);
         self.compile_with_compiler(&mut compiler)
     }
 }
@@ -124,9 +129,13 @@ impl<'s> Debug for FilterAst<'s> {
     }
 }
 
-impl<'i, 's> LexWith<'i, &'s Scheme> for FilterAst<'s> {
-    fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
-        let (op, input) = LogicalExpr::lex_with(input, scheme)?;
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for FilterAst<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (op, input) = LogicalExpr::lex_with_2(input, scheme, variables)?;
         // LogicalExpr::lex_with can return an AST where the root is an
         // LogicalExpr::Combining of type [`Array(Bool)`].
         //
@@ -197,8 +206,8 @@ impl<'s> FilterAst<'s> {
     }
 
     /// Compiles a [`FilterAst`] into a [`Filter`] using [`DefaultCompiler`].
-    pub fn compile(self) -> Filter<'s> {
-        let mut compiler = DefaultCompiler::new();
+    pub fn compile(self, variables: &'s Variables) -> Filter<'s> {
+        let mut compiler = DefaultCompiler::new(variables);
         self.compile_with_compiler(&mut compiler)
     }
 }
@@ -208,7 +217,7 @@ mod tests {
     use super::*;
 
     use crate::{
-        execution_context::{ExecutionContext, State},
+        execution_context::{ExecutionContext, State, Variables},
         functions::{
             FunctionArgKind, FunctionArgs, SimpleFunctionDefinition, SimpleFunctionImpl,
             SimpleFunctionOptParam, SimpleFunctionParam,
@@ -276,16 +285,16 @@ mod tests {
                 },
             )
             .unwrap();
-        scheme
-            .add_variable("func_test_var".to_string(), 10.into())
-            .unwrap();
+
+        let mut variables = Variables::new();
+        variables.add("func_test_var".to_string(), 10.into());
 
         let state = State::new();
 
-        let compiled = SingleValueExprAst::lex_with("http.host", &scheme)
+        let compiled = SingleValueExprAst::lex_with_2("http.host", &scheme, &variables)
             .unwrap()
             .0
-            .compile();
+            .compile(&variables);
 
         let mut execution_context = ExecutionContext::new(&scheme);
         execution_context
@@ -296,47 +305,63 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            compiled.execute(&execution_context, &state).unwrap(),
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
             LhsValue::Bytes(b"example.com".into())
         );
 
-        let compiled = SingleValueExprAst::lex_with("echo(http.host)", &scheme)
+        let compiled = SingleValueExprAst::lex_with_2("echo(http.host)", &scheme, &variables)
             .unwrap()
             .0
-            .compile();
+            .compile(&variables);
 
         assert_eq!(
-            compiled.execute(&execution_context, &state).unwrap(),
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
             LhsValue::Bytes(b"example.com".into())
         );
 
-        let compiled = SingleValueExprAst::lex_with("echo(http.host, 1, 2, \"test\")", &scheme)
-            .unwrap()
-            .0
-            .compile();
+        let compiled =
+            SingleValueExprAst::lex_with_2("echo(http.host, 1, 2, \"test\")", &scheme, &variables)
+                .unwrap()
+                .0
+                .compile(&variables);
 
         assert_eq!(
-            compiled.execute(&execution_context, &state).unwrap(),
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
             LhsValue::Bytes(b"example.com".into())
         );
 
-        let compiled = SingleValueExprAst::lex_with("echo(http.host, $func_test_var, 2)", &scheme)
-            .unwrap()
-            .0
-            .compile();
+        let compiled = SingleValueExprAst::lex_with_2(
+            "echo(http.host, $func_test_var, 2)",
+            &scheme,
+            &variables,
+        )
+        .unwrap()
+        .0
+        .compile(&variables);
 
         assert_eq!(
-            compiled.execute(&execution_context, &state).unwrap(),
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
             LhsValue::Bytes(b"example.com".into())
         );
 
-        let compiled = SingleValueExprAst::lex_with("echo.int($func_test_var)", &scheme)
-            .unwrap()
-            .0
-            .compile();
+        let compiled =
+            SingleValueExprAst::lex_with_2("echo.int($func_test_var)", &scheme, &variables)
+                .unwrap()
+                .0
+                .compile(&variables);
 
         assert_eq!(
-            compiled.execute(&execution_context, &state).unwrap(),
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
             LhsValue::Int(10)
         );
     }

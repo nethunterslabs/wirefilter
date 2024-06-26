@@ -7,8 +7,8 @@ use super::{
     Expr, ValueExpr,
 };
 use crate::{
+    rhs_types::Variable,
     scheme::{Field, Function},
-    types::VariableValue,
 };
 
 /// Trait used to immutably visit all nodes in the AST.
@@ -77,7 +77,7 @@ pub trait Visitor<'s>: Sized {
 
     /// Visit [`Variable`] node.
     #[inline]
-    fn visit_variable(&mut self, _: &VariableValue) {}
+    fn visit_variable(&mut self, _: &Variable) {}
 
     // TODO: add visitor methods for literals?
 }
@@ -152,7 +152,7 @@ pub trait VisitorMut<'s>: Sized {
 
     /// Visit [`Variable`] node.
     #[inline]
-    fn visit_variable(&mut self, _: &VariableValue) {}
+    fn visit_variable(&mut self, _: &Variable) {}
 
     // TODO: add visitor methods for literals?
 }
@@ -244,7 +244,7 @@ impl<'s> Visitor<'s> for UsesVariableVisitor<'s> {
 mod tests {
     use crate::{
         FunctionArgKind, Identifier, Scheme, SimpleFunctionDefinition, SimpleFunctionImpl,
-        SimpleFunctionParam, Type,
+        SimpleFunctionParam, Type, Variables,
     };
     use lazy_static::lazy_static;
 
@@ -274,15 +274,17 @@ mod tests {
                 )
                 .unwrap();
             scheme
-                .add_variable("test".to_string(), vec![b"value".to_vec()].into())
-                .unwrap();
-            scheme
+        };
+        static ref VARIABLES: Variables = {
+            let mut variables = Variables::new();
+            variables.add("test".to_string(), vec![b"value".to_vec()].into());
+            variables
         };
     }
 
     #[test]
     fn test_uses_visitor_simple() {
-        let ast = SCHEME.parse(r#"http.host == "test""#).unwrap();
+        let ast = SCHEME.parse(r#"http.host == "test""#, &VARIABLES).unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
@@ -296,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_uses_list_visitor_simple() {
-        let ast = SCHEME.parse(r#"http.host in $test"#).unwrap();
+        let ast = SCHEME.parse(r#"http.host in $test"#, &VARIABLES).unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
@@ -310,7 +312,9 @@ mod tests {
 
     #[test]
     fn test_uses_visitor_function() {
-        let ast = SCHEME.parse(r#"echo(http.host) == "test""#).unwrap();
+        let ast = SCHEME
+            .parse(r#"echo(http.host) == "test""#, &VARIABLES)
+            .unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
@@ -324,7 +328,9 @@ mod tests {
 
     #[test]
     fn test_uses_variable_visitor_function() {
-        let ast = SCHEME.parse(r#"echo(http.host) in $test"#).unwrap();
+        let ast = SCHEME
+            .parse(r#"echo(http.host) in $test"#, &VARIABLES)
+            .unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
                 Identifier::Field(f) if f.name() == "http.host" => {
@@ -339,7 +345,7 @@ mod tests {
     #[test]
     fn test_uses_visitor_mapeach() {
         let ast = SCHEME
-            .parse(r#"echo(echo(http.headers[*])[*])[0] == "test""#)
+            .parse(r#"echo(echo(http.headers[*])[*])[0] == "test""#, &VARIABLES)
             .unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {
@@ -355,7 +361,7 @@ mod tests {
     #[test]
     fn test_uses_variable_visitor_mapeach() {
         let ast = SCHEME
-            .parse(r#"echo(echo(http.headers[*])[*])[0] in $test"#)
+            .parse(r#"echo(echo(http.headers[*])[*])[0] in $test"#, &VARIABLES)
             .unwrap();
         for (_, identifier) in SCHEME.iter() {
             match identifier {

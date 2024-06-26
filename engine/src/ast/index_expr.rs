@@ -5,9 +5,9 @@ use super::{
 };
 use crate::{
     compiler::Compiler,
-    execution_context::ExecutionContext,
+    execution_context::{ExecutionContext, State, Variables},
     filter::{CompiledExpr, CompiledOneExpr, CompiledValueExpr, CompiledVecExpr},
-    lex::{complete, expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith},
+    lex::{complete, expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith2},
     lhs_types::{Array, Map},
     scheme::{FieldIndex, IndexAccessError, ParseError, Scheme},
     types::{GetType, IntoIter, LhsValue, Type, TypeMismatchError},
@@ -29,28 +29,30 @@ pub struct IndexExpr<'s> {
 }
 
 macro_rules! index_access_one {
-    ($indexes:ident, $first:expr, $default:expr, $ctx:ident, $func:expr) => {
+    ($indexes:ident, $first:expr, $default:expr, $ctx:ident, $variables:ident, $state:ident, $func:expr) => {
         #[allow(clippy::redundant_closure_call)]
         $indexes
             .iter()
             .fold($first, |value, idx| {
                 value.and_then(|val| val.get(idx).unwrap())
             })
-            .map_or_else(|| $default, |val| $func(val, $ctx))
+            .map_or_else(|| $default, |val| $func(val, $ctx, $variables, $state))
     };
 }
 
 macro_rules! index_access_vec {
-    ($indexes:ident, $first:expr, $ctx:ident, $func:ident) => {
+    ($indexes:ident, $first:expr, $ctx:ident, $variables:ident, $state:ident, $func:ident) => {
         index_access_one!(
             $indexes,
             $first,
             Vec::new().into_boxed_slice(),
             $ctx,
-            |val: &LhsValue<'_>, ctx| {
+            $variables,
+            $state,
+            |val: &LhsValue<'_>, ctx, variables, state| {
                 let mut output = Vec::new();
                 for item in val.iter().unwrap() {
-                    output.push($func(item, ctx));
+                    output.push($func(item, ctx, variables, state));
                 }
                 output.into_boxed_slice()
             }
@@ -94,7 +96,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
         } else if let Some(last) = last {
             // Average path
             match lhs {
-                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _| {
+                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _, _| {
                     indexes[..last]
                         .iter()
                         .try_fold(ctx.get_field_value_unchecked(f), |value, index| {
@@ -105,8 +107,8 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
                     let call = compiler.compile_function_call_expr(call);
-                    CompiledValueExpr::new(move |ctx, state| {
-                        let result = call.execute(ctx, state)?;
+                    CompiledValueExpr::new(move |ctx, variables, state| {
+                        let result = call.execute(ctx, variables, state)?;
                         indexes[..last]
                             .iter()
                             .try_fold(result, |value, index| value.extract(index).unwrap())
@@ -117,7 +119,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
         } else {
             // Slow path
             match lhs {
-                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _| {
+                LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _, _| {
                     let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                     iter.reset(ctx.get_field_value_unchecked(f).as_ref());
                     let mut arr = Array::new(ty.clone());
@@ -126,9 +128,9 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
                     let call = compiler.compile_function_call_expr(call);
-                    CompiledValueExpr::new(move |ctx, state| {
+                    CompiledValueExpr::new(move |ctx, variables, state| {
                         let mut iter = MapEachIterator::from_indexes(&indexes[..]);
-                        iter.reset(call.execute(ctx, state)?);
+                        iter.reset(call.execute(ctx, variables, state)?);
                         let mut arr = Array::new(ty.clone());
                         arr.extend(iter);
                         Ok(LhsValue::Array(arr))
@@ -148,7 +150,10 @@ fn simplify_indexes(mut indexes: Vec<FieldIndex>) -> Box<[FieldIndex]> {
 
 impl<'s> IndexExpr<'s> {
     fn compile_one_with<
-        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        F: 's
+            + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>, &Variables, &State<'_>) -> bool
+            + Sync
+            + Send,
         U: 's,
         C: Compiler<'s, U> + 's,
     >(
@@ -163,17 +168,19 @@ impl<'s> IndexExpr<'s> {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
                 if indexes.is_empty() {
-                    CompiledOneExpr::new(move |ctx, state| {
-                        call.execute(ctx, state)
-                            .map_or(default, |val| func(&val, ctx))
+                    CompiledOneExpr::new(move |ctx, variables, state| {
+                        call.execute(ctx, variables, state)
+                            .map_or(default, |val| func(&val, ctx, variables, state))
                     })
                 } else {
-                    CompiledOneExpr::new(move |ctx, state| {
+                    CompiledOneExpr::new(move |ctx, variables, state| {
                         index_access_one!(
                             indexes,
-                            call.execute(ctx, state).as_ref().ok(),
+                            call.execute(ctx, variables, state).as_ref().ok(),
                             default,
                             ctx,
+                            variables,
+                            state,
                             func
                         )
                     })
@@ -181,14 +188,18 @@ impl<'s> IndexExpr<'s> {
             }
             LhsFieldExpr::Field(f) => {
                 if indexes.is_empty() {
-                    CompiledOneExpr::new(move |ctx, _| func(ctx.get_field_value_unchecked(f), ctx))
+                    CompiledOneExpr::new(move |ctx, variables, state| {
+                        func(ctx.get_field_value_unchecked(f), ctx, variables, state)
+                    })
                 } else {
-                    CompiledOneExpr::new(move |ctx, _| {
+                    CompiledOneExpr::new(move |ctx, variables, state| {
                         index_access_one!(
                             indexes,
                             Some(ctx.get_field_value_unchecked(f)),
                             default,
                             ctx,
+                            variables,
+                            state,
                             func
                         )
                     })
@@ -198,7 +209,10 @@ impl<'s> IndexExpr<'s> {
     }
 
     pub(crate) fn compile_vec_with<
-        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        F: 's
+            + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>, &Variables, &State<'_>) -> bool
+            + Sync
+            + Send,
         U: 's,
         C: Compiler<'s, U> + 's,
     >(
@@ -211,18 +225,35 @@ impl<'s> IndexExpr<'s> {
         match lhs {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
-                CompiledVecExpr::new(move |ctx, state| {
-                    index_access_vec!(indexes, call.execute(ctx, state).as_ref().ok(), ctx, func)
+                CompiledVecExpr::new(move |ctx, variables, state| {
+                    index_access_vec!(
+                        indexes,
+                        call.execute(ctx, variables, state).as_ref().ok(),
+                        ctx,
+                        variables,
+                        state,
+                        func
+                    )
                 })
             }
-            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, _| {
-                index_access_vec!(indexes, Some(ctx.get_field_value_unchecked(f)), ctx, func)
+            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, variables, state| {
+                index_access_vec!(
+                    indexes,
+                    Some(ctx.get_field_value_unchecked(f)),
+                    ctx,
+                    variables,
+                    state,
+                    func
+                )
             }),
         }
     }
 
     pub(crate) fn compile_iter_with<
-        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        F: 's
+            + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>, &Variables, &State<'_>) -> bool
+            + Sync
+            + Send,
         U: 's,
         C: Compiler<'s, U> + 's,
     >(
@@ -232,21 +263,21 @@ impl<'s> IndexExpr<'s> {
     ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         match lhs {
-            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, _| {
+            LhsFieldExpr::Field(f) => CompiledVecExpr::new(move |ctx, variables, state| {
                 let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                 iter.reset(ctx.get_field_value_unchecked(f).as_ref());
 
                 let mut output = Vec::new();
                 for item in iter {
-                    output.push(func(&item, ctx));
+                    output.push(func(&item, ctx, variables, state));
                 }
                 output.into_boxed_slice()
             }),
             LhsFieldExpr::FunctionCallExpr(call) => {
                 let call = compiler.compile_function_call_expr(call);
-                CompiledVecExpr::new(move |ctx, state| {
+                CompiledVecExpr::new(move |ctx, variables, state| {
                     let mut iter = MapEachIterator::from_indexes(&indexes[..]);
-                    if let Ok(val) = call.execute(ctx, state) {
+                    if let Ok(val) = call.execute(ctx, variables, state) {
                         iter.reset(val);
                     } else {
                         return Vec::new().into_boxed_slice();
@@ -254,7 +285,7 @@ impl<'s> IndexExpr<'s> {
 
                     let mut output = Vec::new();
                     for item in iter {
-                        output.push(func(&item, ctx));
+                        output.push(func(&item, ctx, variables, state));
                     }
                     output.into_boxed_slice()
                 })
@@ -265,7 +296,10 @@ impl<'s> IndexExpr<'s> {
     /// Compiles an [`IndexExpr`] node into a [`CompiledExpr`] (boxed closure)
     /// using the provided comparison function that returns a boolean.
     pub fn compile_with<
-        F: 's + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>) -> bool + Sync + Send,
+        F: 's
+            + Fn(&LhsValue<'_>, &ExecutionContext<'_, U>, &Variables, &State<'_>) -> bool
+            + Sync
+            + Send,
         U: 's,
         C: Compiler<'s, U> + 's,
     >(
@@ -291,8 +325,12 @@ impl<'s> IndexExpr<'s> {
     }
 
     /// Parses an expression into an AST form.
-    pub fn parse<'i>(scheme: &'s Scheme, input: &'i str) -> Result<Self, ParseError<'i>> {
-        complete(Self::lex_with(input.trim(), scheme))
+    pub fn parse<'i>(
+        scheme: &'s Scheme,
+        variables: &Variables,
+        input: &'i str,
+    ) -> Result<Self, ParseError<'i>> {
+        complete(Self::lex_with_2(input.trim(), scheme, variables))
             .and_then(|ast| {
                 if ast.map_each_count() > 0 {
                     Err((
@@ -310,9 +348,13 @@ impl<'s> IndexExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith<'i, &'s Scheme> for IndexExpr<'s> {
-    fn lex_with(mut input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
-        let (lhs, rest) = LhsFieldExpr::lex_with(input, scheme)?;
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for IndexExpr<'s> {
+    fn lex_with_2(
+        mut input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (lhs, rest) = LhsFieldExpr::lex_with_2(input, scheme, variables)?;
 
         let mut current_type = lhs.get_type();
 
@@ -540,7 +582,7 @@ mod tests {
         fn run(i: u32) {
             let filter = format!("test[{}]", i);
             assert_ok!(
-                IndexExpr::lex_with(&filter, &SCHEME),
+                IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
                 IndexExpr {
                     lhs: LhsFieldExpr::Field(SCHEME.get_field("test").unwrap()),
                     indexes: vec![FieldIndex::ArrayIndex(i)],
@@ -561,7 +603,7 @@ mod tests {
         let filter = "test2[0][*]".to_string();
 
         let expr = assert_ok!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             IndexExpr {
                 lhs: LhsFieldExpr::Field(SCHEME.get_field("test2").unwrap()),
                 indexes: vec![FieldIndex::ArrayIndex(0), FieldIndex::MapEach],
@@ -574,7 +616,7 @@ mod tests {
         let filter = "test2[*][0]".to_string();
 
         let expr = assert_ok!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             IndexExpr {
                 lhs: LhsFieldExpr::Field(SCHEME.get_field("test2").unwrap()),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::ArrayIndex(0)],
@@ -587,7 +629,7 @@ mod tests {
         let filter = "test2[*][*]".to_string();
 
         let expr = assert_ok!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             IndexExpr {
                 lhs: LhsFieldExpr::Field(SCHEME.get_field("test2").unwrap()),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::MapEach],
@@ -600,7 +642,7 @@ mod tests {
         let filter = "test2[0][*][*]".to_string();
 
         assert_err!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes
@@ -611,7 +653,7 @@ mod tests {
         let filter = "test2[*][0][*]".to_string();
 
         assert_err!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes
@@ -622,7 +664,7 @@ mod tests {
         let filter = "test2[*][*][0]".to_string();
 
         assert_err!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::ArrayIndex(0),
                 actual: Type::Bytes
@@ -633,7 +675,7 @@ mod tests {
         let filter = "test2[*][*][*]".to_string();
 
         assert_err!(
-            IndexExpr::lex_with(&filter, &SCHEME),
+            IndexExpr::lex_with_2(&filter, &SCHEME, &Default::default()),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes
@@ -712,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let err = IndexExpr::parse(&SCHEME, "test[*]").unwrap_err();
+        let err = IndexExpr::parse(&SCHEME, &Default::default(), "test[*]").unwrap_err();
         assert_eq!(
             err,
             ParseError {
@@ -738,7 +780,7 @@ mod tests {
         );
 
         assert_eq!(
-            IndexExpr::parse(&SCHEME, "test[42]"),
+            IndexExpr::parse(&SCHEME, &Default::default(), "test[42]"),
             Ok(IndexExpr {
                 lhs: LhsFieldExpr::Field(SCHEME.get_field("test").unwrap()),
                 indexes: vec![FieldIndex::ArrayIndex(42)],

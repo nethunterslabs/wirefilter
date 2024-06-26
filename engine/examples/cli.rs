@@ -41,7 +41,7 @@ fn main() {
         )
         .unwrap();
 
-    match scheme.parse(&filter) {
+    match scheme.parse(&filter, &Default::default()) {
         Ok(res) => println!("{:#?}", res),
         Err(err) => println!("{}", err),
     }

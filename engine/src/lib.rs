@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use wirefilter::{ExecutionContext, Scheme, Type};
+//! use wirefilter::{ExecutionContext, Scheme, State, Type, Variables};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create a map of possible filter fields.
@@ -16,6 +16,12 @@
 //!         port: Int,
 //!     };
 //!
+//!     // Create a set of variables.
+//!     let mut variables = Variables::new();
+//!
+//!     // Create internal state that can be passed to functions.
+//!     let state = State::new();
+//!
 //!     // Parse a Wireshark-like expression into an AST.
 //!     let ast = scheme.parse(
 //!         r#"
@@ -23,12 +29,13 @@
 //!             not http.ua matches "(googlebot|facebook)" &&
 //!             port in [80, 443]
 //!         "#,
+//!         &variables,
 //!     )?;
 //!
 //!     println!("Parsed filter representation: {:?}", ast);
 //!
 //!     // Compile the AST into an executable filter.
-//!     let filter = ast.compile();
+//!     let filter = ast.compile(&variables);
 //!
 //!     // Set runtime field values to test the filter against.
 //!     let mut ctx = ExecutionContext::new(&scheme);
@@ -43,12 +50,12 @@
 //!     ctx.set_field_value(scheme.get_field("port").unwrap(), 443)?;
 //!
 //!     // Execute the filter with given runtime values.
-//!     println!("Filter matches: {:?}", filter.execute(&ctx, &Default::default())?); // true
+//!     println!("Filter matches: {:?}", filter.execute(&ctx, &variables, &state)?); // true
 //!
 //!     // Amend one of the runtime values and execute the filter again.
 //!     ctx.set_field_value(scheme.get_field("port").unwrap(), 8080)?;
 //!
-//!     println!("Filter matches: {:?}", filter.execute(&ctx, &Default::default())?); // false
+//!     println!("Filter matches: {:?}", filter.execute(&ctx, &variables, &state)?); // false
 //!
 //!     Ok(())
 //! }
@@ -86,7 +93,7 @@ pub use self::{
         Expr, FilterAst, SingleValueExprAst, ValueExpr,
     },
     compiler::{Compiler, DefaultCompiler},
-    execution_context::{ExecutionContext, State},
+    execution_context::{ExecutionContext, State, Variables},
     filter::{CompiledExpr, CompiledOneExpr, CompiledValueExpr, CompiledVecExpr, Filter},
     functions::{
         FunctionArgInvalidConstantError, FunctionArgKind, FunctionArgKindMismatchError,
@@ -98,12 +105,12 @@ pub use self::{
     lhs_types::{Array, Map},
     rhs_types::{
         ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpCidr, IpRange, Ipv4Cidr,
-        Ipv6Cidr, OrderedFloat, Regex, RegexError, StrType,
+        Ipv6Cidr, OrderedFloat, Regex, RegexError, StrType, Variable,
     },
     scheme::{
         Field, FieldIndex, FieldRedefinitionError, Function, FunctionRedefinitionError, Identifier,
         IdentifierRedefinitionError, ParseError, Scheme, SchemeMismatchError, UnknownFieldError,
-        UnknownFunctionError, UnknownVariableError, VariableRedefinitionError, VariableRef,
+        UnknownFunctionError, UnknownVariableError,
     },
     single_value_expr::{SingleValueExpr, SingleValueExprError},
     types::{

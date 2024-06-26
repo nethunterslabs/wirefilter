@@ -6,11 +6,12 @@ use super::{
 use crate::{
     ast::index_expr::IndexExpr,
     compiler::Compiler,
+    execution_context::Variables,
     filter::{CompiledExpr, CompiledValueExpr},
-    lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith},
+    lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
     range_set::RangeSet,
-    rhs_types::{Bytes, ExplicitIpRange, Regex, VariableName},
-    scheme::{Field, Identifier, Scheme, VariableRef},
+    rhs_types::{Bytes, ExplicitIpRange, Regex, Variable},
+    scheme::{Field, Identifier, Scheme},
     searcher::{EmptySearcher, TwoWaySearcher},
     strict_partial_ord::StrictPartialOrd,
     types::{GetType, LhsValue, RhsValue, RhsValues, Type, VariableValue},
@@ -110,7 +111,7 @@ lex_enum!(ComparisonOp {
 /// comparison expression.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
 #[serde(untagged)]
-pub enum ComparisonOpExpr<'s> {
+pub enum ComparisonOpExpr {
     /// Boolean field verification
     #[serde(serialize_with = "serialize_is_true")]
     IsTrue,
@@ -140,7 +141,7 @@ pub enum ComparisonOpExpr<'s> {
         /// * "lt" | "LT" | "<"
         op: OrderingOp,
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
     },
 
     /// Integer comparison
@@ -158,7 +159,7 @@ pub enum ComparisonOpExpr<'s> {
         /// * "&" | "bitwise_and" | "BITWISE_AND"
         op: IntOp,
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
     },
 
     /// "contains" / "CONTAINS" comparison
@@ -173,7 +174,7 @@ pub enum ComparisonOpExpr<'s> {
     /// "contains" / "CONTAINS" comparison with a variable
     ContainsVariable {
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -190,7 +191,7 @@ pub enum ComparisonOpExpr<'s> {
     /// "matches / MATCHES / ~" comparison with a variable
     MatchesVariable {
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -207,7 +208,7 @@ pub enum ComparisonOpExpr<'s> {
     /// "in $..." | "IN $..." comparison with a variable
     OneOfVariable {
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -224,7 +225,7 @@ pub enum ComparisonOpExpr<'s> {
     /// "has_any $..." / "HAS_ANY $..." comparison with a variable
     HasAnyVariable {
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -241,7 +242,7 @@ pub enum ComparisonOpExpr<'s> {
     /// "has_all $..." / "HAS_ALL $..." comparison with a variable
     HasAllVariable {
         /// `Variable` from the `Scheme`
-        var: VariableRef<'s>,
+        var: Variable,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -308,21 +309,27 @@ impl<'s> LhsFieldExpr<'s> {
         compiler: &mut C,
     ) -> CompiledValueExpr<'s, U> {
         match self {
-            LhsFieldExpr::Field(f) => {
-                CompiledValueExpr::new(move |ctx, _| Ok(ctx.get_field_value_unchecked(f).as_ref()))
-            }
+            LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _, _| {
+                Ok(ctx.get_field_value_unchecked(f).as_ref())
+            }),
             LhsFieldExpr::FunctionCallExpr(call) => compiler.compile_function_call_expr(call),
         }
     }
 }
 
-impl<'i, 's> LexWith<'i, &'s Scheme> for LhsFieldExpr<'s> {
-    fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for LhsFieldExpr<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
         let (item, input) = Identifier::lex_with(input, scheme)?;
         match item {
             Identifier::Field(field) => Ok((LhsFieldExpr::Field(field), input)),
-            Identifier::Function(function) => FunctionCallExpr::lex_with_function(input, function)
-                .map(|(call, input)| (LhsFieldExpr::FunctionCallExpr(call), input)),
+            Identifier::Function(function) => {
+                FunctionCallExpr::lex_with_function(input, function, variables)
+                    .map(|(call, input)| (LhsFieldExpr::FunctionCallExpr(call), input))
+            }
         }
     }
 }
@@ -344,7 +351,7 @@ pub struct ComparisonExpr<'s> {
 
     /// Operator + right-hand side of the comparison expression
     #[serde(flatten)]
-    pub op: ComparisonOpExpr<'s>,
+    pub op: ComparisonOpExpr,
 }
 
 impl<'s> GetType for ComparisonExpr<'s> {
@@ -360,19 +367,24 @@ impl<'s> GetType for ComparisonExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith<'i, &'s Scheme> for ComparisonExpr<'s> {
-    fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
-        let (lhs, input) = IndexExpr::lex_with(input, scheme)?;
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for ComparisonExpr<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (lhs, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
 
-        Self::lex_with_lhs(input, scheme, lhs)
+        Self::lex_with_lhs(input, scheme, lhs, variables)
     }
 }
 
 impl<'s> ComparisonExpr<'s> {
     pub(crate) fn lex_with_lhs<'i>(
         input: &'i str,
-        scheme: &'s Scheme,
+        _scheme: &'s Scheme,
         lhs: IndexExpr<'s>,
+        variables: &Variables,
     ) -> LexResult<'i, Self> {
         let lhs_type = lhs.get_type();
 
@@ -405,27 +417,28 @@ impl<'s> ComparisonExpr<'s> {
                 | (Type::Int, ComparisonOp::In(variant))
                 | (Type::Float, ComparisonOp::In(variant)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = VariableName::lex(input)?;
-                        let (variable, variable_ref) =
-                            scheme.get_variable_and_ref(name.as_str()).ok_or((
-                                LexErrorKind::UnknownVariable {
-                                    name: name.as_str().into(),
-                                },
-                                span(initial_input, input),
-                            ))?;
-                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                        let (mut variable, input) = Variable::lex(input)?;
+                        let variable_value = variables.get(variable.name_as_str()).ok_or((
+                            LexErrorKind::UnknownVariable {
+                                name: variable.name_as_str().into(),
+                            },
+                            span(initial_input, input),
+                        ))?;
+                        variable.set_type(variable_value.get_variable_type());
+
+                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
                             return Err((
                                 LexErrorKind::VariableTypeMismatch {
-                                    name: name.take_inner(),
+                                    name: variable.take_name(),
                                     expected: lhs_type,
-                                    actual: variable.get_variable_type(),
+                                    actual: variable_value.get_variable_type(),
                                 },
                                 span(initial_input, input),
                             ));
                         }
                         (
                             ComparisonOpExpr::OneOfVariable {
-                                var: variable_ref,
+                                var: variable,
                                 variant,
                             },
                             input,
@@ -437,20 +450,21 @@ impl<'s> ComparisonExpr<'s> {
                 }
                 (Type::Bytes, ComparisonOp::HasAny(_)) | (Type::Bytes, ComparisonOp::HasAll(_)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = VariableName::lex(input)?;
-                        let (variable, variable_ref) =
-                            scheme.get_variable_and_ref(name.as_str()).ok_or((
-                                LexErrorKind::UnknownVariable {
-                                    name: name.as_str().into(),
-                                },
-                                span(initial_input, input),
-                            ))?;
-                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                        let (mut variable, input) = Variable::lex(input)?;
+                        let variable_value = variables.get(variable.name_as_str()).ok_or((
+                            LexErrorKind::UnknownVariable {
+                                name: variable.name_as_str().into(),
+                            },
+                            span(initial_input, input),
+                        ))?;
+                        variable.set_type(variable_value.get_variable_type());
+
+                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
                             return Err((
                                 LexErrorKind::VariableTypeMismatch {
-                                    name: name.take_inner(),
+                                    name: variable.take_name(),
                                     expected: lhs_type,
-                                    actual: variable.get_variable_type(),
+                                    actual: variable_value.get_variable_type(),
                                 },
                                 span(initial_input, input),
                             ));
@@ -458,11 +472,11 @@ impl<'s> ComparisonExpr<'s> {
                         (
                             match op {
                                 ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAnyVariable {
-                                    var: variable_ref,
+                                    var: variable,
                                     variant,
                                 },
                                 ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAllVariable {
-                                    var: variable_ref,
+                                    var: variable,
                                     variant,
                                 },
                                 _ => unreachable!(),
@@ -490,29 +504,27 @@ impl<'s> ComparisonExpr<'s> {
                 | (Type::Int, ComparisonOp::Ordering(op))
                 | (Type::Float, ComparisonOp::Ordering(op)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = VariableName::lex(input)?;
-                        let (variable, variable_ref) =
-                            scheme.get_variable_and_ref(name.as_str()).ok_or((
-                                LexErrorKind::UnknownVariable {
-                                    name: name.as_str().into(),
-                                },
-                                span(initial_input, input),
-                            ))?;
-                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                        let (mut variable, input) = Variable::lex(input)?;
+                        let variable_value = variables.get(variable.name_as_str()).ok_or((
+                            LexErrorKind::UnknownVariable {
+                                name: variable.name_as_str().into(),
+                            },
+                            span(initial_input, input),
+                        ))?;
+                        variable.set_type(variable_value.get_variable_type());
+
+                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
                             return Err((
                                 LexErrorKind::VariableTypeMismatch {
-                                    name: name.take_inner(),
+                                    name: variable.take_name(),
                                     expected: lhs_type,
-                                    actual: variable.get_variable_type(),
+                                    actual: variable_value.get_variable_type(),
                                 },
                                 span(initial_input, input),
                             ));
                         }
                         (
-                            ComparisonOpExpr::OrderingVariable {
-                                op,
-                                var: variable_ref,
-                            },
+                            ComparisonOpExpr::OrderingVariable { op, var: variable },
                             input,
                         )
                     } else {
@@ -522,31 +534,26 @@ impl<'s> ComparisonExpr<'s> {
                 }
                 (Type::Int, ComparisonOp::Int(op)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = VariableName::lex(input)?;
-                        let (variable, variable_ref) =
-                            scheme.get_variable_and_ref(name.as_str()).ok_or((
-                                LexErrorKind::UnknownVariable {
-                                    name: name.as_str().into(),
-                                },
-                                span(initial_input, input),
-                            ))?;
-                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                        let (mut variable, input) = Variable::lex(input)?;
+                        let variable_value = variables.get(variable.name_as_str()).ok_or((
+                            LexErrorKind::UnknownVariable {
+                                name: variable.name_as_str().into(),
+                            },
+                            span(initial_input, input),
+                        ))?;
+                        variable.set_type(variable_value.get_variable_type());
+
+                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
                             return Err((
                                 LexErrorKind::VariableTypeMismatch {
-                                    name: name.take_inner(),
+                                    name: variable.take_name(),
                                     expected: lhs_type,
-                                    actual: variable.get_variable_type(),
+                                    actual: variable_value.get_variable_type(),
                                 },
                                 span(initial_input, input),
                             ));
                         }
-                        (
-                            ComparisonOpExpr::IntVariable {
-                                op,
-                                var: variable_ref,
-                            },
-                            input,
-                        )
+                        (ComparisonOpExpr::IntVariable { op, var: variable }, input)
                     } else {
                         let (rhs, input) = i32::lex(input)?;
                         (ComparisonOpExpr::Int { op, rhs }, input)
@@ -554,20 +561,21 @@ impl<'s> ComparisonExpr<'s> {
                 }
                 (Type::Bytes, ComparisonOp::Bytes(op)) => {
                     if expect(input, "$").is_ok() {
-                        let (name, input) = VariableName::lex(input)?;
-                        let (variable, variable_ref) =
-                            scheme.get_variable_and_ref(name.as_str()).ok_or((
-                                LexErrorKind::UnknownVariable {
-                                    name: name.as_str().into(),
-                                },
-                                span(initial_input, input),
-                            ))?;
-                        if !variable.is_supported_lhs_value_match(&lhs_type) {
+                        let (mut variable, input) = Variable::lex(input)?;
+                        let variable_value = variables.get(variable.name_as_str()).ok_or((
+                            LexErrorKind::UnknownVariable {
+                                name: variable.name_as_str().into(),
+                            },
+                            span(initial_input, input),
+                        ))?;
+                        variable.set_type(variable_value.get_variable_type());
+
+                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
                             return Err((
                                 LexErrorKind::VariableTypeMismatch {
-                                    name: name.take_inner(),
+                                    name: variable.take_name(),
                                     expected: lhs_type,
-                                    actual: variable.get_variable_type(),
+                                    actual: variable_value.get_variable_type(),
                                 },
                                 span(initial_input, input),
                             ));
@@ -576,14 +584,14 @@ impl<'s> ComparisonExpr<'s> {
                         match op {
                             BytesOp::Contains(variant) => (
                                 ComparisonOpExpr::ContainsVariable {
-                                    var: variable_ref,
+                                    var: variable,
                                     variant,
                                 },
                                 input,
                             ),
                             BytesOp::Matches(variant) => (
                                 ComparisonOpExpr::MatchesVariable {
-                                    var: variable_ref,
+                                    var: variable,
                                     variant,
                                 },
                                 input,
@@ -676,50 +684,62 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
         match self.op {
             ComparisonOpExpr::IsTrue => {
                 if lhs.get_type() == Type::Bool {
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         *cast_lhs_rhs_value!(x, Bool)
                     })
                 } else if lhs.get_type().next() == Some(Type::Bool) {
                     // MapEach is impossible in this case, thus call `compile_vec_with` directly
                     // to coerce LhsValue to Vec<bool>
-                    CompiledExpr::Vec(
-                        lhs.compile_vec_with(compiler, move |x, _ctx| {
-                            *cast_lhs_rhs_value!(x, Bool)
-                        }),
-                    )
+                    CompiledExpr::Vec(lhs.compile_vec_with(compiler, move |x, _ctx, _, _| {
+                        *cast_lhs_rhs_value!(x, Bool)
+                    }))
                 } else {
                     unreachable!()
                 }
             }
 
             ComparisonOpExpr::Ordering { op, rhs } => match op {
-                OrderingOp::NotEqual(_) => lhs.compile_with(compiler, true, move |x, _ctx| {
-                    op.matches_opt(x.strict_partial_cmp(&rhs))
-                }),
-                _ => lhs.compile_with(compiler, false, move |x, _ctx| {
+                OrderingOp::NotEqual(_) => {
+                    lhs.compile_with(compiler, true, move |x, _ctx, _, _| {
+                        op.matches_opt(x.strict_partial_cmp(&rhs))
+                    })
+                }
+                _ => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                     op.matches_opt(x.strict_partial_cmp(&rhs))
                 }),
             },
             ComparisonOpExpr::OrderingVariable { op, var: variable } => match op {
-                OrderingOp::NotEqual(_) => lhs.compile_with(compiler, true, move |x, _ctx| {
-                    op.matches_opt(x.strict_partial_cmp(variable.value()))
-                }),
-                _ => lhs.compile_with(compiler, false, move |x, _ctx| {
-                    op.matches_opt(x.strict_partial_cmp(variable.value()))
+                OrderingOp::NotEqual(_) => {
+                    lhs.compile_with(compiler, true, move |x, _ctx, variables, _| {
+                        variables
+                            .get(variable.name_as_str())
+                            .map_or(false, |variable| {
+                                op.matches_opt(x.strict_partial_cmp(variable))
+                            })
+                    })
+                }
+                _ => lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
+                    variables
+                        .get(variable.name_as_str())
+                        .map_or(false, |variable| {
+                            op.matches_opt(x.strict_partial_cmp(variable))
+                        })
                 }),
             },
 
             ComparisonOpExpr::Int {
                 op: IntOp::BitwiseAnd(_),
                 rhs,
-            } => lhs.compile_with(compiler, false, move |x, _ctx| {
+            } => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                 cast_lhs_rhs_value!(x, Int) & rhs != 0
             }),
             ComparisonOpExpr::IntVariable {
                 op: IntOp::BitwiseAnd(_),
                 var,
-            } => lhs.compile_with(compiler, false, move |x, _ctx| {
-                cast_lhs_rhs_value!(x, Int) & cast_variable_value!(var.value(), Int) != 0
+            } => lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
+                variables.get(var.name_as_str()).map_or(false, |var| {
+                    cast_lhs_rhs_value!(x, Int) & cast_variable_value!(var, Int) != 0
+                })
             }),
 
             ComparisonOpExpr::Contains {
@@ -729,7 +749,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 macro_rules! search {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
-                        lhs.compile_with(compiler, false, move |x, _ctx| {
+                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                             searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
                         })
                     }};
@@ -760,45 +780,52 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 macro_rules! search {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
-                        lhs.compile_with(compiler, false, move |x, _ctx| {
+                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                             searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
                         })
                     }};
                 }
 
-                let bytes = cast_variable_value!(var.value(), Bytes)
-                    .clone()
-                    .into_boxed_slice();
+                if let Some(var) = compiler.variables().get(var.name_as_str()) {
+                    let bytes = cast_variable_value!(var, Bytes).clone().into_boxed_slice();
 
-                if bytes.is_empty() {
-                    return search!(EmptySearcher);
+                    if bytes.is_empty() {
+                        return search!(EmptySearcher);
+                    }
+
+                    if let [byte] = *bytes {
+                        return search!(MemchrSearcher::new(byte));
+                    }
+
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    if *USE_AVX2 {
+                        use rand::{thread_rng, Rng};
+                        use sliceslice::x86::*;
+
+                        let position = thread_rng().gen_range(1..bytes.len());
+                        return unsafe {
+                            search!(DynamicAvx2Searcher::with_position(bytes, position))
+                        };
+                    }
+
+                    search!(TwoWaySearcher::new(bytes))
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
                 }
-
-                if let [byte] = *bytes {
-                    return search!(MemchrSearcher::new(byte));
-                }
-
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                if *USE_AVX2 {
-                    use rand::{thread_rng, Rng};
-                    use sliceslice::x86::*;
-
-                    let position = thread_rng().gen_range(1..bytes.len());
-                    return unsafe { search!(DynamicAvx2Searcher::with_position(bytes, position)) };
-                }
-
-                search!(TwoWaySearcher::new(bytes))
             }
 
             ComparisonOpExpr::Matches {
                 rhs: regex,
                 variant: _,
-            } => lhs.compile_with(compiler, false, move |x, _ctx| {
+            } => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                 regex.is_match(cast_lhs_rhs_value!(x, Bytes))
             }),
             ComparisonOpExpr::MatchesVariable { var, variant: _ } => {
-                lhs.compile_with(compiler, false, move |x, _ctx| {
-                    cast_variable_value!(var.value(), Regex).is_match(cast_lhs_rhs_value!(x, Bytes))
+                lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
+                    variables.get(var.name_as_str()).map_or(false, |variable| {
+                        cast_variable_value!(variable, Regex)
+                            .is_match(cast_lhs_rhs_value!(x, Bytes))
+                    })
                 })
             }
 
@@ -818,7 +845,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     let v4 = RangeSet::from(v4);
                     let v6 = RangeSet::from(v6);
 
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         match cast_lhs_rhs_value!(x, Ip) {
                             IpAddr::V4(addr) => v4.contains(addr),
                             IpAddr::V6(addr) => v6.contains(addr),
@@ -828,14 +855,14 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Int(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         values.contains(cast_lhs_rhs_value!(x, Int))
                     })
                 }
                 RhsValues::Float(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         values.contains(cast_lhs_rhs_value!(x, Float))
                     })
                 }
@@ -843,7 +870,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     let values: IndexSet<Box<[u8]>, FnvBuildHasher> =
                         values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         values.contains(cast_lhs_rhs_value!(x, Bytes) as &[u8])
                     })
                 }
@@ -852,12 +879,13 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 RhsValues::Array(_) => unreachable!(),
                 RhsValues::Regex(_) => unreachable!(),
             },
-            ComparisonOpExpr::OneOfVariable {
-                var: list,
-                variant: _,
-            } => lhs.compile_with(compiler, false, move |val, _| {
-                list.value().matches_lhs_value(val)
-            }),
+            ComparisonOpExpr::OneOfVariable { var, variant: _ } => {
+                lhs.compile_with(compiler, false, move |val, _, variables, _| {
+                    variables
+                        .get(var.name_as_str())
+                        .map_or(false, |variable| variable.matches_lhs_value(val))
+                })
+            }
 
             ComparisonOpExpr::HasAny {
                 rhs: values,
@@ -865,21 +893,25 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             } => {
                 let values = cast_rhs_values!(values, Bytes);
                 if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
                     })
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
                 }
             }
             ComparisonOpExpr::HasAnyVariable { var, variant: _ } => {
-                let variable_values = cast_variable_value!(var.value(), BytesList);
-                if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
-                        searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
-                    })
+                if let Some(var) = compiler.variables().get(var.name_as_str()) {
+                    let variable_values = cast_variable_value!(var, BytesList);
+                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
+                            searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
+                        })
+                    } else {
+                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    }
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
                 }
             }
             ComparisonOpExpr::HasAll {
@@ -888,7 +920,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             } => {
                 let values = cast_rhs_values!(values, Bytes);
                 if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
+                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
                         let text = cast_lhs_rhs_value!(x, Bytes);
                         let mut found = vec![false; values.len()];
                         if let Ok(find_iter) = searcher.try_find_iter(text) {
@@ -901,27 +933,31 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                         }
                     })
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
                 }
             }
             ComparisonOpExpr::HasAllVariable { var, variant: _ } => {
-                let variable_values = cast_variable_value!(var.value(), BytesList);
-                let variable_values_len = variable_values.len();
-                if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx| {
-                        let text = cast_lhs_rhs_value!(x, Bytes);
-                        let mut found = vec![false; variable_values_len];
-                        if let Ok(find_iter) = searcher.try_find_iter(text) {
-                            for mat in find_iter {
-                                found[mat.pattern()] = true;
+                if let Some(var) = compiler.variables().get(var.name_as_str()) {
+                    let variable_values = cast_variable_value!(var, BytesList);
+                    let variable_values_len = variable_values.len();
+                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
+                            let text = cast_lhs_rhs_value!(x, Bytes);
+                            let mut found = vec![false; variable_values_len];
+                            if let Ok(find_iter) = searcher.try_find_iter(text) {
+                                for mat in find_iter {
+                                    found[mat.pattern()] = true;
+                                }
+                                found.into_iter().all(|f| f)
+                            } else {
+                                false
                             }
-                            found.into_iter().all(|f| f)
-                        } else {
-                            false
-                        }
-                    })
+                        })
+                    } else {
+                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    }
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
                 }
             }
         }
@@ -933,7 +969,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::function_expr::{FunctionCallArgExpr, FunctionCallExpr},
-        execution_context::{ExecutionContext, State},
+        execution_context::{ExecutionContext, State, Variables},
         functions::{
             FunctionArgKind, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,
             FunctionParam, FunctionParamError, SimpleFunctionDefinition, SimpleFunctionImpl,
@@ -943,6 +979,7 @@ mod tests {
         rhs_types::IpRange,
         scheme::{FieldIndex, IndexAccessError},
         types::{ExpectedType, RhsValues},
+        VariableType,
     };
     use cidr::IpCidr;
     use lazy_static::lazy_static;
@@ -1032,6 +1069,14 @@ mod tests {
         /// Number of arguments needed by the function.
         fn arg_count(&self) -> (usize, Option<usize>) {
             (2, Some(0))
+        }
+
+        fn arg_type(&self, index: usize) -> Option<Type> {
+            match index {
+                0 => Some(Type::Array(Box::new(Type::Bytes))),
+                1 => Some(Type::Array(Box::new(Type::Bool))),
+                _ => None,
+            }
         }
 
         fn compile<'s>(
@@ -1161,9 +1206,11 @@ mod tests {
                 )
                 .unwrap();
             scheme
-                .add_variable("int_list".to_string(), vec![1000].into())
-                .unwrap();
-            scheme
+        };
+        static ref VARIABLES: Variables = {
+            let mut variables = Variables::new();
+            variables.add("int_list".to_string(), vec![1000].into());
+            variables
         };
     }
 
@@ -1174,7 +1221,7 @@ mod tests {
     #[test]
     fn test_is_true() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with("ssl", &SCHEME),
+            ComparisonExpr::lex_with_2("ssl", &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("ssl")),
@@ -1192,20 +1239,20 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("ssl"), true).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ssl"), false).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_ip_compare() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with("ip.addr <= 10:20:30:40:50:60:70:80", &SCHEME),
+            ComparisonExpr::lex_with_2("ip.addr <= 10:20:30:40:50:60:70:80", &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("ip.addr")),
@@ -1229,30 +1276,30 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(
             field("ip.addr"),
             IpAddr::from([0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
         )
         .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(
             field("ip.addr"),
             IpAddr::from([0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x81]),
         )
         .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([127, 0, 0, 1]))
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
@@ -1260,7 +1307,11 @@ mod tests {
         // just check that parsing doesn't conflict with IPv6
         {
             let expr = assert_ok!(
-                ComparisonExpr::lex_with("http.host >= 10:20:30:40:50:60:70:80", &SCHEME),
+                ComparisonExpr::lex_with_2(
+                    "http.host >= 10:20:30:40:50:60:70:80",
+                    &SCHEME,
+                    &VARIABLES
+                ),
                 ComparisonExpr {
                     lhs: IndexExpr {
                         lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1288,7 +1339,7 @@ mod tests {
         // just check that parsing doesn't conflict with regular numbers
         {
             let expr = assert_ok!(
-                ComparisonExpr::lex_with(r#"http.host < 12"#, &SCHEME),
+                ComparisonExpr::lex_with_2(r#"http.host < 12"#, &SCHEME, &VARIABLES),
                 ComparisonExpr {
                     lhs: IndexExpr {
                         lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1312,7 +1363,7 @@ mod tests {
         }
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.host == "example.org""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1334,22 +1385,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bitwise_and() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with("tcp.port & 1", &SCHEME),
+            ComparisonExpr::lex_with_2("tcp.port & 1", &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -1371,20 +1422,24 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("tcp.port"), 80).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 443).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_int_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"tcp.port in [ 80, 443, 2082..2083 ]"#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"tcp.port in [ 80, 443, 2082..2083 ]"#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -1410,35 +1465,39 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("tcp.port"), 80).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 8080).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 443).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 2081).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 2082).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 2083).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 2084).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host in [ "example.org", "example.com" ]"#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.host in [ "example.org", "example.com" ]"#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1468,26 +1527,30 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.net")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_has_all() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host has_all [ "exam", "ple" ]"#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.host has_all [ "exam", "ple" ]"#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1517,25 +1580,29 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "test.net").unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_has_any() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host has_any [ "com", "org", ]"#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.host has_any [ "com", "org", ]"#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1565,28 +1632,29 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.net")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_ip_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(
+            ComparisonExpr::lex_with_2(
                 r#"ip.addr in [ 127.0.0.0/8, ::1, 10.0.0.0..10.0.255.255 ]"#,
-                &SCHEME
+                &SCHEME,
+                &VARIABLES
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -1619,34 +1687,34 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([127, 0, 0, 1]))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([127, 0, 0, 3]))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([255, 255, 255, 255]))
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("ip.addr"), IpAddr::from([0, 0, 0, 0, 0, 0, 0, 2]))
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_contains_bytes() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host contains "abc""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.host contains "abc""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1668,22 +1736,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "abc.net.au")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.host contains 6F:72:67"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.host contains 6F:72:67"#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -1705,22 +1773,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_int_compare() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"tcp.port < 8000"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"tcp.port < 8000"#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -1742,20 +1810,20 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("tcp.port"), 80).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 8080).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_array_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.cookies[0] contains "abc""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.cookies[0] contains "abc""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -1768,7 +1836,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -1778,7 +1846,7 @@ mod tests {
         });
 
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         let cookies = LhsValue::Array({
             let mut arr = Array::new(Type::Bytes);
@@ -1787,13 +1855,17 @@ mod tests {
         });
 
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_map_of_bytes_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.headers["host"] contains "abc""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.headers["host"] contains "abc""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
@@ -1818,7 +1890,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let headers = LhsValue::Map({
@@ -1828,7 +1900,7 @@ mod tests {
         });
 
         ctx.set_field_value(field("http.headers"), headers).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         let headers = LhsValue::Map({
             let mut map = Map::new(Type::Bytes);
@@ -1837,13 +1909,13 @@ mod tests {
         });
 
         ctx.set_field_value(field("http.headers"), headers).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_compare_with_echo_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"echo(http.host) == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"echo(http.host) == "example.org""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -1881,22 +1953,26 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.com")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_compare_with_lowercase_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"lowercase(http.host) == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"lowercase(http.host) == "example.org""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -1934,22 +2010,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "EXAMPLE.COM")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "EXAMPLE.ORG")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_missing_array_value_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.cookies[0] == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.cookies[0] == "example.org""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -1974,18 +2050,18 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.cookies"), Array::new(Type::Bytes))
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_missing_array_value_not_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.cookies[0] != "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.cookies[0] != "example.org""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -2010,18 +2086,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.cookies"), Array::new(Type::Bytes))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_missing_map_value_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.headers["missing"] == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.headers["missing"] == "example.org""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
@@ -2046,18 +2126,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.headers"), Map::new(Type::Bytes))
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_missing_map_value_not_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.headers["missing"] != "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"http.headers["missing"] != "example.org""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
@@ -2082,18 +2166,22 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.headers"), Map::new(Type::Bytes))
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_bytes_compare_with_concat_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"concat(http.host) == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"concat(http.host) == "example.org""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -2131,19 +2219,23 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example.org")
             .unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.co.uk")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"concat(http.host, ".org") == "example.org""#, &SCHEME),
+            ComparisonExpr::lex_with_2(
+                r#"concat(http.host, ".org") == "example.org""#,
+                &SCHEME,
+                &VARIABLES
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -2190,23 +2282,24 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("http.host"), "example").unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "cloudflare")
             .unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_filter_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(
+            ComparisonExpr::lex_with_2(
                 r#"filter(http.cookies, array.of.bool)[0] == "three""#,
-                &SCHEME
+                &SCHEME,
+                &VARIABLES
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2258,7 +2351,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -2280,15 +2373,16 @@ mod tests {
         ctx.set_field_value(field("array.of.bool"), booleans)
             .unwrap();
 
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_map_each_on_array_with_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(
+            ComparisonExpr::lex_with_2(
                 r#"concat(http.cookies[*], "-cf")[2] == "three-cf""#,
-                &SCHEME
+                &SCHEME,
+                &VARIABLES
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2339,7 +2433,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -2351,15 +2445,16 @@ mod tests {
         });
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
 
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_map_each_on_map_with_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(
+            ComparisonExpr::lex_with_2(
                 r#"concat(http.headers[*], "-cf")[2] in ["one-cf", "two-cf", "three-cf"]"#,
-                &SCHEME
+                &SCHEME,
+                &VARIABLES
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2414,7 +2509,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let headers = LhsValue::Map({
@@ -2426,13 +2521,13 @@ mod tests {
         });
         ctx.set_field_value(field("http.headers"), headers).unwrap();
 
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_map_each_on_array_for_cmp() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.cookies[*] == "three""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.cookies[*] == "three""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -2454,7 +2549,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -2467,7 +2562,7 @@ mod tests {
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
 
         assert_eq!(
-            expr.execute_vec(ctx, &Default::default()),
+            expr.execute_vec(ctx, &VARIABLES, &Default::default()),
             vec![false, false, true].into_boxed_slice()
         );
     }
@@ -2475,7 +2570,7 @@ mod tests {
     #[test]
     fn test_map_each_on_map_for_cmp() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.headers[*] == "three""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.headers[*] == "three""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
@@ -2499,7 +2594,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let headers = LhsValue::Map({
@@ -2513,7 +2608,10 @@ mod tests {
 
         let mut true_count = 0;
         let mut false_count = 0;
-        for val in expr.execute_vec(ctx, &Default::default()).iter() {
+        for val in expr
+            .execute_vec(ctx, &VARIABLES, &Default::default())
+            .iter()
+        {
             if *val {
                 true_count += 1;
             } else {
@@ -2527,9 +2625,10 @@ mod tests {
     #[test]
     fn test_map_each_on_array_full() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(
+            ComparisonExpr::lex_with_2(
                 r#"concat(http.cookies[*], "-cf")[*] == "three-cf""#,
-                &SCHEME
+                &SCHEME,
+                &VARIABLES
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2580,7 +2679,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -2593,7 +2692,7 @@ mod tests {
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
 
         assert_eq!(
-            expr.execute_vec(ctx, &Default::default()),
+            expr.execute_vec(ctx, &VARIABLES, &Default::default()),
             vec![false, false, true].into_boxed_slice()
         );
     }
@@ -2601,7 +2700,7 @@ mod tests {
     #[test]
     fn test_map_each_on_array_len_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"len(http.cookies[*])[*] > 3"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"len(http.cookies[*])[*] > 3"#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -2642,7 +2741,7 @@ mod tests {
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         let cookies = LhsValue::Array({
@@ -2655,7 +2754,7 @@ mod tests {
         ctx.set_field_value(field("http.cookies"), cookies).unwrap();
 
         assert_eq!(
-            expr.execute_vec(ctx, &Default::default()),
+            expr.execute_vec(ctx, &VARIABLES, &Default::default()),
             vec![false, false, true].into_boxed_slice()
         );
     }
@@ -2663,7 +2762,7 @@ mod tests {
     #[test]
     fn test_map_each_error() {
         assert_err!(
-            ComparisonExpr::lex_with(r#"http.host[*] == "three""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.host[*] == "three""#, &SCHEME, &VARIABLES),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes,
@@ -2672,7 +2771,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with(r#"ip.addr[*] == 127.0.0.1"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"ip.addr[*] == 127.0.0.1"#, &SCHEME, &VARIABLES),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Ip,
@@ -2681,7 +2780,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with(r#"ssl[*]"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"ssl[*]"#, &SCHEME, &VARIABLES),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bool,
@@ -2690,7 +2789,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with(r#"tcp.port[*] == 80"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"tcp.port[*] == 80"#, &SCHEME, &VARIABLES),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Int,
@@ -2701,15 +2800,20 @@ mod tests {
 
     #[test]
     fn test_number_in_list() {
-        let var = SCHEME.get_variable_ref("int_list").unwrap();
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"tcp.port in $int_list"#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"tcp.port in $int_list"#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::OneOfVariable { var, variant: 0 }
+                op: ComparisonOpExpr::OneOfVariable {
+                    var: Variable {
+                        name: "int_list".into(),
+                        ty: Some(VariableType::IntList),
+                    },
+                    variant: 0
+                }
             }
         );
 
@@ -2717,25 +2821,28 @@ mod tests {
             expr,
             {
                 "lhs": "tcp.port",
-                "var": "int_list",
+                "var": {
+                    "name": "int_list",
+                    "ty": "IntList"
+                },
                 "variant": 0
             }
         );
 
-        let expr = expr.compile();
+        let expr = expr.compile(&VARIABLES);
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
         ctx.set_field_value(field("tcp.port"), 1000).unwrap();
-        assert!(expr.execute_one(ctx, &Default::default()));
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("tcp.port"), 1001).unwrap();
-        assert!(!expr.execute_one(ctx, &Default::default()));
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]
     fn test_map_each_nested() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.parts[*][*] == "[5][5]""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.parts[*][*] == "[5][5]""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),
@@ -2759,10 +2866,10 @@ mod tests {
             }
         );
 
-        let expr1 = expr.compile();
+        let expr1 = expr.compile(&VARIABLES);
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.parts[5][*] == "[5][5]""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.parts[5][*] == "[5][5]""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),
@@ -2786,10 +2893,10 @@ mod tests {
             }
         );
 
-        let expr2 = expr.compile();
+        let expr2 = expr.compile(&VARIABLES);
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with(r#"http.parts[*][5] == "[5][5]""#, &SCHEME),
+            ComparisonExpr::lex_with_2(r#"http.parts[*][5] == "[5][5]""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),
@@ -2813,7 +2920,7 @@ mod tests {
             }
         );
 
-        let expr3 = expr.compile();
+        let expr3 = expr.compile(&VARIABLES);
 
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
@@ -2834,7 +2941,10 @@ mod tests {
 
         let mut true_count = 0;
         let mut false_count = 0;
-        for val in expr1.execute_vec(ctx, &Default::default()).iter() {
+        for val in expr1
+            .execute_vec(ctx, &VARIABLES, &Default::default())
+            .iter()
+        {
             if *val {
                 true_count += 1;
             } else {
@@ -2846,7 +2956,10 @@ mod tests {
 
         let mut true_count = 0;
         let mut false_count = 0;
-        for val in expr2.execute_vec(ctx, &Default::default()).iter() {
+        for val in expr2
+            .execute_vec(ctx, &VARIABLES, &Default::default())
+            .iter()
+        {
             if *val {
                 true_count += 1;
             } else {
@@ -2858,7 +2971,10 @@ mod tests {
 
         let mut true_count = 0;
         let mut false_count = 0;
-        for val in expr3.execute_vec(ctx, &Default::default()).iter() {
+        for val in expr3
+            .execute_vec(ctx, &VARIABLES, &Default::default())
+            .iter()
+        {
             if *val {
                 true_count += 1;
             } else {

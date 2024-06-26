@@ -17,7 +17,7 @@ pub use self::{
     ip::{ExplicitIpRange, IpRange},
     map::UninhabitedMap,
     regex::{Error as RegexError, Regex, UninhabitedRegex},
-    variable::VariableName,
+    variable::Variable,
 };
 pub use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
 pub use ordered_float::OrderedFloat;

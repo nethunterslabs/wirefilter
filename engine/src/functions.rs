@@ -343,6 +343,9 @@ pub trait FunctionDefinition: Debug + Send + Sync {
     /// (N, Some(0)) means N mandatory arguments and no optional arguments
     /// (N, None) means N mandatory arguments and unlimited optional arguments
     fn arg_count(&self) -> (usize, Option<usize>);
+    /// Get the type of an argument at an index
+    /// whether it is a mandatory or optional argument
+    fn arg_type(&self, index: usize) -> Option<Type>;
     /// Compile the function definition down to a closure that is going to be
     /// called during filter execution.
     fn compile<'s>(
@@ -494,6 +497,24 @@ impl FunctionDefinition for SimpleFunctionDefinition {
             (self.params.len(), Some(opt_params.len()))
         } else {
             (self.params.len(), None)
+        }
+    }
+
+    fn arg_type(&self, index: usize) -> Option<Type> {
+        if index < self.params.len() {
+            Some(self.params[index].val_type.clone())
+        } else if let Some(opt_params) = &self.opt_params {
+            if index < self.params.len() + opt_params.len() {
+                Some(
+                    opt_params[index - self.params.len()]
+                        .default_value
+                        .get_type(),
+                )
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 

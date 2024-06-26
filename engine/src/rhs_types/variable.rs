@@ -1,29 +1,71 @@
-use crate::lex::{expect, Lex, LexErrorKind, LexResult};
+use crate::{
+    lex::{expect, Lex, LexErrorKind, LexResult},
+    types::{Type, VariableType},
+};
 use serde::Serialize;
 use std::str;
 
+/// Represents a variable in the filter expression.
 #[derive(PartialEq, Eq, Clone, Serialize, Hash, Debug)]
-pub struct VariableName(pub(crate) Box<str>);
+pub struct Variable {
+    pub(crate) name: Box<str>,
+    pub(crate) ty: Option<VariableType>,
+}
 
-impl VariableName {
-    pub fn take_inner(self) -> Box<str> {
-        self.0
+impl Variable {
+    /// Creates a new variable with the given name.
+    pub fn new(name: String) -> Self {
+        Self {
+            name: name.into_boxed_str(),
+            ty: None,
+        }
+    }
+
+    /// Creates a new variable with the given name and type.
+    pub fn new_with_type(name: String, ty: VariableType) -> Self {
+        Self {
+            name: name.into_boxed_str(),
+            ty: Some(ty),
+        }
+    }
+
+    /// Takes the inner string of the variable.
+    pub fn take_name(self) -> Box<str> {
+        self.name
+    }
+
+    /// Returns the name of the variable.
+    pub fn name_as_str(&self) -> &str {
+        &self.name
+    }
+
+    /// Sets the type of the variable.
+    pub fn set_type(&mut self, ty: VariableType) {
+        self.ty = Some(ty);
+    }
+
+    /// Returns the type of the variable.
+    pub fn get_variable_type(&self) -> Option<VariableType> {
+        self.ty
+    }
+
+    /// Returns the type of the variable.
+    pub fn get_type(&self) -> Option<Type> {
+        if let Some(ty) = self.ty {
+            ty.get_type()
+        } else {
+            None
+        }
     }
 }
 
-impl From<VariableName> for String {
-    fn from(src: VariableName) -> Self {
-        src.0.into()
+impl From<Variable> for String {
+    fn from(src: Variable) -> Self {
+        src.name.into()
     }
 }
 
-impl From<String> for VariableName {
-    fn from(src: String) -> Self {
-        VariableName(src.into_boxed_str())
-    }
-}
-
-impl<'i> Lex<'i> for VariableName {
+impl<'i> Lex<'i> for Variable {
     fn lex(input: &str) -> LexResult<'_, Self> {
         let mut res = String::new();
         let mut rest;
@@ -73,13 +115,7 @@ impl<'i> Lex<'i> for VariableName {
                 }
             }
         }
-        Ok((res.into(), rest))
-    }
-}
-
-impl VariableName {
-    pub fn as_str(&self) -> &str {
-        &self.0
+        Ok((Variable::new(res), rest))
     }
 }
 
@@ -90,26 +126,26 @@ mod test {
     #[test]
     fn valid() {
         assert_ok!(
-            VariableName::lex("$hello;"),
-            VariableName::from("hello".to_string()),
+            Variable::lex("$hello;"),
+            Variable::new("hello".to_string()),
             ";"
         );
 
         assert_ok!(
-            VariableName::lex("$hello_world;"),
-            VariableName::from("hello_world".to_string()),
+            Variable::lex("$hello_world;"),
+            Variable::new("hello_world".to_string()),
             ";"
         );
 
         assert_ok!(
-            VariableName::lex("$hello1234567890;"),
-            VariableName::from("hello1234567890".to_string()),
+            Variable::lex("$hello1234567890;"),
+            Variable::new("hello1234567890".to_string()),
             ";"
         );
 
         assert_ok!(
-            VariableName::lex("$hello"),
-            VariableName::from("hello".to_string()),
+            Variable::lex("$hello"),
+            Variable::new("hello".to_string()),
             ""
         );
     }
@@ -117,7 +153,7 @@ mod test {
     #[test]
     fn invalid_leading_char() {
         assert_err!(
-            VariableName::lex("$1abc"),
+            Variable::lex("$1abc"),
             LexErrorKind::InvalidVariableName {
                 name: "1".to_string(),
             },
@@ -128,7 +164,7 @@ mod test {
     #[test]
     fn invalid_char() {
         assert_err!(
-            VariableName::lex("$;"),
+            Variable::lex("$;"),
             LexErrorKind::InvalidVariableName {
                 name: ";".to_string(),
             },
@@ -139,7 +175,7 @@ mod test {
     #[test]
     fn eof_after_dollar() {
         assert_err!(
-            VariableName::lex("$"),
+            Variable::lex("$"),
             LexErrorKind::InvalidVariableName {
                 name: "".to_string(),
             },
@@ -150,7 +186,7 @@ mod test {
     #[test]
     fn no_dollar() {
         assert_err!(
-            VariableName::lex("abc"),
+            Variable::lex("abc"),
             LexErrorKind::ExpectedLiteral("$"),
             "abc"
         );

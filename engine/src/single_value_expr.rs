@@ -8,7 +8,7 @@
 use thiserror::Error;
 
 use crate::{
-    execution_context::{ExecutionContext, State},
+    execution_context::{ExecutionContext, State, Variables},
     filter::CompiledValueExpr,
     scheme::Scheme,
     types::{LhsValue, Type},
@@ -45,11 +45,12 @@ impl<'s, U> SingleValueExpr<'s, U> {
     pub fn execute<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,
+        variables: &Variables,
         state: &State<'e>,
     ) -> Result<LhsValue<'e>, SingleValueExprError> {
         if ctx.scheme() == self.scheme {
             self.root_expr
-                .execute(ctx, state)
+                .execute(ctx, variables, state)
                 .map_err(SingleValueExprError::TypeMismatch)
         } else {
             Err(SingleValueExprError::SchemeMismatch)
@@ -134,6 +135,8 @@ mod tests {
             )
             .unwrap();
 
+        let variables = Default::default();
+
         let mut ctx = ExecutionContext::new(&scheme);
         ctx.set_field_value(
             scheme.get_field("foo").unwrap(),
@@ -142,27 +145,43 @@ mod tests {
         .unwrap();
 
         // Test simple field access
-        let value_expr = scheme.parse_single_value_expr("foo").unwrap();
-        let result = value_expr.compile().execute(&ctx, &Default::default());
+        let value_expr = scheme
+            .parse_single_value_expr("foo", &Default::default())
+            .unwrap();
+        let result =
+            value_expr
+                .compile(&variables)
+                .execute(&ctx, &Default::default(), &Default::default());
         assert_eq!(result, Ok(LhsValue::Bytes(b"HELLO".into())));
 
         // Test function call
-        let value_expr = scheme.parse_single_value_expr("lower(foo)").unwrap();
-        let result = value_expr.compile().execute(&ctx, &Default::default());
+        let value_expr = scheme
+            .parse_single_value_expr("lower(foo)", &Default::default())
+            .unwrap();
+        let result =
+            value_expr
+                .compile(&variables)
+                .execute(&ctx, &Default::default(), &Default::default());
         assert_eq!(result, Ok(LhsValue::Bytes(b"hello".into())));
 
         // Test function call with comparison expression as an argument
         let value_expr = scheme
-            .parse_single_value_expr(r#"is_true(foo == "HELLO")"#)
+            .parse_single_value_expr(r#"is_true(foo == "HELLO")"#, &Default::default())
             .unwrap();
-        let result = value_expr.compile().execute(&ctx, &Default::default());
+        let result =
+            value_expr
+                .compile(&variables)
+                .execute(&ctx, &Default::default(), &Default::default());
         assert_eq!(result, Ok(LhsValue::Bool(true)));
 
         // Test function call with function call in a comparison expression as an argument
         let value_expr = scheme
-            .parse_single_value_expr(r#"is_true(lower(foo) == "hello")"#)
+            .parse_single_value_expr(r#"is_true(lower(foo) == "hello")"#, &Default::default())
             .unwrap();
-        let result = value_expr.compile().execute(&ctx, &Default::default());
+        let result =
+            value_expr
+                .compile(&variables)
+                .execute(&ctx, &Default::default(), &Default::default());
         assert_eq!(result, Ok(LhsValue::Bool(true)));
     }
 }

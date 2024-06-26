@@ -1,6 +1,6 @@
 use crate::{
     ComparisonExpr, CompiledExpr, CompiledValueExpr, Expr, FunctionCallArgExpr, FunctionCallExpr,
-    IndexExpr, LogicalExpr, SimpleExpr, ValueExpr,
+    IndexExpr, LogicalExpr, SimpleExpr, ValueExpr, Variables,
 };
 
 /// Trait used to drive the compilation of a [`FilterAst`] into a [`Filter`].
@@ -63,17 +63,31 @@ pub trait Compiler<'s, U: 's = ()>: Sized + 's {
     fn compile_index_expr(&mut self, node: IndexExpr<'s>) -> CompiledValueExpr<'s, U> {
         self.compile_value_expr(node)
     }
+
+    /// Gets the variables.
+    fn variables(&self) -> &'s Variables;
 }
 
 /// Default compiler
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultCompiler {}
+#[derive(Clone, Copy, Debug)]
+pub struct DefaultCompiler<'s> {
+    variables: &'s Variables,
+}
 
-impl DefaultCompiler {
+impl<'s> DefaultCompiler<'s> {
     /// Creates a new [`DefaultCompiler`].
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(variables: &'s Variables) -> Self {
+        Self { variables }
+    }
+
+    /// Gets the variables.
+    pub fn variables(&self) -> &'s Variables {
+        self.variables
     }
 }
 
-impl<'s, U: 's> Compiler<'s, U> for DefaultCompiler {}
+impl<'s, U: 's> Compiler<'s, U> for DefaultCompiler<'s> {
+    fn variables(&self) -> &'s Variables {
+        self.variables
+    }
+}

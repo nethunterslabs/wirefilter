@@ -88,8 +88,9 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
                             .add_function((*name).into(), function.clone())
                             .unwrap();
                     }
+                    let variables = Default::default();
                     move |b: &mut Bencher| {
-                        b.iter(|| scheme.parse(filter).unwrap());
+                        b.iter(|| scheme.parse(filter, &variables).unwrap());
                     }
                 }),
             );
@@ -104,10 +105,16 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
                             .add_function((*name).into(), function.clone())
                             .unwrap();
                     }
+                    let variables = Default::default();
                     move |b: &mut Bencher| {
-                        let filter = scheme.parse(filter).unwrap();
+                        let filter = scheme.parse(filter, &variables).unwrap();
 
-                        b.iter_with_setup(move || filter.clone(), FilterAst::compile);
+                        b.iter_with_setup(
+                            move || filter.clone(),
+                            |filter| {
+                                filter.compile(&variables);
+                            },
+                        );
                     }
                 }),
             );
@@ -125,9 +132,10 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
                                 .unwrap();
                         }
                         move |b: &mut Bencher, value: &T| {
-                            let filter = scheme.parse(filter).unwrap();
+                            let variables = Default::default();
+                            let filter = scheme.parse(filter, &variables).unwrap();
 
-                            let filter = filter.compile();
+                            let filter = filter.compile(&variables);
 
                             let mut exec_ctx = ExecutionContext::new(&scheme);
                             exec_ctx
@@ -135,7 +143,7 @@ impl<'a, T: 'static + Copy + Debug + Into<LhsValue<'static>>> FieldBench<'a, T> 
                                 .unwrap();
                             let state = Default::default();
 
-                            b.iter(|| filter.execute(&exec_ctx, &state));
+                            b.iter(|| filter.execute(&exec_ctx, &variables, &state));
                         }
                     },
                     values.iter().cloned(),

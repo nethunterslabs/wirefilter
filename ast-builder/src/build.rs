@@ -7,10 +7,12 @@ use wirefilter::{
     ByteSeparator, Bytes, ComparisonExpr, ComparisonOpExpr, ExplicitIpRange, FieldIndex, FilterAst,
     FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, IndexExpr, IntOp, IntRange,
     IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue,
-    RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type, UnaryOp, VariableRef,
+    RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type, UnaryOp,
+    UnknownVariableError, Variable, Variables,
 };
 
 use crate::ast::*;
+use crate::BuilderError;
 use crate::Result;
 
 impl FilterAstBuilder {
@@ -20,10 +22,10 @@ impl FilterAstBuilder {
     }
 
     /// Builds a `FilterAst` from the `FilterAstBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<FilterAst<'_>> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<FilterAst<'s>> {
         Ok(FilterAst {
             scheme,
-            op: self.op.build(scheme)?,
+            op: self.op.build(scheme, variables)?,
         })
     }
 }
@@ -35,20 +37,26 @@ impl SingleValueExprAstBuilder {
     }
 
     /// Builds a `SingleValueExprAst` from the `SingleValueExprAstBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<SingleValueExprAst<'_>> {
+    pub fn build<'s>(
+        self,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> Result<SingleValueExprAst<'s>> {
         Ok(SingleValueExprAst {
             scheme,
-            op: self.op.build(scheme)?,
+            op: self.op.build(scheme, variables)?,
         })
     }
 }
 
 impl LogicalExprBuilder {
     /// Builds a `LogicalExprAst` from the `LogicalExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<LogicalExpr<'_>> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LogicalExpr<'s>> {
         match self {
-            LogicalExprBuilder::Simple(builder) => Ok(LogicalExpr::Simple(builder.build(scheme)?)),
-            LogicalExprBuilder::Combining(builder) => builder.build(scheme),
+            LogicalExprBuilder::Simple(builder) => {
+                Ok(LogicalExpr::Simple(builder.build(scheme, variables)?))
+            }
+            LogicalExprBuilder::Combining(builder) => builder.build(scheme, variables),
         }
     }
 }
@@ -60,13 +68,13 @@ impl CombiningExprBuilder {
     }
 
     /// Builds a `CombiningExpr` from the `CombiningExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<LogicalExpr<'_>> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LogicalExpr<'s>> {
         Ok(LogicalExpr::Combining {
             op: self.op.build(),
             items: self
                 .items
                 .into_iter()
-                .map(|i| i.build(scheme))
+                .map(|i| i.build(scheme, variables))
                 .collect::<Result<Vec<_>>>()?,
         })
     }
@@ -85,15 +93,15 @@ impl LogicalOpBuilder {
 
 impl SimpleExprBuilder {
     /// Builds a `SimpleExprAst` from the `SimpleExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<SimpleExpr> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<SimpleExpr<'s>> {
         match self {
             SimpleExprBuilder::Comparison(builder) => {
-                Ok(SimpleExpr::Comparison(builder.build(scheme)?))
+                Ok(SimpleExpr::Comparison(builder.build(scheme, variables)?))
             }
-            SimpleExprBuilder::Parenthesized(builder) => {
-                Ok(SimpleExpr::Parenthesized(Box::new(builder.build(scheme)?)))
-            }
-            SimpleExprBuilder::Unary(builder) => builder.build(scheme),
+            SimpleExprBuilder::Parenthesized(builder) => Ok(SimpleExpr::Parenthesized(Box::new(
+                builder.build(scheme, variables)?,
+            ))),
+            SimpleExprBuilder::Unary(builder) => builder.build(scheme, variables),
         }
     }
 }
@@ -108,10 +116,10 @@ impl UnaryExprBuilder {
     }
 
     /// Builds a `UnaryExpr` from the `UnaryExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<SimpleExpr> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<SimpleExpr<'s>> {
         Ok(SimpleExpr::Unary {
             op: self.op.build(),
-            arg: Box::new(self.arg.build(scheme)?),
+            arg: Box::new(self.arg.build(scheme, variables)?),
         })
     }
 }
@@ -132,10 +140,14 @@ impl ComparisonExprBuilder {
     }
 
     /// Builds a `ComparisonExpr` from the `ComparisonExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<ComparisonExpr> {
+    pub fn build<'s>(
+        self,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> Result<ComparisonExpr<'s>> {
         Ok(ComparisonExpr {
-            lhs: self.lhs.build(scheme)?,
-            op: self.op.build(scheme)?,
+            lhs: self.lhs.build(scheme, variables)?,
+            op: self.op.build(variables)?,
         })
     }
 }
@@ -279,7 +291,7 @@ impl IpCidrBuilder {
 
 impl ComparisonOpExprBuilder {
     /// Builds a `ComparisonOpExpr` from the `ComparisonOpExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<ComparisonOpExpr<'_>> {
+    pub fn build(self, variables: &Variables) -> Result<ComparisonOpExpr> {
         Ok(match self {
             ComparisonOpExprBuilder::IsTrue => ComparisonOpExpr::IsTrue,
             ComparisonOpExprBuilder::Ordering { op, rhs } => ComparisonOpExpr::Ordering {
@@ -289,7 +301,7 @@ impl ComparisonOpExprBuilder {
             ComparisonOpExprBuilder::OrderingVariable { op, var } => {
                 ComparisonOpExpr::OrderingVariable {
                     op: op.build(),
-                    var: var.build(scheme)?,
+                    var: var.build(variables)?,
                 }
             }
             ComparisonOpExprBuilder::Int { op, rhs } => ComparisonOpExpr::Int {
@@ -298,7 +310,7 @@ impl ComparisonOpExprBuilder {
             },
             ComparisonOpExprBuilder::IntVariable { op, var } => ComparisonOpExpr::IntVariable {
                 op: op.build(),
-                var: var.build(scheme)?,
+                var: var.build(variables)?,
             },
             ComparisonOpExprBuilder::Contains { rhs } => ComparisonOpExpr::Contains {
                 rhs: rhs.build(),
@@ -306,7 +318,7 @@ impl ComparisonOpExprBuilder {
             },
             ComparisonOpExprBuilder::ContainsVariable { var } => {
                 ComparisonOpExpr::ContainsVariable {
-                    var: var.build(scheme)?,
+                    var: var.build(variables)?,
                     variant: 0,
                 }
             }
@@ -315,7 +327,7 @@ impl ComparisonOpExprBuilder {
                 variant: 0,
             },
             ComparisonOpExprBuilder::MatchesVariable { var } => ComparisonOpExpr::MatchesVariable {
-                var: var.build(scheme)?,
+                var: var.build(variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::OneOf { rhs } => ComparisonOpExpr::OneOf {
@@ -323,7 +335,7 @@ impl ComparisonOpExprBuilder {
                 variant: 0,
             },
             ComparisonOpExprBuilder::OneOfVariable { var } => ComparisonOpExpr::OneOfVariable {
-                var: var.build(scheme)?,
+                var: var.build(variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAny { rhs } => ComparisonOpExpr::HasAny {
@@ -331,7 +343,7 @@ impl ComparisonOpExprBuilder {
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAnyVariable { var } => ComparisonOpExpr::HasAnyVariable {
-                var: var.build(scheme)?,
+                var: var.build(variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAll { rhs } => ComparisonOpExpr::HasAll {
@@ -339,7 +351,7 @@ impl ComparisonOpExprBuilder {
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAllVariable { var } => ComparisonOpExpr::HasAllVariable {
-                var: var.build(scheme)?,
+                var: var.build(variables)?,
                 variant: 0,
             },
         })
@@ -367,9 +379,9 @@ impl IndexExprBuilder {
     }
 
     /// Builds a `IndexExpr` from the `IndexExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<IndexExpr<'_>> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<IndexExpr<'s>> {
         Ok(IndexExpr {
-            lhs: self.lhs.build(scheme)?,
+            lhs: self.lhs.build(scheme, variables)?,
             indexes: self
                 .indexes
                 .into_iter()
@@ -392,12 +404,12 @@ impl FieldIndexBuilder {
 
 impl LhsFieldExprBuilder {
     /// Builds a `LhsFieldExpr` from the `LhsFieldExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<LhsFieldExpr<'_>> {
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LhsFieldExpr<'s>> {
         match self {
             LhsFieldExprBuilder::Field(builder) => Ok(LhsFieldExpr::Field(builder.build(scheme)?)),
-            LhsFieldExprBuilder::FunctionCallExpr(builder) => {
-                Ok(LhsFieldExpr::FunctionCallExpr(builder.build(scheme)?))
-            }
+            LhsFieldExprBuilder::FunctionCallExpr(builder) => Ok(LhsFieldExpr::FunctionCallExpr(
+                builder.build(scheme, variables)?,
+            )),
         }
     }
 }
@@ -417,14 +429,18 @@ impl FunctionCallExprBuilder {
     }
 
     /// Builds a `FunctionCallExpr` from the `FunctionCallExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<FunctionCallExpr<'_>> {
+    pub fn build<'s>(
+        self,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> Result<FunctionCallExpr<'s>> {
         Ok(FunctionCallExpr {
             function: self.function.build(scheme)?,
             return_type: self.return_type.build(),
             args: self
                 .args
                 .into_iter()
-                .map(|a| a.build(scheme))
+                .map(|a| a.build(scheme, variables))
                 .collect::<Result<Vec<_>>>()?,
             context: None,
         })
@@ -448,19 +464,23 @@ impl TypeBuilder {
 
 impl FunctionCallArgExprBuilder {
     /// Builds a `FunctionCallArgExpr` from the `FunctionCallArgExprBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<FunctionCallArgExpr<'_>> {
+    pub fn build<'s>(
+        self,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> Result<FunctionCallArgExpr<'s>> {
         Ok(match self {
             FunctionCallArgExprBuilder::IndexExpr(builder) => {
-                FunctionCallArgExpr::IndexExpr(builder.build(scheme)?)
+                FunctionCallArgExpr::IndexExpr(builder.build(scheme, variables)?)
             }
             FunctionCallArgExprBuilder::Literal(value) => {
                 FunctionCallArgExpr::Literal(value.build())
             }
             FunctionCallArgExprBuilder::SimpleExpr(builder) => {
-                FunctionCallArgExpr::SimpleExpr(builder.build(scheme)?)
+                FunctionCallArgExpr::SimpleExpr(builder.build(scheme, variables)?)
             }
             FunctionCallArgExprBuilder::Variable(builder) => {
-                FunctionCallArgExpr::Variable(builder.build(scheme)?)
+                FunctionCallArgExpr::Variable(builder.build(variables)?)
             }
         })
     }
@@ -484,9 +504,16 @@ impl VariableBuilder {
         Self { name }
     }
 
-    /// Builds a `Function` from the `VariableBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<VariableRef<'_>> {
-        Ok(scheme.get_variable_ref(&self.name)?)
+    /// Builds a `Variable` from the `VariableBuilder`.
+    pub fn build(self, variables: &Variables) -> Result<Variable> {
+        if let Some(variable_value) = variables.get(&self.name) {
+            Ok(Variable::new_with_type(
+                self.name,
+                variable_value.get_variable_type(),
+            ))
+        } else {
+            Err(BuilderError::VariableNotFound(UnknownVariableError))
+        }
     }
 }
 

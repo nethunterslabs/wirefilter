@@ -3,7 +3,7 @@ use crate::{
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
     ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr, FunctionCallExpr,
     IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues, SimpleExpr,
-    SingleValueExprAst,
+    SingleValueExprAst, Variables,
 };
 use thiserror::Error;
 
@@ -218,7 +218,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             ComparisonOpExpr::OrderingVariable { op, var } => {
                 op.fmt(0, output);
                 output.push('$');
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::Int { op, rhs } => {
@@ -228,7 +228,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
             ComparisonOpExpr::IntVariable { op, var } => {
                 op.fmt(0, output);
                 output.push('$');
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::Contains {
@@ -246,7 +246,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     0 => output.push_str(" contains $"),
                     _ => output.push_str(" CONTAINS $"),
                 }
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::Matches {
@@ -281,7 +281,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     1 => output.push_str(" matches $"),
                     _ => output.push_str(" MATCHES $"),
                 }
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::OneOf {
@@ -299,7 +299,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     0 => output.push_str(" in $"),
                     _ => output.push_str(" IN $"),
                 }
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::HasAny {
@@ -317,7 +317,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     0 => output.push_str(" has_any $"),
                     _ => output.push_str(" HAS_ANY $"),
                 }
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::HasAll {
@@ -335,7 +335,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     0 => output.push_str(" has_all $"),
                     _ => output.push_str(" HAS_ALL $"),
                 }
-                output.push_str(var.name());
+                output.push_str(var.name_as_str());
             }
         }
     }
@@ -434,7 +434,7 @@ impl<'s> Fmt for FunctionCallArgExpr<'s> {
             FunctionCallArgExpr::SimpleExpr(simple_expr) => simple_expr.fmt(indent, output),
             FunctionCallArgExpr::Variable(variable) => {
                 output.push('$');
-                output.push_str(variable.name())
+                output.push_str(variable.name_as_str())
             }
         }
     }
@@ -561,18 +561,22 @@ fn escape(string: &str, hex_and_oct: bool) -> String {
 
 impl<'s> SingleValueExprAst<'s> {
     /// Format a [`SingleValueExprAst`] in an opinionated way.
-    pub fn fmt(&self) -> Result<String, FormatError> {
-        self.fmt_with_indent(0)
+    pub fn fmt(&self, variables: &Variables) -> Result<String, FormatError> {
+        self.fmt_with_indent(0, variables)
     }
 
     /// Format a [`SingleValueExprAst`] in an opinionated way with an indent.
-    pub fn fmt_with_indent(&self, indent: usize) -> Result<String, FormatError> {
+    pub fn fmt_with_indent(
+        &self,
+        indent: usize,
+        variables: &Variables,
+    ) -> Result<String, FormatError> {
         let mut formatted = String::new();
         self.op.fmt(indent, &mut formatted);
 
         let formatted_ast = self
             .scheme
-            .parse_single_value_expr(&formatted)
+            .parse_single_value_expr(&formatted, variables)
             .map_err(|e| FormatError::ParseError(e.to_string()))?;
         if self == &formatted_ast {
             Ok(formatted.trim().to_owned())
@@ -584,18 +588,22 @@ impl<'s> SingleValueExprAst<'s> {
 
 impl<'s> FilterAst<'s> {
     /// Format a [`FilterAst`] in an opinionated way.
-    pub fn fmt(&self) -> Result<String, FormatError> {
-        self.fmt_with_indent(0)
+    pub fn fmt(&self, variables: &Variables) -> Result<String, FormatError> {
+        self.fmt_with_indent(0, variables)
     }
 
     /// Format a [`FilterAst`] in an opinionated way with an indent.
-    pub fn fmt_with_indent(&self, indent: usize) -> Result<String, FormatError> {
+    pub fn fmt_with_indent(
+        &self,
+        indent: usize,
+        variables: &Variables,
+    ) -> Result<String, FormatError> {
         let mut formatted = String::new();
         self.op.fmt(indent, &mut formatted);
 
         let formatted_ast = self
             .scheme
-            .parse(&formatted)
+            .parse(&formatted, variables)
             .map_err(|e| FormatError::ParseError(e.to_string()))?;
         if self == &formatted_ast {
             Ok(formatted.trim().to_owned())
@@ -613,7 +621,7 @@ mod tests {
     use crate::{
         Array, ExecutionContext, FunctionArgKind, FunctionArgs, GetType, LhsValue, Map, Scheme,
         SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam,
-        State, Type,
+        State, Type, Variables,
     };
     use lazy_static::lazy_static;
     use ordered_float::OrderedFloat;
@@ -672,225 +680,211 @@ mod tests {
         }
     }
 
-    fn scheme() -> Scheme {
-        let mut scheme = Scheme! {
-            http.request.headers: Map(Array(Bytes)),
-            http.host: Bytes,
-            http.user_agent: Bytes,
-            http.request.headers.names: Array(Bytes),
-            http.request.headers.values: Array(Bytes),
-            http.request.headers.is_empty: Array(Bool),
-            http.version: Float,
-            ip.addr: Ip,
-            ssl: Bool,
-            tcp.port: Int,
-            tcp.dport: Int,
-        };
-        scheme
-            .add_function(
-                "any".into(),
-                SimpleFunctionDefinition {
-                    params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Complex,
-                        val_type: Type::Array(Box::new(Type::Bool)),
-                    }],
-                    opt_params: Some(vec![]),
-                    return_type: Type::Bool,
-                    implementation: SimpleFunctionImpl::new(any_function),
-                },
-            )
-            .unwrap();
-        scheme
-            .add_function(
-                "echo".into(),
-                SimpleFunctionDefinition {
-                    params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Complex,
-                        val_type: Type::Bytes,
-                    }],
-                    opt_params: Some(vec![
-                        SimpleFunctionOptParam {
+    lazy_static! {
+        static ref SCHEME: Scheme = {
+            let mut scheme = Scheme! {
+                http.request.headers: Map(Array(Bytes)),
+                http.host: Bytes,
+                http.user_agent: Bytes,
+                http.request.headers.names: Array(Bytes),
+                http.request.headers.values: Array(Bytes),
+                http.request.headers.is_empty: Array(Bool),
+                http.version: Float,
+                ip.addr: Ip,
+                ssl: Bool,
+                tcp.port: Int,
+                tcp.dport: Int,
+            };
+            scheme
+                .add_function(
+                    "any".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
+                            arg_kind: FunctionArgKind::Complex,
+                            val_type: Type::Array(Box::new(Type::Bool)),
+                        }],
+                        opt_params: Some(vec![]),
+                        return_type: Type::Bool,
+                        implementation: SimpleFunctionImpl::new(any_function),
+                    },
+                )
+                .unwrap();
+            scheme
+                .add_function(
+                    "echo".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
+                            arg_kind: FunctionArgKind::Complex,
+                            val_type: Type::Bytes,
+                        }],
+                        opt_params: Some(vec![
+                            SimpleFunctionOptParam {
+                                arg_kind: FunctionArgKind::Any,
+                                default_value: LhsValue::Int(10),
+                            },
+                            SimpleFunctionOptParam {
+                                arg_kind: FunctionArgKind::Literal,
+                                default_value: LhsValue::Int(1),
+                            },
+                            SimpleFunctionOptParam {
+                                arg_kind: FunctionArgKind::Literal,
+                                default_value: LhsValue::Bytes(b"test".into()),
+                            },
+                        ]),
+                        return_type: Type::Bytes,
+                        implementation: SimpleFunctionImpl::new(echo_function),
+                    },
+                )
+                .unwrap();
+            scheme
+                .add_function(
+                    "lower".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
+                            arg_kind: FunctionArgKind::Complex,
+                            val_type: Type::Bytes,
+                        }],
+                        opt_params: Some(vec![]),
+                        return_type: Type::Bytes,
+                        implementation: SimpleFunctionImpl::new(lower_function),
+                    },
+                )
+                .unwrap();
+            scheme
+                .add_function(
+                    "upper".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
                             arg_kind: FunctionArgKind::Any,
-                            default_value: LhsValue::Int(10),
-                        },
-                        SimpleFunctionOptParam {
-                            arg_kind: FunctionArgKind::Literal,
-                            default_value: LhsValue::Int(1),
-                        },
-                        SimpleFunctionOptParam {
-                            arg_kind: FunctionArgKind::Literal,
-                            default_value: LhsValue::Bytes(b"test".into()),
-                        },
-                    ]),
-                    return_type: Type::Bytes,
-                    implementation: SimpleFunctionImpl::new(echo_function),
-                },
-            )
-            .unwrap();
-        scheme
-            .add_function(
-                "lower".into(),
-                SimpleFunctionDefinition {
-                    params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Complex,
-                        val_type: Type::Bytes,
-                    }],
-                    opt_params: Some(vec![]),
-                    return_type: Type::Bytes,
-                    implementation: SimpleFunctionImpl::new(lower_function),
-                },
-            )
-            .unwrap();
-        scheme
-            .add_function(
-                "upper".into(),
-                SimpleFunctionDefinition {
-                    params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Any,
-                        val_type: Type::Bytes,
-                    }],
-                    opt_params: Some(vec![]),
-                    return_type: Type::Bytes,
-                    implementation: SimpleFunctionImpl::new(upper_function),
-                },
-            )
-            .unwrap();
-        scheme
-            .add_function(
-                "len".into(),
-                SimpleFunctionDefinition {
-                    params: vec![SimpleFunctionParam {
-                        arg_kind: FunctionArgKind::Complex,
-                        val_type: Type::Bytes,
-                    }],
-                    opt_params: Some(vec![]),
-                    return_type: Type::Int,
-                    implementation: SimpleFunctionImpl::new(len_function),
-                },
-            )
-            .unwrap();
-        scheme
-            .add_variable(
+                            val_type: Type::Bytes,
+                        }],
+                        opt_params: Some(vec![]),
+                        return_type: Type::Bytes,
+                        implementation: SimpleFunctionImpl::new(upper_function),
+                    },
+                )
+                .unwrap();
+            scheme
+                .add_function(
+                    "len".into(),
+                    SimpleFunctionDefinition {
+                        params: vec![SimpleFunctionParam {
+                            arg_kind: FunctionArgKind::Complex,
+                            val_type: Type::Bytes,
+                        }],
+                        opt_params: Some(vec![]),
+                        return_type: Type::Int,
+                        implementation: SimpleFunctionImpl::new(len_function),
+                    },
+                )
+                .unwrap();
+            scheme
+        };
+        static ref EXECUTION_CONTEXT: ExecutionContext<'static> = {
+            {
+                let mut execution_context = ExecutionContext::new(&SCHEME);
+                execution_context
+                    .set_field_value(
+                        SCHEME.get_field("http.host").unwrap(),
+                        LhsValue::Bytes(b"example.com".into()),
+                    )
+                    .unwrap();
+                execution_context
+                    .set_field_value(SCHEME.get_field("tcp.port").unwrap(), LhsValue::Int(80))
+                    .unwrap();
+                execution_context
+                    .set_field_value(SCHEME.get_field("tcp.dport").unwrap(), LhsValue::Int(443))
+                    .unwrap();
+                execution_context
+                    .set_field_value(
+                        SCHEME.get_field("http.version").unwrap(),
+                        LhsValue::Float(OrderedFloat(1.1)),
+                    )
+                    .unwrap();
+                execution_context
+                    .set_field_value(
+                        SCHEME.get_field("ip.addr").unwrap(),
+                        LhsValue::Ip("127.0.0.1".parse::<IpAddr>().unwrap()),
+                    )
+                    .unwrap();
+                execution_context
+                    .set_field_value(SCHEME.get_field("ssl").unwrap(), LhsValue::Bool(true))
+                    .unwrap();
+                execution_context
+                    .set_field_value(
+                        SCHEME.get_field("http.user_agent").unwrap(),
+                        LhsValue::Bytes(b".\"abc\"".into()),
+                    )
+                    .unwrap();
+                execution_context
+                    .set_field_value(
+                        SCHEME.get_field("http.request.headers").unwrap(),
+                        LhsValue::Map({
+                            let mut map = Map::new(Type::Array(Box::new(Type::Bytes)));
+                            map.insert(b"host", {
+                                let mut array = Array::new(Type::Bytes);
+                                array.push(b"example.com".to_vec().into()).unwrap();
+                                array.into()
+                            })
+                            .unwrap();
+                            map.insert(b"user-agent", {
+                                let mut array = Array::new(Type::Bytes);
+                                array.push(b"Mozilla/5.0".to_vec().into()).unwrap();
+                                array.into()
+                            })
+                            .unwrap();
+                            map.insert(b"content-type", {
+                                let mut array = Array::new(Type::Bytes);
+                                array.push(b"application/json".to_vec().into()).unwrap();
+                                array.into()
+                            })
+                            .unwrap();
+                            map
+                        }),
+                    )
+                    .unwrap();
+                execution_context
+            }
+        };
+        static ref VARIABLES: Variables = {
+            let mut variables = Variables::new();
+            variables.add(
                 "in_var".to_string(),
                 vec![b"example.com".to_vec(), b"example.org".to_vec()].into(),
-            )
-            .unwrap();
-        scheme
-            .add_variable(
+            );
+            variables.add(
                 "has_any_var".to_string(),
                 vec![b".com".to_vec(), b".org".to_vec()].into(),
-            )
-            .unwrap();
-        scheme
-            .add_variable(
+            );
+            variables.add(
                 "has_all_var".to_string(),
                 vec![b"exam".to_vec(), b"ple".to_vec()].into(),
-            )
-            .unwrap();
-        scheme
-            .add_variable("bool_var".to_string(), true.into())
-            .unwrap();
-        scheme
-            .add_variable("bytes_var".to_string(), b"example.com".to_vec().into())
-            .unwrap();
-        scheme
-            .add_variable("bytes_var2".to_string(), b"example.org".to_vec().into())
-            .unwrap();
-        scheme
-            .add_variable("int_var".to_string(), 80.into())
-            .unwrap();
-        scheme
-            .add_variable("float_var".to_string(), OrderedFloat(80.0).into())
-            .unwrap();
-        scheme
-            .add_variable(
+            );
+            variables.add("bool_var".to_string(), true.into());
+            variables.add("bytes_var".to_string(), b"example.com".to_vec().into());
+            variables.add("bytes_var2".to_string(), b"example.org".to_vec().into());
+            variables.add("int_var".to_string(), 80.into());
+            variables.add("float_var".to_string(), OrderedFloat(80.0).into());
+            variables.add(
                 "ip_var".to_string(),
                 "127.0.0.1".parse::<IpAddr>().unwrap().into(),
-            )
-            .unwrap();
-        scheme
-    }
-
-    fn execution_context(scheme: &'static Scheme) -> ExecutionContext<'static> {
-        let mut execution_context = ExecutionContext::new(scheme);
-        execution_context
-            .set_field_value(
-                scheme.get_field("http.host").unwrap(),
-                LhsValue::Bytes(b"example.com".into()),
-            )
-            .unwrap();
-        execution_context
-            .set_field_value(scheme.get_field("tcp.port").unwrap(), LhsValue::Int(80))
-            .unwrap();
-        execution_context
-            .set_field_value(scheme.get_field("tcp.dport").unwrap(), LhsValue::Int(443))
-            .unwrap();
-        execution_context
-            .set_field_value(
-                scheme.get_field("http.version").unwrap(),
-                LhsValue::Float(OrderedFloat(1.1)),
-            )
-            .unwrap();
-        execution_context
-            .set_field_value(
-                scheme.get_field("ip.addr").unwrap(),
-                LhsValue::Ip("127.0.0.1".parse::<IpAddr>().unwrap()),
-            )
-            .unwrap();
-        execution_context
-            .set_field_value(scheme.get_field("ssl").unwrap(), LhsValue::Bool(true))
-            .unwrap();
-        execution_context
-            .set_field_value(
-                scheme.get_field("http.user_agent").unwrap(),
-                LhsValue::Bytes(b".\"abc\"".into()),
-            )
-            .unwrap();
-        execution_context
-            .set_field_value(
-                scheme.get_field("http.request.headers").unwrap(),
-                LhsValue::Map({
-                    let mut map = Map::new(Type::Array(Box::new(Type::Bytes)));
-                    map.insert(b"host", {
-                        let mut array = Array::new(Type::Bytes);
-                        array.push(b"example.com".to_vec().into()).unwrap();
-                        array.into()
-                    })
-                    .unwrap();
-                    map.insert(b"user-agent", {
-                        let mut array = Array::new(Type::Bytes);
-                        array.push(b"Mozilla/5.0".to_vec().into()).unwrap();
-                        array.into()
-                    })
-                    .unwrap();
-                    map.insert(b"content-type", {
-                        let mut array = Array::new(Type::Bytes);
-                        array.push(b"application/json".to_vec().into()).unwrap();
-                        array.into()
-                    })
-                    .unwrap();
-                    map
-                }),
-            )
-            .unwrap();
-        execution_context
-    }
-
-    lazy_static! {
-        static ref SCHEME: Scheme = scheme();
-        static ref EXECUTION_CONTEXT: ExecutionContext<'static> = execution_context(&SCHEME);
+            );
+            variables
+        };
         static ref STATE: State<'static> = State::new();
     }
 
     macro_rules! test_fmt {
         ($input:expr, $expected:expr) => {
-            let ast = SCHEME.parse($input).unwrap();
-            let formatted = ast.fmt().unwrap();
+            let ast = SCHEME.parse($input, &VARIABLES).unwrap();
+            let formatted = ast.fmt(&VARIABLES).unwrap();
             assert_eq!(formatted, $expected);
 
-            let filter = ast.compile();
+            let filter = ast.compile(&VARIABLES);
             assert!(
-                filter.execute(&EXECUTION_CONTEXT, &STATE).unwrap(),
+                filter
+                    .execute(&EXECUTION_CONTEXT, &VARIABLES, &STATE)
+                    .unwrap(),
                 "Failed to execute filter: {}",
                 $input
             );

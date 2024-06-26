@@ -1,7 +1,8 @@
 use crate::{
     scheme::{Field, Scheme, SchemeMismatchError},
-    types::{GetType, LhsValue, LhsValueSeed, TypeMismatchError},
+    types::{GetType, LhsValue, LhsValueSeed, TypeMismatchError, VariableValue},
 };
+use indexmap::IndexMap;
 use serde::{
     de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor},
     ser::{SerializeMap, Serializer},
@@ -23,6 +24,62 @@ pub enum SetFieldValueError {
     /// different scheme.
     #[error("{0}")]
     SchemeMismatchError(#[source] SchemeMismatchError),
+}
+
+/// Variables that can be used in filters.
+#[derive(Debug, Default, PartialEq)]
+pub struct Variables {
+    inner: IndexMap<String, VariableValue>,
+}
+
+impl Variables {
+    /// Creates a new set of variables.
+    pub fn new() -> Self {
+        Variables {
+            inner: IndexMap::new(),
+        }
+    }
+
+    /// Inserts a variable into the set.
+    pub fn add(&mut self, key: String, value: VariableValue) {
+        self.inner.insert(key, value);
+    }
+
+    /// Extends the set with another set of variables.
+    pub fn extend(&mut self, other: Variables) {
+        self.inner.extend(other.inner);
+    }
+
+    /// Gets a variable from the set.
+    pub fn get(&self, key: &str) -> Option<&VariableValue> {
+        self.inner.get(key)
+    }
+
+    /// Checks if the set contains a variable.
+    pub fn contains(&self, key: &str) -> bool {
+        self.inner.contains_key(key)
+    }
+
+    /// Removes a variable from the set.
+    /// Returns the value if it was present in the set.
+    pub fn remove(&mut self, key: &str) -> Option<VariableValue> {
+        self.inner.swap_remove(key)
+    }
+
+    /// Clears the set.
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    /// Get the inner map.
+    pub fn inner(&self) -> &IndexMap<String, VariableValue> {
+        &self.inner
+    }
+
+    /// Get the mutable inner map.
+    pub fn inner_mut(&mut self) -> &mut IndexMap<String, VariableValue> {
+        &mut self.inner
+    }
 }
 
 /// A state to be used to pass internal data to filters.
@@ -101,7 +158,7 @@ impl<'e, U> ExecutionContext<'e, U> {
     ///
     /// This scheme will be used for resolving any field names and indices.
     pub fn new_with<'s: 'e>(scheme: &'s Scheme, f: impl Fn() -> U) -> Self {
-        let (values_len, _) = scheme.len();
+        let values_len = scheme.len();
         ExecutionContext {
             scheme,
             values: vec![None; values_len].into(),
