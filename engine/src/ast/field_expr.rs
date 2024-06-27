@@ -307,12 +307,15 @@ impl<'s> LhsFieldExpr<'s> {
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledValueExpr<'s, U> {
         match self {
             LhsFieldExpr::Field(f) => CompiledValueExpr::new(move |ctx, _, _| {
                 Ok(ctx.get_field_value_unchecked(f).as_ref())
             }),
-            LhsFieldExpr::FunctionCallExpr(call) => compiler.compile_function_call_expr(call),
+            LhsFieldExpr::FunctionCallExpr(call) => {
+                compiler.compile_function_call_expr(call, variables)
+            }
         }
     }
 }
@@ -651,6 +654,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledExpr<'s, U> {
         let lhs = self.lhs;
 
@@ -684,63 +688,88 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
         match self.op {
             ComparisonOpExpr::IsTrue => {
                 if lhs.get_type() == Type::Bool {
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        *cast_lhs_rhs_value!(x, Bool)
-                    })
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| *cast_lhs_rhs_value!(x, Bool),
+                        variables,
+                    )
                 } else if lhs.get_type().next() == Some(Type::Bool) {
                     // MapEach is impossible in this case, thus call `compile_vec_with` directly
                     // to coerce LhsValue to Vec<bool>
-                    CompiledExpr::Vec(lhs.compile_vec_with(compiler, move |x, _ctx, _, _| {
-                        *cast_lhs_rhs_value!(x, Bool)
-                    }))
+                    CompiledExpr::Vec(lhs.compile_vec_with(
+                        compiler,
+                        move |x, _ctx, _, _| *cast_lhs_rhs_value!(x, Bool),
+                        variables,
+                    ))
                 } else {
                     unreachable!()
                 }
             }
 
             ComparisonOpExpr::Ordering { op, rhs } => match op {
-                OrderingOp::NotEqual(_) => {
-                    lhs.compile_with(compiler, true, move |x, _ctx, _, _| {
-                        op.matches_opt(x.strict_partial_cmp(&rhs))
-                    })
-                }
-                _ => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                    op.matches_opt(x.strict_partial_cmp(&rhs))
-                }),
+                OrderingOp::NotEqual(_) => lhs.compile_with(
+                    compiler,
+                    true,
+                    move |x, _ctx, _, _| op.matches_opt(x.strict_partial_cmp(&rhs)),
+                    variables,
+                ),
+                _ => lhs.compile_with(
+                    compiler,
+                    false,
+                    move |x, _ctx, _, _| op.matches_opt(x.strict_partial_cmp(&rhs)),
+                    variables,
+                ),
             },
             ComparisonOpExpr::OrderingVariable { op, var: variable } => match op {
-                OrderingOp::NotEqual(_) => {
-                    lhs.compile_with(compiler, true, move |x, _ctx, variables, _| {
+                OrderingOp::NotEqual(_) => lhs.compile_with(
+                    compiler,
+                    true,
+                    move |x, _ctx, variables, _| {
                         variables
                             .get(variable.name_as_str())
                             .map_or(false, |variable| {
                                 op.matches_opt(x.strict_partial_cmp(variable))
                             })
-                    })
-                }
-                _ => lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
-                    variables
-                        .get(variable.name_as_str())
-                        .map_or(false, |variable| {
-                            op.matches_opt(x.strict_partial_cmp(variable))
-                        })
-                }),
+                    },
+                    variables,
+                ),
+                _ => lhs.compile_with(
+                    compiler,
+                    false,
+                    move |x, _ctx, variables, _| {
+                        variables
+                            .get(variable.name_as_str())
+                            .map_or(false, |variable| {
+                                op.matches_opt(x.strict_partial_cmp(variable))
+                            })
+                    },
+                    variables,
+                ),
             },
 
             ComparisonOpExpr::Int {
                 op: IntOp::BitwiseAnd(_),
                 rhs,
-            } => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                cast_lhs_rhs_value!(x, Int) & rhs != 0
-            }),
+            } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, _, _| cast_lhs_rhs_value!(x, Int) & rhs != 0,
+                variables,
+            ),
             ComparisonOpExpr::IntVariable {
                 op: IntOp::BitwiseAnd(_),
                 var,
-            } => lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
-                variables.get(var.name_as_str()).map_or(false, |var| {
-                    cast_lhs_rhs_value!(x, Int) & cast_variable_value!(var, Int) != 0
-                })
-            }),
+            } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, variables, _| {
+                    variables.get(var.name_as_str()).map_or(false, |var| {
+                        cast_lhs_rhs_value!(x, Int) & cast_variable_value!(var, Int) != 0
+                    })
+                },
+                variables,
+            ),
 
             ComparisonOpExpr::Contains {
                 rhs: bytes,
@@ -749,9 +778,14 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 macro_rules! search {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
-                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                            searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
-                        })
+                        lhs.compile_with(
+                            compiler,
+                            false,
+                            move |x, _ctx, _, _| {
+                                searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
+                            },
+                            variables,
+                        )
                     }};
                 }
 
@@ -780,13 +814,18 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 macro_rules! search {
                     ($searcher:expr) => {{
                         let searcher = $searcher;
-                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                            searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
-                        })
+                        lhs.compile_with(
+                            compiler,
+                            false,
+                            move |x, _ctx, _, _| {
+                                searcher.search_in(cast_lhs_rhs_value!(x, Bytes).as_ref())
+                            },
+                            variables,
+                        )
                     }};
                 }
 
-                if let Some(var) = compiler.variables().get(var.name_as_str()) {
+                if let Some(var) = variables.get(var.name_as_str()) {
                     let bytes = cast_variable_value!(var, Bytes).clone().into_boxed_slice();
 
                     if bytes.is_empty() {
@@ -810,24 +849,30 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 
                     search!(TwoWaySearcher::new(bytes))
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
 
             ComparisonOpExpr::Matches {
                 rhs: regex,
                 variant: _,
-            } => lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                regex.is_match(cast_lhs_rhs_value!(x, Bytes))
-            }),
-            ComparisonOpExpr::MatchesVariable { var, variant: _ } => {
-                lhs.compile_with(compiler, false, move |x, _ctx, variables, _| {
+            } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, _, _| regex.is_match(cast_lhs_rhs_value!(x, Bytes)),
+                variables,
+            ),
+            ComparisonOpExpr::MatchesVariable { var, variant: _ } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, variables, _| {
                     variables.get(var.name_as_str()).map_or(false, |variable| {
                         cast_variable_value!(variable, Regex)
                             .is_match(cast_lhs_rhs_value!(x, Bytes))
                     })
-                })
-            }
+                },
+                variables,
+            ),
 
             ComparisonOpExpr::OneOf {
                 rhs: values,
@@ -845,47 +890,64 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     let v4 = RangeSet::from(v4);
                     let v6 = RangeSet::from(v6);
 
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        match cast_lhs_rhs_value!(x, Ip) {
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| match cast_lhs_rhs_value!(x, Ip) {
                             IpAddr::V4(addr) => v4.contains(addr),
                             IpAddr::V6(addr) => v6.contains(addr),
-                        }
-                    })
+                        },
+                        variables,
+                    )
                 }
                 RhsValues::Int(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        values.contains(cast_lhs_rhs_value!(x, Int))
-                    })
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| values.contains(cast_lhs_rhs_value!(x, Int)),
+                        variables,
+                    )
                 }
                 RhsValues::Float(values) => {
                     let values: RangeSet<_> = values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        values.contains(cast_lhs_rhs_value!(x, Float))
-                    })
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| values.contains(cast_lhs_rhs_value!(x, Float)),
+                        variables,
+                    )
                 }
                 RhsValues::Bytes(values) => {
                     let values: IndexSet<Box<[u8]>, FnvBuildHasher> =
                         values.into_iter().map(Into::into).collect();
 
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        values.contains(cast_lhs_rhs_value!(x, Bytes) as &[u8])
-                    })
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| {
+                            values.contains(cast_lhs_rhs_value!(x, Bytes) as &[u8])
+                        },
+                        variables,
+                    )
                 }
                 RhsValues::Bool(_) => unreachable!(),
                 RhsValues::Map(_) => unreachable!(),
                 RhsValues::Array(_) => unreachable!(),
                 RhsValues::Regex(_) => unreachable!(),
             },
-            ComparisonOpExpr::OneOfVariable { var, variant: _ } => {
-                lhs.compile_with(compiler, false, move |val, _, variables, _| {
+            ComparisonOpExpr::OneOfVariable { var, variant: _ } => lhs.compile_with(
+                compiler,
+                false,
+                move |val, _, variables, _| {
                     variables
                         .get(var.name_as_str())
                         .map_or(false, |variable| variable.matches_lhs_value(val))
-                })
-            }
+                },
+                variables,
+            ),
 
             ComparisonOpExpr::HasAny {
                 rhs: values,
@@ -893,25 +955,31 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             } => {
                 let values = cast_rhs_values!(values, Bytes);
                 if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
-                    })
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| searcher.is_match(cast_lhs_rhs_value!(x, Bytes)),
+                        variables,
+                    )
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
             ComparisonOpExpr::HasAnyVariable { var, variant: _ } => {
-                if let Some(var) = compiler.variables().get(var.name_as_str()) {
+                if let Some(var) = variables.get(var.name_as_str()) {
                     let variable_values = cast_variable_value!(var, BytesList);
                     if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
-                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                            searcher.is_match(cast_lhs_rhs_value!(x, Bytes))
-                        })
+                        lhs.compile_with(
+                            compiler,
+                            false,
+                            move |x, _ctx, _, _| searcher.is_match(cast_lhs_rhs_value!(x, Bytes)),
+                            variables,
+                        )
                     } else {
-                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                     }
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
             ComparisonOpExpr::HasAll {
@@ -920,30 +988,12 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             } => {
                 let values = cast_rhs_values!(values, Bytes);
                 if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
-                    lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
-                        let text = cast_lhs_rhs_value!(x, Bytes);
-                        let mut found = vec![false; values.len()];
-                        if let Ok(find_iter) = searcher.try_find_iter(text) {
-                            for mat in find_iter {
-                                found[mat.pattern()] = true;
-                            }
-                            found.into_iter().all(|f| f)
-                        } else {
-                            false
-                        }
-                    })
-                } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
-                }
-            }
-            ComparisonOpExpr::HasAllVariable { var, variant: _ } => {
-                if let Some(var) = compiler.variables().get(var.name_as_str()) {
-                    let variable_values = cast_variable_value!(var, BytesList);
-                    let variable_values_len = variable_values.len();
-                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
-                        lhs.compile_with(compiler, false, move |x, _ctx, _, _| {
+                    lhs.compile_with(
+                        compiler,
+                        false,
+                        move |x, _ctx, _, _| {
                             let text = cast_lhs_rhs_value!(x, Bytes);
-                            let mut found = vec![false; variable_values_len];
+                            let mut found = vec![false; values.len()];
                             if let Ok(find_iter) = searcher.try_find_iter(text) {
                                 for mat in find_iter {
                                     found[mat.pattern()] = true;
@@ -952,12 +1002,40 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                             } else {
                                 false
                             }
-                        })
+                        },
+                        variables,
+                    )
+                } else {
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
+                }
+            }
+            ComparisonOpExpr::HasAllVariable { var, variant: _ } => {
+                if let Some(var) = variables.get(var.name_as_str()) {
+                    let variable_values = cast_variable_value!(var, BytesList);
+                    let variable_values_len = variable_values.len();
+                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                        lhs.compile_with(
+                            compiler,
+                            false,
+                            move |x, _ctx, _, _| {
+                                let text = cast_lhs_rhs_value!(x, Bytes);
+                                let mut found = vec![false; variable_values_len];
+                                if let Ok(find_iter) = searcher.try_find_iter(text) {
+                                    for mat in find_iter {
+                                        found[mat.pattern()] = true;
+                                    }
+                                    found.into_iter().all(|f| f)
+                                } else {
+                                    false
+                                }
+                            },
+                            variables,
+                        )
                     } else {
-                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                        lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                     }
                 } else {
-                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false)
+                    lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
         }

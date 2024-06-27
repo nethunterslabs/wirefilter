@@ -171,12 +171,13 @@ impl<'s> Expr<'s> for LogicalExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledExpr<'s, U> {
         match self {
-            LogicalExpr::Simple(op) => compiler.compile_simple_expr(op),
+            LogicalExpr::Simple(op) => compiler.compile_simple_expr(op, variables),
             LogicalExpr::Combining { op, items } => {
                 let items = items.into_iter();
-                let mut items = items.map(|item| compiler.compile_logical_expr(item));
+                let mut items = items.map(|item| compiler.compile_logical_expr(item, variables));
                 let first = items.next().unwrap();
                 match first {
                     CompiledExpr::One(first) => {

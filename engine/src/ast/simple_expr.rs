@@ -99,15 +99,16 @@ impl<'s> Expr<'s> for SimpleExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledExpr<'s, U> {
         match self {
-            SimpleExpr::Comparison(op) => compiler.compile_comparison_expr(op),
-            SimpleExpr::Parenthesized(op) => compiler.compile_logical_expr(*op),
+            SimpleExpr::Comparison(op) => compiler.compile_comparison_expr(op, variables),
+            SimpleExpr::Parenthesized(op) => compiler.compile_logical_expr(*op, variables),
             SimpleExpr::Unary {
                 op: UnaryOp::Not(_),
                 arg,
             } => {
-                let arg = compiler.compile_simple_expr(*arg);
+                let arg = compiler.compile_simple_expr(*arg, variables);
                 match arg {
                     CompiledExpr::One(one) => {
                         CompiledExpr::One(CompiledOneExpr::new(move |ctx, variables, state| {

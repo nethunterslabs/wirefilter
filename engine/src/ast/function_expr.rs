@@ -69,9 +69,12 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledValueExpr<'s, U> {
         match self {
-            FunctionCallArgExpr::IndexExpr(index_expr) => compiler.compile_index_expr(index_expr),
+            FunctionCallArgExpr::IndexExpr(index_expr) => {
+                compiler.compile_index_expr(index_expr, variables)
+            }
             FunctionCallArgExpr::Literal(literal) => {
                 CompiledValueExpr::new(move |_, _, _| LhsValue::from(literal.clone()).into())
             }
@@ -80,7 +83,7 @@ impl<'s> ValueExpr<'s> for FunctionCallArgExpr<'s> {
             // Here we execute the expression to get the actual argument
             // for the function and forward the result in a CompiledValueExpr.
             FunctionCallArgExpr::SimpleExpr(simple_expr) => {
-                let compiled_expr = compiler.compile_simple_expr(simple_expr);
+                let compiled_expr = compiler.compile_simple_expr(simple_expr, variables);
                 match compiled_expr {
                     CompiledExpr::One(expr) => {
                         CompiledValueExpr::new(move |ctx, variables, state| {
@@ -335,6 +338,7 @@ impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledValueExpr<'s, U> {
         let ty = self.get_type();
         let Self {
@@ -350,7 +354,7 @@ impl<'s> ValueExpr<'s> for FunctionCallExpr<'s> {
             .compile(&mut (args).iter().map(|arg| arg.into()), context);
         let args = args
             .into_iter()
-            .map(|arg| compiler.compile_function_call_arg_expr(arg))
+            .map(|arg| compiler.compile_function_call_arg_expr(arg, variables))
             .collect::<Vec<_>>()
             .into_boxed_slice();
         if map_each_count > 0 {

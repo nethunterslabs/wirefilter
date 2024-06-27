@@ -31,11 +31,12 @@ pub trait Expr<'s>: Sized + Eq + Debug + Serialize {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledExpr<'s, U>;
     /// Compiles current node into a [`CompiledExpr`] using [`DefaultCompiler`].
-    fn compile(self, variables: &'s Variables) -> CompiledExpr<'s> {
-        let mut compiler = DefaultCompiler::new(variables);
-        self.compile_with_compiler(&mut compiler)
+    fn compile(self, variables: &Variables) -> CompiledExpr<'s> {
+        let mut compiler = DefaultCompiler::new();
+        self.compile_with_compiler(&mut compiler, variables)
     }
 }
 
@@ -49,12 +50,13 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + Serialize {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledValueExpr<'s, U>;
     /// Compiles current node into a [`CompiledValueExpr`] using
     /// [`DefaultCompiler`].
-    fn compile(self, variables: &'s Variables) -> CompiledValueExpr<'s> {
-        let mut compiler = DefaultCompiler::new(variables);
-        self.compile_with_compiler(&mut compiler)
+    fn compile(self, variables: &Variables) -> CompiledValueExpr<'s> {
+        let mut compiler = DefaultCompiler::new();
+        self.compile_with_compiler(&mut compiler, variables)
     }
 }
 
@@ -96,15 +98,16 @@ impl<'s> SingleValueExprAst<'s> {
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> SingleValueExpr<'s, U> {
-        let compiled = self.op.compile_with_compiler(compiler);
+        let compiled = self.op.compile_with_compiler(compiler, variables);
         SingleValueExpr::new(compiled, self.scheme)
     }
 
     /// Compiles a [`SingleValueExprAst`] into a [`SingleValueExpr`] using [`DefaultCompiler`].
-    pub fn compile(self, variables: &'s Variables) -> SingleValueExpr<'s> {
-        let mut compiler = DefaultCompiler::new(variables);
-        self.compile_with_compiler(&mut compiler)
+    pub fn compile(self, variables: &Variables) -> SingleValueExpr<'s> {
+        let mut compiler = DefaultCompiler::new();
+        self.compile_with_compiler(&mut compiler, variables)
     }
 }
 
@@ -198,17 +201,18 @@ impl<'s> FilterAst<'s> {
     pub fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> Filter<'s, U> {
-        match self.op.compile_with_compiler(compiler) {
+        match self.op.compile_with_compiler(compiler, variables) {
             CompiledExpr::One(one) => Filter::new(one, self.scheme),
             CompiledExpr::Vec(_) => unreachable!(),
         }
     }
 
     /// Compiles a [`FilterAst`] into a [`Filter`] using [`DefaultCompiler`].
-    pub fn compile(self, variables: &'s Variables) -> Filter<'s> {
-        let mut compiler = DefaultCompiler::new(variables);
-        self.compile_with_compiler(&mut compiler)
+    pub fn compile(self, variables: &Variables) -> Filter<'s> {
+        let mut compiler = DefaultCompiler::new();
+        self.compile_with_compiler(&mut compiler, variables)
     }
 }
 

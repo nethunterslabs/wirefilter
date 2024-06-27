@@ -80,6 +80,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
     fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
         self,
         compiler: &mut C,
+        variables: &Variables,
     ) -> CompiledValueExpr<'s, U> {
         let ty = self.get_type();
         let map_each_count = self.map_each_count();
@@ -92,7 +93,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
         };
         if last == Some(0) {
             // Fast path
-            lhs.compile_with_compiler(compiler)
+            lhs.compile_with_compiler(compiler, variables)
         } else if let Some(last) = last {
             // Average path
             match lhs {
@@ -106,7 +107,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                         .ok_or_else(|| ty.clone())
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
-                    let call = compiler.compile_function_call_expr(call);
+                    let call = compiler.compile_function_call_expr(call, variables);
                     CompiledValueExpr::new(move |ctx, variables, state| {
                         let result = call.execute(ctx, variables, state)?;
                         indexes[..last]
@@ -127,7 +128,7 @@ impl<'s> ValueExpr<'s> for IndexExpr<'s> {
                     Ok(LhsValue::Array(arr))
                 }),
                 LhsFieldExpr::FunctionCallExpr(call) => {
-                    let call = compiler.compile_function_call_expr(call);
+                    let call = compiler.compile_function_call_expr(call, variables);
                     CompiledValueExpr::new(move |ctx, variables, state| {
                         let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                         iter.reset(call.execute(ctx, variables, state)?);
@@ -161,12 +162,13 @@ impl<'s> IndexExpr<'s> {
         compiler: &mut C,
         default: bool,
         func: F,
+        variables: &Variables,
     ) -> CompiledOneExpr<'s, U> {
         let Self { lhs, indexes } = self;
         let indexes = simplify_indexes(indexes);
         match lhs {
             LhsFieldExpr::FunctionCallExpr(call) => {
-                let call = compiler.compile_function_call_expr(call);
+                let call = compiler.compile_function_call_expr(call, variables);
                 if indexes.is_empty() {
                     CompiledOneExpr::new(move |ctx, variables, state| {
                         call.execute(ctx, variables, state)
@@ -219,12 +221,13 @@ impl<'s> IndexExpr<'s> {
         self,
         compiler: &mut C,
         func: F,
+        variables: &Variables,
     ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         let indexes = simplify_indexes(indexes);
         match lhs {
             LhsFieldExpr::FunctionCallExpr(call) => {
-                let call = compiler.compile_function_call_expr(call);
+                let call = compiler.compile_function_call_expr(call, variables);
                 CompiledVecExpr::new(move |ctx, variables, state| {
                     index_access_vec!(
                         indexes,
@@ -260,6 +263,7 @@ impl<'s> IndexExpr<'s> {
         self,
         compiler: &mut C,
         func: F,
+        variables: &Variables,
     ) -> CompiledVecExpr<'s, U> {
         let Self { lhs, indexes } = self;
         match lhs {
@@ -274,7 +278,7 @@ impl<'s> IndexExpr<'s> {
                 output.into_boxed_slice()
             }),
             LhsFieldExpr::FunctionCallExpr(call) => {
-                let call = compiler.compile_function_call_expr(call);
+                let call = compiler.compile_function_call_expr(call, variables);
                 CompiledVecExpr::new(move |ctx, variables, state| {
                     let mut iter = MapEachIterator::from_indexes(&indexes[..]);
                     if let Ok(val) = call.execute(ctx, variables, state) {
@@ -307,13 +311,14 @@ impl<'s> IndexExpr<'s> {
         compiler: &mut C,
         default: bool,
         func: F,
+        variables: &Variables,
     ) -> CompiledExpr<'s, U> {
         match self.map_each_count() {
-            0 => CompiledExpr::One(self.compile_one_with(compiler, default, func)),
+            0 => CompiledExpr::One(self.compile_one_with(compiler, default, func, variables)),
             1 if self.indexes.last() == Some(&FieldIndex::MapEach) => {
-                CompiledExpr::Vec(self.compile_vec_with(compiler, func))
+                CompiledExpr::Vec(self.compile_vec_with(compiler, func, variables))
             }
-            _ => CompiledExpr::Vec(self.compile_iter_with(compiler, func)),
+            _ => CompiledExpr::Vec(self.compile_iter_with(compiler, func, variables)),
         }
     }
 
