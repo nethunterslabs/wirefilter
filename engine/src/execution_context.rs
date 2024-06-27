@@ -46,8 +46,8 @@ impl Variables {
     }
 
     /// Extends the set with another set of variables.
-    pub fn extend(&mut self, other: Variables) {
-        self.inner.extend(other.inner);
+    pub fn extend(&mut self, set: impl IntoIterator<Item = (String, VariableValue)>) {
+        self.inner.extend(set);
     }
 
     /// Gets a variable from the set.
