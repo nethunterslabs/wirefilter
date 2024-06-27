@@ -27,7 +27,7 @@ pub enum SetFieldValueError {
 }
 
 /// Variables that can be used in filters.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Variables {
     inner: IndexMap<String, VariableValue>,
 }
