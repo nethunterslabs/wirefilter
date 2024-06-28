@@ -6,7 +6,6 @@ publish = false
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
 # Avoid duplicate compilation error messages as we don't have doctests anyway
 doctest = false
 
