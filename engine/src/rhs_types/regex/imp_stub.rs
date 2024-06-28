@@ -18,10 +18,10 @@ pub struct Regex {
 
 impl Regex {
     /// Parses a regex from a string.
-    pub fn parse_str(s: &str, ty: StrType) -> Result<Self, Error> {
+    pub fn parse_str(s: &str) -> Result<Self, Error> {
         Ok(Regex {
             value: s.to_owned(),
-            ty,
+            ty: StrType::Escaped,
         })
     }
 

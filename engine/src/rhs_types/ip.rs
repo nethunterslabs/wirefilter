@@ -3,7 +3,7 @@ use crate::{
     strict_partial_ord::StrictPartialOrd,
 };
 use cidr::{errors::NetworkParseError, IpCidr, Ipv4Cidr, Ipv6Cidr};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -36,7 +36,7 @@ impl<'i> Lex<'i> for IpAddr {
 }
 
 /// Represents an explicit range of IP addresses.
-#[derive(PartialEq, Eq, Clone, Hash, Serialize, Debug)]
+#[derive(PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum ExplicitIpRange {
     /// An explicit range of IPv4 addresses.
@@ -46,7 +46,7 @@ pub enum ExplicitIpRange {
 }
 
 /// Represents a range of IP addresses.
-#[derive(PartialEq, Eq, Clone, Hash, Serialize, Debug)]
+#[derive(PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum IpRange {
     /// An explicit range of IP addresses.

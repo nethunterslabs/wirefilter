@@ -2,7 +2,7 @@ use crate::{
     lex::{expect, span, take_while, Lex, LexErrorKind, LexResult},
     strict_partial_ord::StrictPartialOrd,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
 fn lex_digits(input: &str) -> LexResult<'_, &str> {
@@ -38,7 +38,7 @@ impl<'i> Lex<'i> for i32 {
 }
 
 /// Represents a range of integers.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IntRange(pub RangeInclusive<i32>);
 

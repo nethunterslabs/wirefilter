@@ -3,7 +3,7 @@ use crate::{
     strict_partial_ord::StrictPartialOrd,
 };
 use cfg_if::cfg_if;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug, Formatter},
@@ -172,6 +172,16 @@ impl<'i> Lex<'i> for Regex {
 impl Serialize for Regex {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         self.as_str().serialize(ser)
+    }
+}
+
+impl<'de> Deserialize<'de> for Regex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::parse_str(&s).map_err(serde::de::Error::custom)
     }
 }
 

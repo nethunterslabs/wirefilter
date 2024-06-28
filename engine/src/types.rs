@@ -204,7 +204,7 @@ macro_rules! declare_types {
         ///
         /// These are used in the [scheme](::Scheme) to store variable values
         /// which can then be used in [filters](::Filter) for comparisons.
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
         pub enum VariableValue {
             $(
                 $(# $attrs)*
@@ -957,12 +957,12 @@ declare_types!(
 
     /// An Array of [`Type`].
     Array[Box<Type>](#[serde(skip_deserializing)] Array<'a> | UninhabitedArray | UninhabitedArray | (
-        Array(UninhabitedArray),
+        #[serde(skip)] Array(UninhabitedArray),
     )),
 
     /// A Map of string to [`Type`].
     Map[Box<Type>](#[serde(skip_deserializing)] Map<'a> | UninhabitedMap | UninhabitedMap | (
-        Map(UninhabitedMap),
+        #[serde(skip)] Map(UninhabitedMap),
     ) ),
 
     /// A regex pattern.

@@ -3,7 +3,7 @@ use crate::{
     strict_partial_ord::StrictPartialOrd,
 };
 use ordered_float::OrderedFloat;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
     ops::RangeInclusive,
@@ -51,7 +51,7 @@ impl<'i> Lex<'i> for OrderedFloat<f64> {
 }
 
 /// Represents a range of floating point numbers.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FloatRange(pub RangeInclusive<OrderedFloat<f64>>);
 
