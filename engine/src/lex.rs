@@ -340,7 +340,11 @@ macro_rules! lex_enum {
 }
 
 pub fn span<'i>(input: &'i str, rest: &'i str) -> &'i str {
-    &input[..input.len() - rest.len()]
+    if rest.len() > input.len() || !input.ends_with(rest) {
+        ""
+    } else {
+        &input[..input.len() - rest.len()]
+    }
 }
 
 pub fn take_while<'i, F: Fn(char) -> bool>(
