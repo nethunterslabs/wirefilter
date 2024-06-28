@@ -425,7 +425,7 @@ impl<'s> ComparisonExpr<'s> {
                             LexErrorKind::UnknownVariable {
                                 name: variable.name_as_str().into(),
                             },
-                            span(initial_input, input),
+                            span(initial_input, input_after_op),
                         ))?;
                         variable.set_type(variable_value.get_variable_type());
 
@@ -436,7 +436,7 @@ impl<'s> ComparisonExpr<'s> {
                                     expected: lhs_type,
                                     actual: variable_value.get_variable_type(),
                                 },
-                                span(initial_input, input),
+                                span(initial_input, input_after_op),
                             ));
                         }
                         (
@@ -458,7 +458,7 @@ impl<'s> ComparisonExpr<'s> {
                             LexErrorKind::UnknownVariable {
                                 name: variable.name_as_str().into(),
                             },
-                            span(initial_input, input),
+                            span(initial_input, input_after_op),
                         ))?;
                         variable.set_type(variable_value.get_variable_type());
 
@@ -469,7 +469,7 @@ impl<'s> ComparisonExpr<'s> {
                                     expected: lhs_type,
                                     actual: variable_value.get_variable_type(),
                                 },
-                                span(initial_input, input),
+                                span(initial_input, input_after_op),
                             ));
                         }
                         (
@@ -512,7 +512,7 @@ impl<'s> ComparisonExpr<'s> {
                             LexErrorKind::UnknownVariable {
                                 name: variable.name_as_str().into(),
                             },
-                            span(initial_input, input),
+                            span(initial_input, input_after_op),
                         ))?;
                         variable.set_type(variable_value.get_variable_type());
 
@@ -523,7 +523,7 @@ impl<'s> ComparisonExpr<'s> {
                                     expected: lhs_type,
                                     actual: variable_value.get_variable_type(),
                                 },
-                                span(initial_input, input),
+                                span(initial_input, input_after_op),
                             ));
                         }
                         (
@@ -542,7 +542,7 @@ impl<'s> ComparisonExpr<'s> {
                             LexErrorKind::UnknownVariable {
                                 name: variable.name_as_str().into(),
                             },
-                            span(initial_input, input),
+                            span(initial_input, input_after_op),
                         ))?;
                         variable.set_type(variable_value.get_variable_type());
 
@@ -553,7 +553,7 @@ impl<'s> ComparisonExpr<'s> {
                                     expected: lhs_type,
                                     actual: variable_value.get_variable_type(),
                                 },
-                                span(initial_input, input),
+                                span(initial_input, input_after_op),
                             ));
                         }
                         (ComparisonOpExpr::IntVariable { op, var: variable }, input)
@@ -569,7 +569,7 @@ impl<'s> ComparisonExpr<'s> {
                             LexErrorKind::UnknownVariable {
                                 name: variable.name_as_str().into(),
                             },
-                            span(initial_input, input),
+                            span(initial_input, input_after_op),
                         ))?;
                         variable.set_type(variable_value.get_variable_type());
 
@@ -580,7 +580,7 @@ impl<'s> ComparisonExpr<'s> {
                                     expected: lhs_type,
                                     actual: variable_value.get_variable_type(),
                                 },
-                                span(initial_input, input),
+                                span(initial_input, input_after_op),
                             ));
                         }
 
