@@ -1023,6 +1023,36 @@ fn test_parse_error_in_op() {
             )
         );
     }
+    {
+        let mut variables = Variables::new();
+        variables.add("bytes_list".to_string(), vec![b"test".to_vec()].into());
+
+        let err = scheme.parse("ip in $bytes_list", &variables).unwrap_err();
+        assert_eq!(
+            err,
+            ParseError {
+                kind: LexErrorKind::VariableTypeMismatch {
+                    name: "bytes_list".into(),
+                    expected: Type::Ip,
+                    actual: crate::VariableType::BytesList,
+                },
+                input: "ip in $bytes_list",
+                line_number: 0,
+                span_start: 6,
+                span_len: 11,
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            indoc!(
+                r#"
+                Filter parsing error (1:7):
+                ip in $bytes_list
+                      ^^^^^^^^^^^ variable type mismatch for "bytes_list" - expected type compatible with Ip, got BytesList
+                "#
+            )
+        );
+    }
 
     {
         let err = scheme.parse("str in [0]", &Default::default()).unwrap_err();
@@ -1354,6 +1384,68 @@ fn test_field() {
         Field::lex_with("x.y.z;", scheme),
         LexErrorKind::UnknownField(UnknownFieldError),
         "x.y.z"
+    );
+}
+
+#[test]
+fn test_function_parse_error() {
+    use crate::functions::{
+        FunctionArgKind, SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam,
+    };
+
+    use indoc::indoc;
+
+    let mut scheme = Scheme! {
+        num: Int,
+        bool: Bool,
+        str: Bytes,
+        ip: Ip,
+        str_arr: Array(Bytes),
+        str_map: Map(Bytes),
+    };
+
+    scheme
+        .add_function(
+            "echo".into(),
+            SimpleFunctionDefinition {
+                params: vec![SimpleFunctionParam {
+                    arg_kind: FunctionArgKind::Complex,
+                    val_type: Type::Bytes,
+                }],
+                opt_params: Some(vec![]),
+                return_type: Type::Bytes,
+                implementation: SimpleFunctionImpl::new(|args, _| args.next()?.ok()),
+            },
+        )
+        .unwrap();
+
+    let mut variables = Variables::new();
+    variables.add("int".to_string(), 10.into());
+
+    let err = scheme.parse("echo($int)", &variables).unwrap_err();
+    assert_eq!(
+        err,
+        ParseError {
+            kind: LexErrorKind::VariableTypeMismatch {
+                name: "int".into(),
+                expected: Type::Bytes,
+                actual: crate::VariableType::Int,
+            },
+            input: "echo($int)",
+            line_number: 0,
+            span_start: 5,
+            span_len: 4,
+        }
+    );
+    assert_eq!(
+        err.to_string(),
+        indoc!(
+            r#"
+            Filter parsing error (1:6):
+            echo($int)
+                 ^^^^ variable type mismatch for "int" - expected type compatible with Bytes, got Int
+            "#
+        )
     );
 }
 

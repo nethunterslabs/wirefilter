@@ -149,7 +149,7 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
         variables: &Variables,
         ty: Option<Type>,
     ) -> LexResult<'i, Self> {
-        let _initial_input = input;
+        let initial_input = input;
 
         macro_rules! c_is_field {
             // characters above F/f in the alphabet mean it can't be a decimal or hex int
@@ -201,7 +201,7 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
                                     actual: variable_value.get_variable_type(),
                                     expected: ty,
                                 },
-                                span(input, _initial_input),
+                                span(initial_input, input),
                             ));
                         }
                     }
@@ -211,7 +211,7 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
                         LexErrorKind::UnknownVariable {
                             name: variable.take_name(),
                         },
-                        span(input, _initial_input),
+                        span(initial_input, input),
                     ));
                 }
             } else if c_is_field!(c)
@@ -272,7 +272,7 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
                 RhsValue::lex_with(input, Type::Bytes)
                     .map(|(literal, input)| (FunctionCallArgExpr::Literal(literal), input))
             })
-            .map_err(|_| (LexErrorKind::EOF, _initial_input))
+            .map_err(|_| (LexErrorKind::EOF, initial_input))
     }
 }
 
