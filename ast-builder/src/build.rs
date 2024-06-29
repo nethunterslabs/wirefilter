@@ -5,9 +5,9 @@ use std::net::IpAddr;
 use cidr::IpCidr;
 use wirefilter::{
     ByteSeparator, Bytes, ComparisonExpr, ComparisonOpExpr, ExplicitIpRange, FieldIndex, FilterAst,
-    FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, IndexExpr, IntOp, IntRange,
-    IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue,
-    RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type, UnaryOp,
+    FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, GetType, IndexExpr, IntOp,
+    IntRange, IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex,
+    RhsValue, RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type, UnaryOp,
     UnknownVariableError, Variable, Variables,
 };
 
@@ -26,6 +26,13 @@ impl FilterAstBuilder {
         Ok(FilterAst {
             scheme,
             op: self.op.build(scheme, variables)?,
+        })
+    }
+
+    /// Creates a new `FilterAstBuilder` from the given `FilterAst`.
+    pub fn from(filter_ast: FilterAst<'_>) -> Result<Self> {
+        Ok(Self {
+            op: LogicalExprBuilder::from(filter_ast.op)?,
         })
     }
 }
@@ -47,6 +54,13 @@ impl SingleValueExprAstBuilder {
             op: self.op.build(scheme, variables)?,
         })
     }
+
+    /// Creates a new `SingleValueExprAstBuilder` from the given `SingleValueExprAst`.
+    pub fn from(single_value_expr: SingleValueExprAst<'_>) -> Result<Self> {
+        Ok(Self {
+            op: LhsFieldExprBuilder::from(single_value_expr.op)?,
+        })
+    }
 }
 
 impl LogicalExprBuilder {
@@ -58,6 +72,22 @@ impl LogicalExprBuilder {
             }
             LogicalExprBuilder::Combining(builder) => builder.build(scheme, variables),
         }
+    }
+
+    /// Creates a new `LogicalExprBuilder` from the given `LogicalExpr`.
+    pub fn from(logical_expr: LogicalExpr<'_>) -> Result<Self> {
+        Ok(match logical_expr {
+            LogicalExpr::Simple(expr) => LogicalExprBuilder::Simple(SimpleExprBuilder::from(expr)?),
+            LogicalExpr::Combining { op, items } => {
+                LogicalExprBuilder::Combining(CombiningExprBuilder::new(
+                    LogicalOpBuilder::from(op),
+                    items
+                        .into_iter()
+                        .map(LogicalExprBuilder::from)
+                        .collect::<Result<Vec<_>>>()?,
+                ))
+            }
+        })
     }
 }
 
@@ -78,6 +108,23 @@ impl CombiningExprBuilder {
                 .collect::<Result<Vec<_>>>()?,
         })
     }
+
+    /// Creates a new `CombiningExprBuilder` from the given `LogicalExpr`.
+    pub fn from(logical_expr: LogicalExpr<'_>) -> Result<Self> {
+        Ok(match logical_expr {
+            LogicalExpr::Simple(expr) => CombiningExprBuilder::new(
+                LogicalOpBuilder::from(LogicalOp::And(0)),
+                vec![LogicalExprBuilder::Simple(SimpleExprBuilder::from(expr)?)],
+            ),
+            LogicalExpr::Combining { op, items } => CombiningExprBuilder::new(
+                LogicalOpBuilder::from(op),
+                items
+                    .into_iter()
+                    .map(LogicalExprBuilder::from)
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        })
+    }
 }
 
 impl LogicalOpBuilder {
@@ -87,6 +134,15 @@ impl LogicalOpBuilder {
             LogicalOpBuilder::Or => LogicalOp::Or(0),
             LogicalOpBuilder::Xor => LogicalOp::Xor(0),
             LogicalOpBuilder::And => LogicalOp::And(0),
+        }
+    }
+
+    /// Creates a new `LogicalOpBuilder` from the given `LogicalOp`.
+    pub fn from(logical_op: LogicalOp) -> Self {
+        match logical_op {
+            LogicalOp::Or(_) => LogicalOpBuilder::Or,
+            LogicalOp::Xor(_) => LogicalOpBuilder::Xor,
+            LogicalOp::And(_) => LogicalOpBuilder::And,
         }
     }
 }
@@ -103,6 +159,21 @@ impl SimpleExprBuilder {
             ))),
             SimpleExprBuilder::Unary(builder) => builder.build(scheme, variables),
         }
+    }
+
+    /// Creates a new `SimpleExprBuilder` from the given `SimpleExpr`.
+    pub fn from(simple_expr: SimpleExpr<'_>) -> Result<Self> {
+        Ok(match simple_expr {
+            SimpleExpr::Comparison(comparison) => {
+                SimpleExprBuilder::Comparison(ComparisonExprBuilder::from(comparison)?)
+            }
+            SimpleExpr::Parenthesized(expr) => {
+                SimpleExprBuilder::Parenthesized(Box::new(LogicalExprBuilder::from(*expr)?))
+            }
+            SimpleExpr::Unary { .. } => {
+                SimpleExprBuilder::Unary(UnaryExprBuilder::from(simple_expr)?)
+            }
+        })
     }
 }
 
@@ -122,6 +193,17 @@ impl UnaryExprBuilder {
             arg: Box::new(self.arg.build(scheme, variables)?),
         })
     }
+
+    /// Creates a new `UnaryExprBuilder` from the given `SimpleExpr`.
+    pub fn from(expr: SimpleExpr<'_>) -> Result<Self> {
+        match expr {
+            SimpleExpr::Unary { op, arg } => Ok(Self {
+                op: UnaryOpBuilder::from(op),
+                arg: Box::new(SimpleExprBuilder::from(*arg)?),
+            }),
+            _ => Err(BuilderError::UnsupportedUnaryExpr(expr.get_type())),
+        }
+    }
 }
 
 impl UnaryOpBuilder {
@@ -129,6 +211,13 @@ impl UnaryOpBuilder {
     pub fn build(self) -> UnaryOp {
         match self {
             UnaryOpBuilder::Not => UnaryOp::Not(0),
+        }
+    }
+
+    /// Creates a new `UnaryOpBuilder` from the given `UnaryOp`.
+    pub fn from(unary_op: UnaryOp) -> Self {
+        match unary_op {
+            UnaryOp::Not(_) => UnaryOpBuilder::Not,
         }
     }
 }
@@ -150,6 +239,14 @@ impl ComparisonExprBuilder {
             op: self.op.build(variables)?,
         })
     }
+
+    /// Creates a new `ComparisonExprBuilder` from the given `ComparisonExpr`.
+    pub fn from(comparison_expr: ComparisonExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            lhs: IndexExprBuilder::from(comparison_expr.lhs)?,
+            op: ComparisonOpExprBuilder::from(comparison_expr.op)?,
+        })
+    }
 }
 
 impl RegexBuilder {
@@ -164,6 +261,14 @@ impl RegexBuilder {
             &self.value,
             self.ty.build(),
         )?)
+    }
+
+    /// Creates a new `RegexBuilder` from the given `Regex`.
+    pub fn from(regex: Regex) -> Self {
+        Self {
+            value: regex.as_str().to_string(),
+            ty: StrTypeBuilder::from(regex.ty()),
+        }
     }
 }
 
@@ -181,6 +286,20 @@ impl BytesBuilder {
             },
         }
     }
+
+    /// Creates a new `BytesBuilder` from the given `Bytes`.
+    pub fn from(bytes: Bytes) -> Self {
+        match bytes {
+            Bytes::Str { value, ty } => BytesBuilder::Str {
+                value,
+                ty: StrTypeBuilder::from(ty),
+            },
+            Bytes::Raw { value, separator } => BytesBuilder::Raw {
+                value,
+                separator: ByteSeparatorBuilder::from(separator),
+            },
+        }
+    }
 }
 
 impl StrTypeBuilder {
@@ -189,6 +308,14 @@ impl StrTypeBuilder {
         match self {
             StrTypeBuilder::Raw { hash_count } => StrType::Raw { hash_count },
             StrTypeBuilder::Escaped => StrType::Escaped,
+        }
+    }
+
+    /// Creates a new `StrTypeBuilder` from the given `StrType`.
+    pub fn from(str_type: StrType) -> Self {
+        match str_type {
+            StrType::Raw { hash_count } => StrTypeBuilder::Raw { hash_count },
+            StrType::Escaped => StrTypeBuilder::Escaped,
         }
     }
 }
@@ -202,6 +329,15 @@ impl ByteSeparatorBuilder {
             ByteSeparatorBuilder::Dot => ByteSeparator::Dot(0),
         }
     }
+
+    /// Creates a new `ByteSeparatorBuilder` from the given `ByteSeparator`.
+    pub fn from(separator: ByteSeparator) -> Self {
+        match separator {
+            ByteSeparator::Colon(_) => ByteSeparatorBuilder::Colon,
+            ByteSeparator::Dash(_) => ByteSeparatorBuilder::Dash,
+            ByteSeparator::Dot(_) => ByteSeparatorBuilder::Dot,
+        }
+    }
 }
 
 impl IntOpBuilder {
@@ -209,6 +345,13 @@ impl IntOpBuilder {
     pub fn build(self) -> IntOp {
         match self {
             IntOpBuilder::BitwiseAnd => IntOp::BitwiseAnd(0),
+        }
+    }
+
+    /// Creates a new `IntOpBuilder` from the given `IntOp`.
+    pub fn from(int_op: IntOp) -> Self {
+        match int_op {
+            IntOp::BitwiseAnd(_) => IntOpBuilder::BitwiseAnd,
         }
     }
 }
@@ -222,6 +365,17 @@ impl RhsValueBuilder {
             RhsValueBuilder::Ip(value) => RhsValue::Ip(value),
             RhsValueBuilder::Bytes(value) => RhsValue::Bytes(value.build()),
         }
+    }
+
+    /// Creates a new `RhsValueBuilder` from the given `RhsValue`.
+    pub fn from(rhs_value: RhsValue) -> Result<Self> {
+        Ok(match rhs_value {
+            RhsValue::Int(value) => RhsValueBuilder::Int(value),
+            RhsValue::Float(value) => RhsValueBuilder::Float(value.into_inner()),
+            RhsValue::Ip(value) => RhsValueBuilder::Ip(value),
+            RhsValue::Bytes(value) => RhsValueBuilder::Bytes(BytesBuilder::from(value)),
+            _ => return Err(BuilderError::UnsupportedRhsValue(rhs_value.get_type())),
+        })
     }
 }
 
@@ -255,6 +409,34 @@ impl RhsValuesBuilder {
             ),
         })
     }
+
+    /// Creates a new `RhsValuesBuilder` from the given `RhsValues`.
+    pub fn from(rhs_values: RhsValues) -> Result<Self> {
+        Ok(match rhs_values {
+            RhsValues::Int(values) => RhsValuesBuilder::Int(
+                values
+                    .into_iter()
+                    .map(|range| (*range.0.start(), *range.0.end()))
+                    .collect(),
+            ),
+            RhsValues::Float(values) => RhsValuesBuilder::Float(
+                values
+                    .into_iter()
+                    .map(|range| (range.0.start().into_inner(), range.0.end().into_inner()))
+                    .collect(),
+            ),
+            RhsValues::Ip(values) => RhsValuesBuilder::Ip(
+                values
+                    .into_iter()
+                    .map(IpRangeBuilder::from)
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+            RhsValues::Bytes(values) => {
+                RhsValuesBuilder::Bytes(values.into_iter().map(BytesBuilder::from).collect())
+            }
+            _ => return Err(BuilderError::UnsupportedRhsValue(rhs_values.get_type())),
+        })
+    }
 }
 
 impl IpRangeBuilder {
@@ -265,6 +447,16 @@ impl IpRangeBuilder {
             IpRangeBuilder::Cidr(builder) => IpRange::Cidr(builder.build()?),
         })
     }
+
+    /// Creates a new `IpRangeBuilder` from the given `IpRange`.
+    pub fn from(ip_range: IpRange) -> Result<Self> {
+        Ok(match ip_range {
+            IpRange::Explicit(range) => {
+                IpRangeBuilder::Explicit(ExplicitIpRangeBuilder::from(range))
+            }
+            IpRange::Cidr(cidr) => IpRangeBuilder::Cidr(IpCidrBuilder::from(cidr)),
+        })
+    }
 }
 
 impl ExplicitIpRangeBuilder {
@@ -273,6 +465,18 @@ impl ExplicitIpRangeBuilder {
         match self {
             ExplicitIpRangeBuilder::V4((first, last)) => ExplicitIpRange::V4(first..=last),
             ExplicitIpRangeBuilder::V6((first, last)) => ExplicitIpRange::V6(first..=last),
+        }
+    }
+
+    /// Creates a new `ExplicitIpRangeBuilder` from the given `ExplicitIpRange`.
+    pub fn from(explicit_ip_range: ExplicitIpRange) -> Self {
+        match explicit_ip_range {
+            ExplicitIpRange::V4(range) => {
+                ExplicitIpRangeBuilder::V4((*range.start(), *range.end()))
+            }
+            ExplicitIpRange::V6(range) => {
+                ExplicitIpRangeBuilder::V6((*range.start(), *range.end()))
+            }
         }
     }
 }
@@ -286,6 +490,11 @@ impl IpCidrBuilder {
     /// Builds a `IpCidr` from the `IpCidrBuilder`.
     pub fn build(self) -> Result<IpCidr> {
         Ok(IpCidr::new(self.0, self.1)?)
+    }
+
+    /// Creates a new `IpCidrBuilder` from the given `IpCidr`.
+    pub fn from(ip_cidr: IpCidr) -> Self {
+        IpCidrBuilder::new(ip_cidr.first_address(), ip_cidr.network_length())
     }
 }
 
@@ -356,6 +565,69 @@ impl ComparisonOpExprBuilder {
             },
         })
     }
+
+    /// Creates a new `ComparisonOpExprBuilder` from the given `ComparisonOpExpr`.
+    pub fn from(comparison_op_expr: ComparisonOpExpr) -> Result<Self> {
+        Ok(match comparison_op_expr {
+            ComparisonOpExpr::IsTrue => ComparisonOpExprBuilder::IsTrue,
+            ComparisonOpExpr::Ordering { op, rhs } => ComparisonOpExprBuilder::Ordering {
+                op: OrderingOpBuilder::from(op),
+                rhs: RhsValueBuilder::from(rhs)?,
+            },
+            ComparisonOpExpr::OrderingVariable { op, var } => {
+                ComparisonOpExprBuilder::OrderingVariable {
+                    op: OrderingOpBuilder::from(op),
+                    var: VariableBuilder::from(var),
+                }
+            }
+            ComparisonOpExpr::Int { op, rhs } => ComparisonOpExprBuilder::Int {
+                op: IntOpBuilder::from(op),
+                rhs,
+            },
+            ComparisonOpExpr::IntVariable { op, var } => ComparisonOpExprBuilder::IntVariable {
+                op: IntOpBuilder::from(op),
+                var: VariableBuilder::from(var),
+            },
+            ComparisonOpExpr::Contains { rhs, variant: _ } => ComparisonOpExprBuilder::Contains {
+                rhs: BytesBuilder::from(rhs),
+            },
+            ComparisonOpExpr::ContainsVariable { var, variant: _ } => {
+                ComparisonOpExprBuilder::ContainsVariable {
+                    var: VariableBuilder::from(var),
+                }
+            }
+            ComparisonOpExpr::Matches { rhs, .. } => ComparisonOpExprBuilder::Matches {
+                rhs: RegexBuilder::from(rhs),
+            },
+            ComparisonOpExpr::MatchesVariable { var, .. } => {
+                ComparisonOpExprBuilder::MatchesVariable {
+                    var: VariableBuilder::from(var),
+                }
+            }
+            ComparisonOpExpr::OneOf { rhs, .. } => ComparisonOpExprBuilder::OneOf {
+                rhs: RhsValuesBuilder::from(rhs)?,
+            },
+            ComparisonOpExpr::OneOfVariable { var, .. } => ComparisonOpExprBuilder::OneOfVariable {
+                var: VariableBuilder::from(var),
+            },
+            ComparisonOpExpr::HasAny { rhs, .. } => ComparisonOpExprBuilder::HasAny {
+                rhs: RhsValuesBuilder::from(rhs)?,
+            },
+            ComparisonOpExpr::HasAnyVariable { var, .. } => {
+                ComparisonOpExprBuilder::HasAnyVariable {
+                    var: VariableBuilder::from(var),
+                }
+            }
+            ComparisonOpExpr::HasAll { rhs, .. } => ComparisonOpExprBuilder::HasAll {
+                rhs: RhsValuesBuilder::from(rhs)?,
+            },
+            ComparisonOpExpr::HasAllVariable { var, .. } => {
+                ComparisonOpExprBuilder::HasAllVariable {
+                    var: VariableBuilder::from(var),
+                }
+            }
+        })
+    }
 }
 
 impl OrderingOpBuilder {
@@ -368,6 +640,18 @@ impl OrderingOpBuilder {
             OrderingOpBuilder::LessThanEqual => OrderingOp::LessThanEqual(0),
             OrderingOpBuilder::GreaterThan => OrderingOp::GreaterThan(0),
             OrderingOpBuilder::LessThan => OrderingOp::LessThan(0),
+        }
+    }
+
+    /// Creates a new `OrderingOpBuilder` from the given `OrderingOp`.
+    pub fn from(ordering_op: OrderingOp) -> Self {
+        match ordering_op {
+            OrderingOp::Equal(_) => OrderingOpBuilder::Equal,
+            OrderingOp::NotEqual(_) => OrderingOpBuilder::NotEqual,
+            OrderingOp::GreaterThanEqual(_) => OrderingOpBuilder::GreaterThanEqual,
+            OrderingOp::LessThanEqual(_) => OrderingOpBuilder::LessThanEqual,
+            OrderingOp::GreaterThan(_) => OrderingOpBuilder::GreaterThan,
+            OrderingOp::LessThan(_) => OrderingOpBuilder::LessThan,
         }
     }
 }
@@ -389,6 +673,18 @@ impl IndexExprBuilder {
                 .collect(),
         })
     }
+
+    /// Creates a new `IndexExprBuilder` from the given `IndexExpr`.
+    pub fn from(index_expr: IndexExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            lhs: LhsFieldExprBuilder::from(index_expr.lhs)?,
+            indexes: index_expr
+                .indexes
+                .into_iter()
+                .map(FieldIndexBuilder::from)
+                .collect(),
+        })
+    }
 }
 
 impl FieldIndexBuilder {
@@ -398,6 +694,15 @@ impl FieldIndexBuilder {
             FieldIndexBuilder::ArrayIndex(index) => FieldIndex::ArrayIndex(index),
             FieldIndexBuilder::MapKey(key) => FieldIndex::MapKey(key),
             FieldIndexBuilder::MapEach => FieldIndex::MapEach,
+        }
+    }
+
+    /// Creates a new `FieldIndexBuilder` from the given `FieldIndex`.
+    pub fn from(field_index: FieldIndex) -> Self {
+        match field_index {
+            FieldIndex::ArrayIndex(index) => FieldIndexBuilder::ArrayIndex(index),
+            FieldIndex::MapKey(key) => FieldIndexBuilder::MapKey(key),
+            FieldIndex::MapEach => FieldIndexBuilder::MapEach,
         }
     }
 }
@@ -411,6 +716,16 @@ impl LhsFieldExprBuilder {
                 builder.build(scheme, variables)?,
             )),
         }
+    }
+
+    /// Creates a new `LhsFieldExprBuilder` from the given `LhsFieldExpr`.
+    pub fn from(lhs_field_expr: LhsFieldExpr<'_>) -> Result<Self> {
+        Ok(match lhs_field_expr {
+            LhsFieldExpr::Field(field) => LhsFieldExprBuilder::Field(FieldBuilder::from(field)),
+            LhsFieldExpr::FunctionCallExpr(expr) => {
+                LhsFieldExprBuilder::FunctionCallExpr(FunctionCallExprBuilder::from(expr)?)
+            }
+        })
     }
 }
 
@@ -445,6 +760,19 @@ impl FunctionCallExprBuilder {
             context: None,
         })
     }
+
+    /// Creates a new `FunctionCallExprBuilder` from the given `FunctionCallExpr`.
+    pub fn from(expr: FunctionCallExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            function: FunctionBuilder::from(expr.function),
+            return_type: TypeBuilder::from(expr.return_type)?,
+            args: expr
+                .args
+                .into_iter()
+                .map(FunctionCallArgExprBuilder::from)
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
 }
 
 impl TypeBuilder {
@@ -459,6 +787,20 @@ impl TypeBuilder {
             TypeBuilder::Array(inner) => Type::Array(Box::new(inner.build())),
             TypeBuilder::Map(inner) => Type::Map(Box::new(inner.build())),
         }
+    }
+
+    /// Creates a new `TypeBuilder` from the given `Type`.
+    pub fn from(ty: Type) -> Result<Self> {
+        Ok(match ty {
+            Type::Bool => TypeBuilder::Bool,
+            Type::Int => TypeBuilder::Int,
+            Type::Float => TypeBuilder::Float,
+            Type::Ip => TypeBuilder::Ip,
+            Type::Bytes => TypeBuilder::Bytes,
+            Type::Array(inner) => TypeBuilder::Array(Box::new(TypeBuilder::from(*inner)?)),
+            Type::Map(inner) => TypeBuilder::Map(Box::new(TypeBuilder::from(*inner)?)),
+            _ => return Err(BuilderError::UnsupportedType(ty)),
+        })
     }
 }
 
@@ -484,6 +826,24 @@ impl FunctionCallArgExprBuilder {
             }
         })
     }
+
+    /// Creates a new `FunctionCallArgExprBuilder` from the given `FunctionCallArgExpr`.
+    pub fn from(arg: FunctionCallArgExpr<'_>) -> Result<Self> {
+        Ok(match arg {
+            FunctionCallArgExpr::IndexExpr(expr) => {
+                FunctionCallArgExprBuilder::IndexExpr(IndexExprBuilder::from(expr)?)
+            }
+            FunctionCallArgExpr::Literal(value) => {
+                FunctionCallArgExprBuilder::Literal(RhsValueBuilder::from(value)?)
+            }
+            FunctionCallArgExpr::SimpleExpr(expr) => {
+                FunctionCallArgExprBuilder::SimpleExpr(SimpleExprBuilder::from(expr)?)
+            }
+            FunctionCallArgExpr::Variable(variable) => {
+                FunctionCallArgExprBuilder::Variable(VariableBuilder::from(variable))
+            }
+        })
+    }
 }
 
 impl FunctionBuilder {
@@ -495,6 +855,13 @@ impl FunctionBuilder {
     /// Builds a `Function` from the `FunctionBuilder`.
     pub fn build(self, scheme: &Scheme) -> Result<Function<'_>> {
         Ok(scheme.get_function(&self.name)?)
+    }
+
+    /// Creates a new `FunctionBuilder` from the given `Function`.
+    pub fn from(function: Function<'_>) -> Self {
+        Self {
+            name: function.name().to_string(),
+        }
     }
 }
 
@@ -515,6 +882,13 @@ impl VariableBuilder {
             Err(BuilderError::VariableNotFound(UnknownVariableError))
         }
     }
+
+    /// Creates a new `VariableBuilder` from the given `Variable`.
+    pub fn from(variable: Variable) -> Self {
+        Self {
+            name: variable.take_name().to_string(),
+        }
+    }
 }
 
 impl FieldBuilder {
@@ -526,5 +900,12 @@ impl FieldBuilder {
     /// Builds a `Field` from the `FieldBuilder`.
     pub fn build(self, scheme: &Scheme) -> Result<wirefilter::Field<'_>> {
         Ok(scheme.get_field(&self.name)?)
+    }
+
+    /// Creates a new `FieldBuilder` from the given `wirefilter::Field`.
+    pub fn from(field: wirefilter::Field<'_>) -> Self {
+        Self {
+            name: field.name().to_string(),
+        }
     }
 }

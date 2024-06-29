@@ -5,7 +5,7 @@
 #![warn(missing_docs)]
 
 use thiserror::Error;
-use wirefilter::{UnknownFieldError, UnknownFunctionError, UnknownVariableError};
+use wirefilter::{Type, UnknownFieldError, UnknownFunctionError, UnknownVariableError};
 
 pub mod ast;
 pub mod build;
@@ -41,6 +41,15 @@ pub enum BuilderError {
     /// Error when parsing an IP CIDR.
     #[error("Invalid IP CIDR: {0}")]
     InvalidIpCidr(#[from] cidr::errors::NetworkParseError),
+    /// Unsupported RhsValue.
+    #[error("Unsupported RhsValue: {0:?}")]
+    UnsupportedRhsValue(Type),
+    /// Unsupported Type.
+    #[error("Unsupported Type: {0:?}")]
+    UnsupportedType(Type),
+    /// Unsupported UnaryExpr.
+    #[error("Unsupported UnaryExpr: {0:?}")]
+    UnsupportedUnaryExpr(Type),
 }
 
 #[cfg(test)]
@@ -233,11 +242,45 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build();
+            let ast = builder.clone().build();
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, BuilderUnwrap) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.clone().build();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast).unwrap();
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -247,11 +290,21 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, Scheme) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&SCHEME);
+            let ast = builder.clone().build(&SCHEME);
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -261,11 +314,21 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, Variables) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&VARIABLES);
+            let ast = builder.clone().build(&VARIABLES);
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -275,11 +338,21 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, SchemeVariables) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&SCHEME, &VARIABLES);
+            let ast = builder.clone().build(&SCHEME, &VARIABLES);
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -289,11 +362,21 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, SchemeUnwrap) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&SCHEME).unwrap();
+            let ast = builder.clone().build(&SCHEME).unwrap();
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -303,11 +386,45 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, VariablesUnwrap) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&VARIABLES).unwrap();
+            let ast = builder.clone().build(&VARIABLES).unwrap();
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, VariablesUnwrapBuilderUnwrap) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.clone().build(&VARIABLES).unwrap();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast).unwrap();
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -317,11 +434,21 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, SchemeVariablesUnwrap) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build(&SCHEME, &VARIABLES).unwrap();
+            let ast = builder.clone().build(&SCHEME, &VARIABLES).unwrap();
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast).unwrap();
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -331,11 +458,45 @@ mod tests {
         ($builder:ident, $file_name:literal, $expected:expr, Unwrap) => {
             let builder: $builder = get_builder_from_json($file_name);
 
-            let ast = builder.build().unwrap();
+            let ast = builder.clone().build().unwrap();
 
             assert_eq!(
                 ast,
                 $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast);
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+        };
+
+        ($builder:ident, $file_name:literal, $expected:expr, UnwrapBuilderUnwrap) => {
+            let builder: $builder = get_builder_from_json($file_name);
+
+            let ast = builder.clone().build().unwrap();
+
+            assert_eq!(
+                ast,
+                $expected,
+                "Failed test: {} - {}",
+                stringify!($builder),
+                $file_name
+            );
+
+            let builder_from_ast = $builder::from(ast).unwrap();
+
+            assert_eq!(
+                builder,
+                builder_from_ast,
                 "Failed test: {} - {}",
                 stringify!($builder),
                 $file_name
@@ -423,12 +584,18 @@ mod tests {
 
     #[test]
     fn test_type_builder() {
-        test_builder!(TypeBuilder, "type_builder1", wirefilter::Type::Bool);
+        test_builder!(
+            TypeBuilder,
+            "type_builder1",
+            wirefilter::Type::Bool,
+            BuilderUnwrap
+        );
 
         test_builder!(
             TypeBuilder,
             "type_builder2",
-            wirefilter::Type::Array(Box::new(Type::Bytes))
+            wirefilter::Type::Array(Box::new(Type::Bytes)),
+            BuilderUnwrap
         );
     }
 
@@ -478,7 +645,7 @@ mod tests {
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder1",
             wirefilter::ComparisonOpExpr::IsTrue,
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -488,7 +655,7 @@ mod tests {
                 op: wirefilter::OrderingOp::LessThan(0),
                 rhs: wirefilter::RhsValue::Int(1),
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -498,7 +665,7 @@ mod tests {
                 op: wirefilter::IntOp::BitwiseAnd(0),
                 rhs: 1,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -511,7 +678,7 @@ mod tests {
                 },
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -525,7 +692,7 @@ mod tests {
                 .unwrap(),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -538,7 +705,7 @@ mod tests {
                 ]),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -551,7 +718,7 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -564,7 +731,7 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -577,7 +744,7 @@ mod tests {
                     wirefilter::VariableType::Int
                 )
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -590,7 +757,7 @@ mod tests {
                     wirefilter::VariableType::Int
                 ),
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -603,7 +770,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -616,7 +783,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -629,7 +796,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -642,7 +809,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -655,7 +822,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrap
+            VariablesUnwrapBuilderUnwrap
         );
     }
 
@@ -1211,7 +1378,7 @@ mod tests {
                 std::net::Ipv4Addr::new(127, 0, 0, 1).into()
                     ..=std::net::Ipv4Addr::new(127, 0, 0, 255).into()
             )),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -1220,7 +1387,7 @@ mod tests {
             wirefilter::IpRange::Cidr(
                 cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
             ),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
     }
 
@@ -1229,25 +1396,29 @@ mod tests {
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder1",
-            wirefilter::RhsValue::Int(1)
+            wirefilter::RhsValue::Int(1),
+            BuilderUnwrap
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder2",
-            wirefilter::RhsValue::Bytes("value".as_bytes().to_owned().into())
+            wirefilter::RhsValue::Bytes("value".as_bytes().to_owned().into()),
+            BuilderUnwrap
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder3",
-            wirefilter::RhsValue::Float(1.0.into())
+            wirefilter::RhsValue::Float(1.0.into()),
+            BuilderUnwrap
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder4",
-            wirefilter::RhsValue::Ip(std::net::Ipv4Addr::new(127, 0, 0, 1).into())
+            wirefilter::RhsValue::Ip(std::net::Ipv4Addr::new(127, 0, 0, 1).into()),
+            BuilderUnwrap
         );
     }
 
@@ -1260,14 +1431,14 @@ mod tests {
                 wirefilter::IntRange(1..=2),
                 wirefilter::IntRange(3..=4),
             ]),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
 
         test_builder!(
             RhsValuesBuilder,
             "rhs_values_builder2",
             wirefilter::RhsValues::Float(vec![wirefilter::FloatRange(1.0.into()..=10.0.into())]),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -1276,7 +1447,7 @@ mod tests {
             wirefilter::RhsValues::Ip(vec![wirefilter::IpRange::Cidr(
                 cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
             )]),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
 
         test_builder!(
@@ -1286,7 +1457,7 @@ mod tests {
                 value: "value".into(),
                 ty: wirefilter::StrType::Escaped
             }]),
-            Unwrap
+            UnwrapBuilderUnwrap
         );
     }
 }

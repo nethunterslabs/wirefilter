@@ -34,4 +34,9 @@ impl Regex {
     pub fn as_str(&self) -> &str {
         self.value.as_str()
     }
+
+    /// Returns the type of string literal.
+    pub fn ty(&self) -> StrType {
+        self.ty
+    }
 }

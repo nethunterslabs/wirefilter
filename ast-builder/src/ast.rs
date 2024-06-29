@@ -5,19 +5,19 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use serde::{Deserialize, Serialize};
 
 /// Builder for `FilterAst`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FilterAstBuilder {
     pub(crate) op: LogicalExprBuilder,
 }
 
 /// Builder for `SingleValueExprAst`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SingleValueExprAstBuilder {
     pub(crate) op: LhsFieldExprBuilder,
 }
 
 /// Builder for `LogicalExprAst`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum LogicalExprBuilder {
     /// Sub-expression
     Simple(SimpleExprBuilder),
@@ -26,7 +26,7 @@ pub enum LogicalExprBuilder {
 }
 
 /// Builder for `CombiningExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct CombiningExprBuilder {
     /// Logical operator
     pub(crate) op: LogicalOpBuilder,
@@ -35,7 +35,7 @@ pub struct CombiningExprBuilder {
 }
 
 /// Builder for `LogicalOp`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum LogicalOpBuilder {
     /// Logical OR
     Or,
@@ -46,7 +46,7 @@ pub enum LogicalOpBuilder {
 }
 
 /// Builder for `SimpleExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum SimpleExprBuilder {
     /// A comparison expression.
     Comparison(ComparisonExprBuilder),
@@ -57,7 +57,7 @@ pub enum SimpleExprBuilder {
 }
 
 /// Builder for `UnaryExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct UnaryExprBuilder {
     /// Unary operator.
     pub(crate) op: UnaryOpBuilder,
@@ -66,21 +66,21 @@ pub struct UnaryExprBuilder {
 }
 
 /// Builder for `UnaryOp`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum UnaryOpBuilder {
     /// Logical NOT
     Not,
 }
 
 /// Builder for `ComparisonExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ComparisonExprBuilder {
     pub(crate) lhs: IndexExprBuilder,
     pub(crate) op: ComparisonOpExprBuilder,
 }
 
 /// Builder for `ComparisonOpExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ComparisonOpExprBuilder {
     /// Boolean field verification
     IsTrue,
@@ -193,7 +193,7 @@ pub enum ComparisonOpExprBuilder {
 }
 
 /// Builder for `Regex`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct RegexBuilder {
     /// Regex value.
     pub(crate) value: String,
@@ -202,7 +202,7 @@ pub struct RegexBuilder {
 }
 
 /// Builder for `Bytes`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum BytesBuilder {
     /// String representation of bytes
     Str {
@@ -221,7 +221,7 @@ pub enum BytesBuilder {
 }
 
 /// Builder for `StrType`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum StrTypeBuilder {
     /// Raw string literal.
     Raw {
@@ -233,7 +233,7 @@ pub enum StrTypeBuilder {
 }
 
 /// Builder for `ByteSeparator`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ByteSeparatorBuilder {
     /// Colon separator.
     Colon,
@@ -244,14 +244,14 @@ pub enum ByteSeparatorBuilder {
 }
 
 /// Builder for `IntOp`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum IntOpBuilder {
     /// "&" | "bitwise_and" | "BITWISE_AND"
     BitwiseAnd,
 }
 
 /// Builder for `RhsValue`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum RhsValueBuilder {
     /// A 32-bit integer number.
     Int(i32),
@@ -269,7 +269,7 @@ pub enum RhsValueBuilder {
 }
 
 /// Builder for `RhsValues`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum RhsValuesBuilder {
     /// A list of 32-bit integer numbers.
     Int(Vec<(i32, i32)>),
@@ -282,7 +282,7 @@ pub enum RhsValuesBuilder {
 }
 
 /// Builder for `IpRange`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum IpRangeBuilder {
     /// Explicit range of IP addresses.
     Explicit(ExplicitIpRangeBuilder),
@@ -291,7 +291,7 @@ pub enum IpRangeBuilder {
 }
 
 /// Builder for `ExplicitIpRange`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ExplicitIpRangeBuilder {
     /// An explicit range of IPv4 addresses.
     V4((Ipv4Addr, Ipv4Addr)),
@@ -300,11 +300,11 @@ pub enum ExplicitIpRangeBuilder {
 }
 
 /// Builder for `IpCidr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct IpCidrBuilder(pub IpAddr, pub u8);
 
 /// Builder for `OrderingOp`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum OrderingOpBuilder {
     /// "eq" | "EQ" | "=="
     Equal,
@@ -321,7 +321,7 @@ pub enum OrderingOpBuilder {
 }
 
 /// Builder for `IndexExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct IndexExprBuilder {
     /// Left-hand side of the index expression.
     pub lhs: LhsFieldExprBuilder,
@@ -330,7 +330,7 @@ pub struct IndexExprBuilder {
 }
 
 /// Builder for `FieldIndex`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum FieldIndexBuilder {
     /// Index into an Array
     ArrayIndex(u32),
@@ -343,7 +343,7 @@ pub enum FieldIndexBuilder {
 }
 
 /// Builder for `LhsFieldExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum LhsFieldExprBuilder {
     /// Field expression
     Field(FieldBuilder),
@@ -352,7 +352,7 @@ pub enum LhsFieldExprBuilder {
 }
 
 /// Builder for `FunctionCallExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FunctionCallExprBuilder {
     /// Function being called.
     pub function: FunctionBuilder,
@@ -363,7 +363,7 @@ pub struct FunctionCallExprBuilder {
 }
 
 /// Builder for `Type`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum TypeBuilder {
     /// A boolean.
     Bool,
@@ -393,7 +393,7 @@ pub enum TypeBuilder {
 }
 
 /// Builder for `FunctionCallArgExpr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum FunctionCallArgExprBuilder {
     /// IndexExpr is a field that supports the indexing operator.
     IndexExpr(IndexExprBuilder),
@@ -408,21 +408,21 @@ pub enum FunctionCallArgExprBuilder {
 }
 
 /// Builder for `Variable`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct VariableBuilder {
     /// Name of the variable.
     pub name: String,
 }
 
 /// Builder for `Function`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FunctionBuilder {
     /// Name of the function.
     pub name: String,
 }
 
 /// Builder for `Field`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FieldBuilder {
     /// Name of the field.
     pub name: String,
