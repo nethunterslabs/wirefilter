@@ -270,7 +270,26 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     }
                     StrType::Escaped => {
                         output.push('"');
-                        output.push_str(&escape(regex.as_str(), false));
+                        let mut escaped_regex = String::new();
+                        let mut in_char_class = false;
+                        for c in regex.as_str().chars() {
+                            match c {
+                                '"' if !in_char_class => {
+                                    escaped_regex.push('\\');
+                                    escaped_regex.push('"');
+                                }
+                                '[' => {
+                                    in_char_class = true;
+                                    escaped_regex.push('[');
+                                }
+                                ']' => {
+                                    in_char_class = false;
+                                    escaped_regex.push(']');
+                                }
+                                _ => escaped_regex.push(c),
+                            }
+                        }
+                        output.push_str(&escaped_regex);
                         output.push('"');
                     }
                 }
@@ -813,7 +832,7 @@ mod tests {
                 execution_context
                     .set_field_value(
                         SCHEME.get_field("http.user_agent").unwrap(),
-                        LhsValue::Bytes(b".\"abc\"".into()),
+                        LhsValue::Bytes(b"\\.\"abc\"".into()),
                     )
                     .unwrap();
                 execution_context
@@ -1188,6 +1207,10 @@ mod tests {
         test_fmt!(
             r##"http.user_agent MATCHES r#"\."[a-z]{3}""#"##,
             r##"http.user_agent MATCHES r#"\."[a-z]{3}""#"##
+        );
+        test_fmt!(
+            r#"http.user_agent MATCHES "\.\"[a-z\"]{3}""#,
+            r#"http.user_agent MATCHES "\.\"[a-z\"]{3}""#
         );
         test_fmt!(r#"http.host ~ "\.[a-z]{3}""#, r#"http.host ~ "\.[a-z]{3}""#);
     }
