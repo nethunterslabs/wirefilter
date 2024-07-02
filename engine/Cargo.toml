@@ -29,7 +29,7 @@ lazy_static = "1.4.0"
 memmem = "0.1.1"
 ordered-float = { version = "4.2.0", features = ["serde"] }
 rand = "0.8.5"
-regex = { version = "1.10.5", optional = true }
+regex = { version = "1.10.5" }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 sliceslice = "0.4.2"
@@ -39,6 +39,3 @@ thiserror = "1.0.61"
 criterion = "0.3.6"
 indoc = "2.0.5"
 lazy_static = "1.4.0"
-
-[features]
-default = ["regex"]
