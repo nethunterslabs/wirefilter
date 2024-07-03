@@ -40,6 +40,13 @@ impl Variables {
         }
     }
 
+    /// Creates a new set of variables with a given capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Variables {
+            inner: IndexMap::with_capacity(capacity),
+        }
+    }
+
     /// Inserts a variable into the set.
     pub fn add(&mut self, key: String, value: VariableValue) {
         self.inner.insert(key, value);
@@ -79,6 +86,16 @@ impl Variables {
     /// Get the mutable inner map.
     pub fn inner_mut(&mut self) -> &mut IndexMap<String, VariableValue> {
         &mut self.inner
+    }
+
+    /// Returns the number of variables in the set.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if the set contains no variables.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }
 
