@@ -12,11 +12,11 @@ doctest = false
 [dependencies]
 wirefilter-engine = { path = "../engine" }
 
-cidr = "0.2.2"
+cidr = "0.2.3"
 regex = "1.10.5"
 serde = { version = "1.0.203", features = ["derive"] }
 thiserror = "1.0.61"
 
 [dev-dependencies]
-lazy_static = "1.4.0"
-serde_json = { version = "1.0.117" }
+lazy_static = "1.5.0"
+serde_json = { version = "1.0.120" }
