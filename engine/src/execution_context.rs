@@ -78,7 +78,7 @@ impl Variables {
         self.inner.clear();
     }
 
-    /// Get the inner map.
+    /// Get a reference to the inner map.
     pub fn inner(&self) -> &IndexMap<String, VariableValue> {
         &self.inner
     }
@@ -86,6 +86,11 @@ impl Variables {
     /// Get the mutable inner map.
     pub fn inner_mut(&mut self) -> &mut IndexMap<String, VariableValue> {
         &mut self.inner
+    }
+
+    /// Get the inner map.
+    pub fn into_inner(self) -> IndexMap<String, VariableValue> {
+        self.inner
     }
 
     /// Returns the number of variables in the set.
@@ -96,6 +101,20 @@ impl Variables {
     /// Returns true if the set contains no variables.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    /// Iterates over the variables in the set.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &VariableValue)> {
+        self.inner.iter()
+    }
+}
+
+impl IntoIterator for Variables {
+    type Item = (String, VariableValue);
+    type IntoIter = indexmap::map::IntoIter<String, VariableValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
     }
 }
 
