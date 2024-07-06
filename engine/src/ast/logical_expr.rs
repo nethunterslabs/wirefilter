@@ -313,36 +313,26 @@ fn test() {
     let ctx = &mut ExecutionContext::new(scheme);
 
     let t_expr = LogicalExpr::Simple(SimpleExpr::Comparison(
-        complete(ComparisonExpr::lex_with_2(
-            "t",
-            &scheme,
-            &Default::default(),
-        ))
-        .unwrap(),
+        complete(ComparisonExpr::lex_with_2("t", scheme, &Default::default())).unwrap(),
     ));
 
     let t_expr = || t_expr.clone();
 
     let f_expr = LogicalExpr::Simple(SimpleExpr::Comparison(
-        complete(ComparisonExpr::lex_with_2(
-            "f",
-            &scheme,
-            &Default::default(),
-        ))
-        .unwrap(),
+        complete(ComparisonExpr::lex_with_2("f", scheme, &Default::default())).unwrap(),
     ));
 
     let f_expr = || f_expr.clone();
 
     assert_ok!(
-        LogicalExpr::lex_with_2("t", &scheme, &Default::default()),
+        LogicalExpr::lex_with_2("t", scheme, &Default::default()),
         t_expr()
     );
 
     let at_expr = LogicalExpr::Simple(SimpleExpr::Comparison(
         complete(ComparisonExpr::lex_with_2(
             "at",
-            &scheme,
+            scheme,
             &Default::default(),
         ))
         .unwrap(),
@@ -353,7 +343,7 @@ fn test() {
     let af_expr = LogicalExpr::Simple(SimpleExpr::Comparison(
         complete(ComparisonExpr::lex_with_2(
             "af",
-            &scheme,
+            scheme,
             &Default::default(),
         ))
         .unwrap(),
@@ -362,7 +352,7 @@ fn test() {
     let af_expr = || af_expr.clone();
 
     assert_ok!(
-        LogicalExpr::lex_with_2("at", &scheme, &Default::default()),
+        LogicalExpr::lex_with_2("at", scheme, &Default::default()),
         at_expr()
     );
 
@@ -389,7 +379,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("t and t", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t and t", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::And(0),
                 items: vec![t_expr(), t_expr()],
@@ -403,7 +393,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("t and f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t and f", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::And(0),
                 items: vec![t_expr(), f_expr()],
@@ -434,7 +424,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("t or f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t or f", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Or(0),
                 items: vec![t_expr(), f_expr()],
@@ -465,7 +455,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("f or f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("f or f", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Or(0),
                 items: vec![f_expr(), f_expr()],
@@ -479,7 +469,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("t xor f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t xor f", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Xor(0),
                 items: vec![t_expr(), f_expr()],
@@ -510,7 +500,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("f xor f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("f xor f", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Xor(0),
                 items: vec![f_expr(), f_expr()],
@@ -524,7 +514,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("f xor t", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("f xor t", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Xor(0),
                 items: vec![f_expr(), t_expr()],
@@ -539,7 +529,7 @@ fn test() {
     assert_ok!(
         LogicalExpr::lex_with_2(
             "t or t && t and t or t ^^ t and t || t",
-            &scheme,
+            scheme,
             &Default::default(),
         ),
         LogicalExpr::Combining {
@@ -572,7 +562,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("at and af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at and af", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::And(0),
                 items: vec![at_expr(), af_expr()],
@@ -589,7 +579,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("at or af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at or af", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Or(0),
                 items: vec![at_expr(), af_expr()],
@@ -606,7 +596,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            LogicalExpr::lex_with_2("at xor af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at xor af", scheme, &Default::default()),
             LogicalExpr::Combining {
                 op: LogicalOp::Xor(0),
                 items: vec![at_expr(), af_expr()],
@@ -623,7 +613,7 @@ fn test() {
 
     {
         assert_err!(
-            LogicalExpr::lex_with_2("t and af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t and af", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Bool.into(),
                 actual: Type::Array(Box::new(Type::Bool)),
@@ -632,7 +622,7 @@ fn test() {
         );
 
         assert_err!(
-            LogicalExpr::lex_with_2("at and f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at and f", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Array(Box::new(Type::Bool)).into(),
                 actual: Type::Bool,
@@ -643,7 +633,7 @@ fn test() {
 
     {
         assert_err!(
-            LogicalExpr::lex_with_2("t or af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t or af", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Bool.into(),
                 actual: Type::Array(Box::new(Type::Bool)),
@@ -652,7 +642,7 @@ fn test() {
         );
 
         assert_err!(
-            LogicalExpr::lex_with_2("at or f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at or f", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Array(Box::new(Type::Bool)).into(),
                 actual: Type::Bool,
@@ -663,7 +653,7 @@ fn test() {
 
     {
         assert_err!(
-            LogicalExpr::lex_with_2("t xor af", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("t xor af", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Bool.into(),
                 actual: Type::Array(Box::new(Type::Bool)),
@@ -672,7 +662,7 @@ fn test() {
         );
 
         assert_err!(
-            LogicalExpr::lex_with_2("at xor f", &scheme, &Default::default()),
+            LogicalExpr::lex_with_2("at xor f", scheme, &Default::default()),
             LexErrorKind::TypeMismatch(TypeMismatchError {
                 expected: Type::Array(Box::new(Type::Bool)).into(),
                 actual: Type::Bool,

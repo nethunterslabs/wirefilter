@@ -159,19 +159,14 @@ fn test() {
     .unwrap();
 
     let t_expr = SimpleExpr::Comparison(
-        complete(ComparisonExpr::lex_with_2(
-            "t",
-            &scheme,
-            &Default::default(),
-        ))
-        .unwrap(),
+        complete(ComparisonExpr::lex_with_2("t", scheme, &Default::default())).unwrap(),
     );
     let t_expr = || t_expr.clone();
 
     let at_expr = SimpleExpr::Comparison(
         complete(ComparisonExpr::lex_with_2(
             "at",
-            &scheme,
+            scheme,
             &Default::default(),
         ))
         .unwrap(),
@@ -180,7 +175,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("t", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("t", scheme, &Default::default()),
             t_expr()
         );
 
@@ -201,7 +196,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("at", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("at", scheme, &Default::default()),
             at_expr()
         );
 
@@ -224,7 +219,7 @@ fn test() {
     }
 
     {
-        let expr = SimpleExpr::lex_with_2("at[*]", &scheme, &Default::default())
+        let expr = SimpleExpr::lex_with_2("at[*]", scheme, &Default::default())
             .unwrap()
             .0;
 
@@ -248,7 +243,7 @@ fn test() {
 
     {
         assert_err!(
-            SimpleExpr::lex_with_2("aat[*]", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("aat[*]", scheme, &Default::default()),
             LexErrorKind::UnsupportedOp {
                 lhs_type: Type::Array(Box::new(Type::Array(Box::new(Type::Bool))))
             },
@@ -260,7 +255,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("((t))", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("((t))", scheme, &Default::default()),
             parenthesized_expr(parenthesized_expr(t_expr()))
         );
 
@@ -279,7 +274,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("((at))", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("((at))", scheme, &Default::default()),
             parenthesized_expr(parenthesized_expr(at_expr()))
         );
 
@@ -306,7 +301,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("not t", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("not t", scheme, &Default::default()),
             not_expr(t_expr())
         );
 
@@ -327,13 +322,13 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("!t", &scheme, &Default::default()),
+        SimpleExpr::lex_with_2("!t", scheme, &Default::default()),
         not_expr(t_expr())
     );
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("not at", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("not at", scheme, &Default::default()),
             not_expr(at_expr())
         );
 
@@ -357,13 +352,13 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("!at", &scheme, &Default::default()),
+        SimpleExpr::lex_with_2("!at", scheme, &Default::default()),
         not_expr(at_expr())
     );
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("!!t", &scheme, &Default::default()),
+            SimpleExpr::lex_with_2("!!t", scheme, &Default::default()),
             not_expr(not_expr(t_expr()))
         );
 

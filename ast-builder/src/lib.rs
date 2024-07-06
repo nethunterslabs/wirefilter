@@ -1363,8 +1363,7 @@ mod tests {
             ExplicitIpRangeBuilder,
             "explicit_ip_range_builder",
             wirefilter::ExplicitIpRange::V4(
-                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
-                    ..=std::net::Ipv4Addr::new(127, 0, 0, 255).into()
+                std::net::Ipv4Addr::new(127, 0, 0, 1)..=std::net::Ipv4Addr::new(127, 0, 0, 255)
             )
         );
     }
@@ -1375,8 +1374,7 @@ mod tests {
             IpRangeBuilder,
             "ip_range_builder1",
             wirefilter::IpRange::Explicit(wirefilter::ExplicitIpRange::V4(
-                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
-                    ..=std::net::Ipv4Addr::new(127, 0, 0, 255).into()
+                std::net::Ipv4Addr::new(127, 0, 0, 1)..=std::net::Ipv4Addr::new(127, 0, 0, 255)
             )),
             UnwrapBuilderUnwrap
         );
