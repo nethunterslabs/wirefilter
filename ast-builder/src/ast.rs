@@ -113,6 +113,12 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
+    /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
+    Cases {
+        /// Cases patterns
+        patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
+    },
+
     /// Integer comparison
     Int {
         /// Integer comparison operator:
@@ -248,6 +254,32 @@ pub enum ByteSeparatorBuilder {
 pub enum IntOpBuilder {
     /// "&" | "bitwise_and" | "BITWISE_AND"
     BitwiseAnd,
+}
+
+/// Builder for `CasePatternValue`.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub enum CasePatternValueBuilder {
+    /// A boolean.
+    Bool,
+    /// A 32-bit integer number.
+    Int(i32),
+    /// Represents a range of integers.
+    IntRange((i32, i32)),
+    /// A 64-bit floating point number.
+    Float(f64),
+    /// Represents a range of floating point numbers.
+    FloatRange((f64, f64)),
+    /// An IPv4 or IPv6 address.
+    ///
+    /// These are represented as a single type to allow interop comparisons.
+    Ip(IpAddr),
+    /// Represents a range of IP addresses.
+    IpRange(IpRangeBuilder),
+    /// A raw bytes or a string field.
+    ///
+    /// These are completely interchangeable in runtime and differ only in
+    /// syntax representation, so we represent them as a single type.
+    Bytes(BytesBuilder),
 }
 
 /// Builder for `RhsValue`.

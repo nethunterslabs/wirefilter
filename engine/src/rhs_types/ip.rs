@@ -67,6 +67,28 @@ impl IpRange {
             IpRange::Cidr(cidr) => cidr.contains(addr),
         }
     }
+
+    pub(crate) fn as_range(&self) -> RangeInclusive<IpAddr> {
+        match self {
+            IpRange::Explicit(range) => match range {
+                ExplicitIpRange::V4(range) => {
+                    let start = IpAddr::V4(*range.start());
+                    let end = IpAddr::V4(*range.end());
+                    start..=end
+                }
+                ExplicitIpRange::V6(range) => {
+                    let start = IpAddr::V6(*range.start());
+                    let end = IpAddr::V6(*range.end());
+                    start..=end
+                }
+            },
+            IpRange::Cidr(cidr) => {
+                let start = cidr.first_address();
+                let end = cidr.last_address();
+                start..=end
+            }
+        }
+    }
 }
 
 impl From<IpAddr> for IpRange {

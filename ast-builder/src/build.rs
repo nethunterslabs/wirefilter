@@ -4,11 +4,11 @@ use std::net::IpAddr;
 
 use cidr::IpCidr;
 use wirefilter::{
-    ByteSeparator, Bytes, ComparisonExpr, ComparisonOpExpr, ExplicitIpRange, FieldIndex, FilterAst,
-    FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, GetType, IndexExpr, IntOp,
-    IntRange, IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex,
-    RhsValue, RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type, UnaryOp,
-    UnknownVariableError, Variable, Variables,
+    ByteSeparator, Bytes, CasePatternValue, ComparisonExpr, ComparisonOpExpr, ExplicitIpRange,
+    FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, GetType,
+    IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat,
+    OrderingOp, Regex, RhsValue, RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type,
+    UnaryOp, UnknownVariableError, Variable, Variables,
 };
 
 use crate::ast::*;
@@ -236,7 +236,7 @@ impl ComparisonExprBuilder {
     ) -> Result<ComparisonExpr<'s>> {
         Ok(ComparisonExpr {
             lhs: self.lhs.build(scheme, variables)?,
-            op: self.op.build(variables)?,
+            op: self.op.build(scheme, variables)?,
         })
     }
 
@@ -353,6 +353,54 @@ impl IntOpBuilder {
         match int_op {
             IntOp::BitwiseAnd(_) => IntOpBuilder::BitwiseAnd,
         }
+    }
+}
+
+impl CasePatternValueBuilder {
+    /// Builds a `CasePatternValue` from the `CasePatternValueBuilder`.
+    pub fn build(self) -> Result<CasePatternValue> {
+        Ok(match self {
+            CasePatternValueBuilder::Bool => CasePatternValue::Bool,
+            CasePatternValueBuilder::Int(value) => CasePatternValue::Int(value),
+            CasePatternValueBuilder::IntRange((first, last)) => {
+                CasePatternValue::IntRange(IntRange(first..=last))
+            }
+            CasePatternValueBuilder::Float(value) => CasePatternValue::Float(OrderedFloat(value)),
+            CasePatternValueBuilder::FloatRange((first, last)) => {
+                CasePatternValue::FloatRange(FloatRange(OrderedFloat(first)..=OrderedFloat(last)))
+            }
+            CasePatternValueBuilder::Ip(value) => CasePatternValue::Ip(value),
+            CasePatternValueBuilder::IpRange(range) => CasePatternValue::IpRange(range.build()?),
+            CasePatternValueBuilder::Bytes(value) => CasePatternValue::Bytes(value.build()),
+        })
+    }
+
+    /// Creates a new `CasePatternValueBuilder` from the given `CasePatternValue`.
+    pub fn from(case_pattern_value: CasePatternValue) -> Result<Self> {
+        Ok(match case_pattern_value {
+            CasePatternValue::Bool => CasePatternValueBuilder::Bool,
+            CasePatternValue::Int(value) => CasePatternValueBuilder::Int(value),
+            CasePatternValue::IntRange(range) => {
+                CasePatternValueBuilder::IntRange((*range.0.start(), *range.0.end()))
+            }
+            CasePatternValue::Float(value) => CasePatternValueBuilder::Float(value.into_inner()),
+            CasePatternValue::FloatRange(range) => CasePatternValueBuilder::FloatRange((
+                range.0.start().into_inner(),
+                range.0.end().into_inner(),
+            )),
+            CasePatternValue::Ip(value) => CasePatternValueBuilder::Ip(value),
+            CasePatternValue::IpRange(range) => {
+                CasePatternValueBuilder::IpRange(IpRangeBuilder::from(range)?)
+            }
+            CasePatternValue::Bytes(value) => {
+                CasePatternValueBuilder::Bytes(BytesBuilder::from(value))
+            }
+            _ => {
+                return Err(BuilderError::UnsupportedCasePatternValue(
+                    case_pattern_value.get_type().unwrap_or(Type::Bool),
+                ))
+            }
+        })
     }
 }
 
@@ -500,7 +548,11 @@ impl IpCidrBuilder {
 
 impl ComparisonOpExprBuilder {
     /// Builds a `ComparisonOpExpr` from the `ComparisonOpExprBuilder`.
-    pub fn build(self, variables: &Variables) -> Result<ComparisonOpExpr> {
+    pub fn build<'s>(
+        self,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> Result<ComparisonOpExpr<'s>> {
         Ok(match self {
             ComparisonOpExprBuilder::IsTrue => ComparisonOpExpr::IsTrue,
             ComparisonOpExprBuilder::Ordering { op, rhs } => ComparisonOpExpr::Ordering {
@@ -513,6 +565,21 @@ impl ComparisonOpExprBuilder {
                     var: var.build(variables)?,
                 }
             }
+            ComparisonOpExprBuilder::Cases { patterns } => ComparisonOpExpr::Cases {
+                patterns: patterns
+                    .into_iter()
+                    .map(|(patterns, expr)| {
+                        Ok((
+                            patterns
+                                .into_iter()
+                                .map(|pattern| pattern.build())
+                                .collect::<Result<Vec<_>>>()?,
+                            expr.build(scheme, variables)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                variant: 0,
+            },
             ComparisonOpExprBuilder::Int { op, rhs } => ComparisonOpExpr::Int {
                 op: op.build(),
                 rhs,
@@ -580,6 +647,20 @@ impl ComparisonOpExprBuilder {
                     var: VariableBuilder::from(var),
                 }
             }
+            ComparisonOpExpr::Cases { patterns, .. } => ComparisonOpExprBuilder::Cases {
+                patterns: patterns
+                    .into_iter()
+                    .map(|(patterns, expr)| {
+                        Ok((
+                            patterns
+                                .into_iter()
+                                .map(CasePatternValueBuilder::from)
+                                .collect::<Result<Vec<_>>>()?,
+                            LogicalExprBuilder::from(expr)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            },
             ComparisonOpExpr::Int { op, rhs } => ComparisonOpExprBuilder::Int {
                 op: IntOpBuilder::from(op),
                 rhs,

@@ -4,17 +4,20 @@ use super::{
     Expr,
 };
 use crate::{
-    ast::index_expr::IndexExpr,
+    ast::{index_expr::IndexExpr, logical_expr::LogicalExpr},
     compiler::Compiler,
     execution_context::Variables,
     filter::{CompiledExpr, CompiledValueExpr},
     lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
-    range_set::RangeSet,
+    range_set::{RangeSet, RangeSetWithId},
     rhs_types::{Bytes, ExplicitIpRange, Regex, Variable},
     scheme::{Field, Identifier, Scheme},
     searcher::{EmptySearcher, TwoWaySearcher},
     strict_partial_ord::StrictPartialOrd,
-    types::{GetType, LhsValue, RhsValue, RhsValues, Type, VariableValue},
+    types::{
+        CasePatternValue, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError,
+        VariableValue,
+    },
 };
 use aho_corasick::AhoCorasickBuilder;
 use fnv::FnvBuildHasher;
@@ -23,7 +26,10 @@ use indexmap::IndexSet;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 use sliceslice::MemchrSearcher;
-use std::{cmp::Ordering, net::IpAddr};
+use std::{
+    cmp::Ordering,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
 
 const LESS: u8 = 0b001;
 const GREATER: u8 = 0b010;
@@ -102,6 +108,7 @@ lex_enum!(ComparisonOp {
     "in" | "IN" => In,
     "has_any" | "HAS_ANY" => HasAny,
     "has_all" | "HAS_ALL" => HasAll,
+    "cases" | "CASES" | "=>" => Cases,
     OrderingOp => Ordering,
     IntOp => Int,
     BytesOp => Bytes,
@@ -111,7 +118,7 @@ lex_enum!(ComparisonOp {
 /// comparison expression.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
 #[serde(untagged)]
-pub enum ComparisonOpExpr {
+pub enum ComparisonOpExpr<'s> {
     /// Boolean field verification
     #[serde(serialize_with = "serialize_is_true")]
     IsTrue,
@@ -142,6 +149,15 @@ pub enum ComparisonOpExpr {
         op: OrderingOp,
         /// `Variable` from the `Scheme`
         var: Variable,
+    },
+
+    /// "cases {...}" / "CASES {...}" / "=>" comparison
+    #[serde(serialize_with = "serialize_cases")]
+    Cases {
+        /// Cases patterns
+        patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
+        /// Variant, used for formatting
+        variant: u8,
     },
 
     /// Integer comparison
@@ -269,6 +285,19 @@ fn serialize_is_true<S: Serializer>(ser: S) -> Result<S::Ok, S::Error> {
     out.end()
 }
 
+fn serialize_cases<S: Serializer>(
+    patterns: &Vec<(Vec<CasePatternValue>, LogicalExpr<'_>)>,
+    _: &u8,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeStruct;
+
+    let mut out = ser.serialize_struct("ComparisonOpExpr", 2)?;
+    out.serialize_field("op", "Cases")?;
+    out.serialize_field("patterns", patterns)?;
+    out.end()
+}
+
 fn serialize_contains<S: Serializer>(rhs: &Bytes, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("Contains", rhs, ser)
 }
@@ -354,7 +383,7 @@ pub struct ComparisonExpr<'s> {
 
     /// Operator + right-hand side of the comparison expression
     #[serde(flatten)]
-    pub op: ComparisonOpExpr,
+    pub op: ComparisonOpExpr<'s>,
 }
 
 impl<'s> GetType for ComparisonExpr<'s> {
@@ -385,7 +414,7 @@ impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for ComparisonExpr<'s> {
 impl<'s> ComparisonExpr<'s> {
     pub(crate) fn lex_with_lhs<'i>(
         input: &'i str,
-        _scheme: &'s Scheme,
+        scheme: &'s Scheme,
         lhs: IndexExpr<'s>,
         variables: &Variables,
     ) -> LexResult<'i, Self> {
@@ -629,6 +658,472 @@ impl<'s> ComparisonExpr<'s> {
                         }
                     }
                 }
+                (Type::Bytes, ComparisonOp::Cases(variant))
+                | (Type::Int, ComparisonOp::Cases(variant))
+                | (Type::Float, ComparisonOp::Cases(variant))
+                | (Type::Ip, ComparisonOp::Cases(variant)) => {
+                    let input = expect(input, "{")?;
+                    let mut input = skip_space(input);
+                    let mut all_patterns = Vec::new();
+                    let mut uses_catch_all_pattern = false;
+                    loop {
+                        let mut patterns = IndexSet::new();
+                        let mut index = 0;
+                        loop {
+                            let (pattern, rest) =
+                                CasePatternValue::lex_with_lhs_type(input, &lhs_type)?;
+                            if pattern == CasePatternValue::Bool {
+                                if uses_catch_all_pattern {
+                                    return Err((
+                                        LexErrorKind::DuplicateCatchAllPattern,
+                                        span(input, rest),
+                                    ));
+                                } else {
+                                    uses_catch_all_pattern = true;
+                                }
+                            } else if uses_catch_all_pattern {
+                                return Err((
+                                    LexErrorKind::NonCatchAllPatternAfterCatchAll,
+                                    span(input, rest),
+                                ));
+                            } else if !pattern.is_supported_lhs_value_match(&lhs_type) {
+                                return Err((
+                                    LexErrorKind::TypeMismatch(TypeMismatchError {
+                                        expected: pattern.get_type().unwrap_or(Type::Bool).into(),
+                                        actual: lhs_type,
+                                    }),
+                                    span(input, rest),
+                                ));
+                            }
+
+                            input = skip_space(rest);
+
+                            let len = patterns.len();
+                            patterns.insert(pattern);
+                            if len == patterns.len() {
+                                return Err((
+                                    LexErrorKind::DuplicateCasePattern { index },
+                                    span(input, rest),
+                                ));
+                            }
+
+                            if let Ok(rest) = expect(input, "|") {
+                                input = skip_space(rest);
+                            } else {
+                                break;
+                            }
+
+                            index += 1;
+                        }
+
+                        input = skip_space(input);
+                        input = expect(input, "=>")?;
+                        input = skip_space(input);
+
+                        let (logical_expr, rest) =
+                            LogicalExpr::lex_with_2(input, scheme, variables)?;
+                        // LogicalExpr::lex_with can return an AST where the root is an
+                        // LogicalExpr::Combining of type [`Array(Bool)`].
+                        //
+                        // It must do this because we need to be able to use
+                        // LogicalExpr::Combining of type [`Array(Bool)`]
+                        // as arguments to functions, however it should not be valid as a
+                        // case expression in a comparison expression.
+                        //
+                        // Here we enforce the constraint that the case expression of the AST, a
+                        // LogicalExpr, must evaluate to type [`Bool`].
+                        let ty = logical_expr.get_type();
+                        if ty != Type::Bool {
+                            return Err((
+                                LexErrorKind::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Bool.into(),
+                                    actual: ty,
+                                }),
+                                input,
+                            ));
+                        }
+                        all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), logical_expr));
+
+                        input = skip_space(rest);
+                        if expect(input, "}").is_ok() {
+                            break;
+                        }
+                        if let Ok(new_input) = expect(input, ",") {
+                            input = skip_space(new_input);
+                        }
+                        if expect(input, "}").is_ok() {
+                            break;
+                        }
+                        input = skip_space(input);
+                    }
+
+                    if all_patterns.is_empty() {
+                        return Err((
+                            LexErrorKind::ExpectedCasePatterns,
+                            span(initial_input, input),
+                        ));
+                    } else if all_patterns.len() == 1 {
+                        return Err((LexErrorKind::SingleCasePattern, span(initial_input, input)));
+                    } else {
+                        let mut duplicate_case_pattern = None;
+                        for (i, (patterns, _)) in all_patterns.iter().enumerate() {
+                            for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
+                                if i != j && patterns == other_patterns {
+                                    duplicate_case_pattern = Some(i);
+                                    break;
+                                }
+                            }
+                            if duplicate_case_pattern.is_some() {
+                                break;
+                            }
+                        }
+
+                        if let Some(i) = duplicate_case_pattern {
+                            return Err((
+                                LexErrorKind::DuplicateCasePattern { index: i },
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        let mut duplicate_case_expr = None;
+                        for (i, (patterns, _)) in all_patterns.iter().enumerate() {
+                            for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
+                                if i != j && patterns == other_patterns {
+                                    duplicate_case_expr = Some(i);
+                                    break;
+                                }
+                            }
+                            if duplicate_case_expr.is_some() {
+                                break;
+                            }
+                        }
+
+                        if let Some(i) = duplicate_case_expr {
+                            return Err((
+                                LexErrorKind::DuplicateCaseExpression { index: i },
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        match lhs_type {
+                            Type::Bytes => {
+                                if let Some((last_pattern, _)) = all_patterns.last() {
+                                    if !last_pattern.iter().any(|p| p.is_catch_all()) {
+                                        return Err((
+                                            LexErrorKind::ExpectedCatchAllPattern,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+                                }
+                            }
+                            Type::Int => {
+                                let mut has_catch_all = false;
+                                if let Some((last_pattern, _)) = all_patterns.last() {
+                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
+                                        has_catch_all = true;
+                                    }
+                                }
+
+                                let all_patterns_flat = RangeSetWithId::from_iter(
+                                    all_patterns.iter().enumerate().flat_map(
+                                        |(index, (patterns, _))| {
+                                            patterns
+                                                .iter()
+                                                .filter_map(|p| match p {
+                                                    CasePatternValue::Int(value) => {
+                                                        Some((*value..=*value, index))
+                                                    }
+                                                    CasePatternValue::IntRange(int_range) => {
+                                                        Some((int_range.0.clone(), index))
+                                                    }
+                                                    CasePatternValue::Bool => None,
+                                                    _ => unreachable!(),
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    ),
+                                );
+
+                                for i in 0..all_patterns_flat.len() - 1 {
+                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
+                                    {
+                                        if let Some((next_pattern, _)) =
+                                            all_patterns_flat.get(i + 1)
+                                        {
+                                            if pattern.end() >= next_pattern.start() {
+                                                return Err((
+                                                    LexErrorKind::OverlappingCasePattern {
+                                                        index: *pattern_index,
+                                                    },
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !has_catch_all {
+                                    if !all_patterns_flat.is_continuous() {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+
+                                    if let Some(min_start) = all_patterns_flat.get_min_start() {
+                                        if min_start != i32::MIN {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+
+                                        if let Some(max_end) = all_patterns_flat.get_max_end() {
+                                            if max_end != i32::MAX {
+                                                return Err((
+                                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        } else {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+                                    } else {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+                                }
+                            }
+                            Type::Float => {
+                                let mut has_catch_all = false;
+                                if let Some((last_pattern, _)) = all_patterns.last() {
+                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
+                                        has_catch_all = true;
+                                    }
+                                }
+
+                                let all_patterns_flat = RangeSetWithId::from_iter(
+                                    all_patterns.iter().enumerate().flat_map(
+                                        |(index, (patterns, _))| {
+                                            patterns
+                                                .iter()
+                                                .filter_map(|p| match p {
+                                                    CasePatternValue::Float(value) => {
+                                                        Some((*value..=*value, index))
+                                                    }
+                                                    CasePatternValue::FloatRange(float_range) => {
+                                                        Some((float_range.0.clone(), index))
+                                                    }
+                                                    CasePatternValue::Bool => None,
+                                                    _ => unreachable!(),
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    ),
+                                );
+
+                                for i in 0..all_patterns_flat.len() - 1 {
+                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
+                                    {
+                                        if let Some((next_pattern, _)) =
+                                            all_patterns_flat.get(i + 1)
+                                        {
+                                            if pattern.end() >= next_pattern.start() {
+                                                return Err((
+                                                    LexErrorKind::OverlappingCasePattern {
+                                                        index: *pattern_index,
+                                                    },
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !has_catch_all {
+                                    if !all_patterns_flat.is_continuous() {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+
+                                    if let Some(min_start) = all_patterns_flat.get_min_start() {
+                                        if min_start != f64::MIN {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+
+                                        if let Some(max_end) = all_patterns_flat.get_max_end() {
+                                            if max_end != f64::MAX {
+                                                return Err((
+                                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        } else {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+                                    } else {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+                                }
+                            }
+                            Type::Ip => {
+                                let mut has_catch_all = false;
+                                if let Some((last_pattern, _)) = all_patterns.last() {
+                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
+                                        has_catch_all = true;
+                                    }
+                                }
+
+                                let all_patterns_flat = RangeSetWithId::from_iter(
+                                    all_patterns.iter().enumerate().flat_map(
+                                        |(index, (patterns, _))| {
+                                            patterns
+                                                .iter()
+                                                .filter_map(|p| match p {
+                                                    CasePatternValue::Ip(value) => {
+                                                        Some((*value..=*value, index))
+                                                    }
+                                                    CasePatternValue::IpRange(ip_range) => {
+                                                        Some((ip_range.as_range(), index))
+                                                    }
+                                                    CasePatternValue::Bool => None,
+                                                    _ => unreachable!(),
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    ),
+                                );
+
+                                for i in 0..all_patterns_flat.len() - 1 {
+                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
+                                    {
+                                        if let Some((next_pattern, _)) =
+                                            all_patterns_flat.get(i + 1)
+                                        {
+                                            if pattern.end() >= next_pattern.start() {
+                                                return Err((
+                                                    LexErrorKind::OverlappingCasePattern {
+                                                        index: *pattern_index,
+                                                    },
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+
+                                            if pattern.end() == next_pattern.start() {
+                                                return Err((
+                                                    LexErrorKind::OverlappingCasePattern {
+                                                        index: *pattern_index,
+                                                    },
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !has_catch_all {
+                                    if !all_patterns_flat.is_continuous() {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+
+                                    if let (Some(min_start_v4), Some(min_start_v6)) = (
+                                        all_patterns_flat
+                                            .get_min_start_with_condition(IpAddr::is_ipv4),
+                                        all_patterns_flat
+                                            .get_min_start_with_condition(IpAddr::is_ipv6),
+                                    ) {
+                                        if min_start_v4 != IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+                                            && min_start_v6 != IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+                                        {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+
+                                        if let (Some(max_end_v4), Some(max_end_v6)) = (
+                                            all_patterns_flat
+                                                .get_max_end_with_condition(IpAddr::is_ipv4),
+                                            all_patterns_flat
+                                                .get_max_end_with_condition(IpAddr::is_ipv6),
+                                        ) {
+                                            if max_end_v4
+                                                != IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))
+                                                && max_end_v6
+                                                    != IpAddr::V6(Ipv6Addr::new(
+                                                        65535, 65535, 65535, 65535, 65535, 65535,
+                                                        65535, 65535,
+                                                    ))
+                                            {
+                                                return Err((
+                                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                                    span(initial_input, input),
+                                                ));
+                                            }
+                                        } else {
+                                            return Err((
+                                                LexErrorKind::NonExhaustiveCasePatterns,
+                                                span(initial_input, input),
+                                            ));
+                                        }
+                                    } else {
+                                        return Err((
+                                            LexErrorKind::NonExhaustiveCasePatterns,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+                                }
+
+                                if let Some((last_pattern, _)) = all_patterns.last() {
+                                    if !last_pattern.iter().any(|p| p.is_catch_all()) {
+                                        return Err((
+                                            LexErrorKind::ExpectedCatchAllPattern,
+                                            span(initial_input, input),
+                                        ));
+                                    }
+                                }
+
+                                if all_patterns.len() == 1 {
+                                    return Err((
+                                        LexErrorKind::SingleCasePattern,
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    input = expect(input, "}")?;
+                    input = skip_space(input);
+
+                    (
+                        ComparisonOpExpr::Cases {
+                            patterns: all_patterns,
+                            variant,
+                        },
+                        input,
+                    )
+                }
                 _ => {
                     return Err((
                         LexErrorKind::UnsupportedOp { lhs_type },
@@ -749,6 +1244,33 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     variables,
                 ),
             },
+
+            ComparisonOpExpr::Cases {
+                patterns,
+                variant: _,
+            } => {
+                let mut compiled_patterns = Vec::with_capacity(patterns.len());
+                for (pattern, logical_expr) in patterns {
+                    let compiled_expr = compiler.compile_logical_expr(logical_expr, variables);
+                    compiled_patterns.push((pattern, compiled_expr));
+                }
+
+                lhs.compile_with(
+                    compiler,
+                    false,
+                    move |x, ctx, variables, state| {
+                        for (patterns, compiled_expr) in &compiled_patterns {
+                            for pattern in patterns {
+                                if pattern.matches(x) {
+                                    return compiled_expr.execute_one(ctx, variables, state);
+                                }
+                            }
+                        }
+                        false
+                    },
+                    variables,
+                )
+            }
 
             ComparisonOpExpr::Int {
                 op: IntOp::BitwiseAnd(_),
@@ -1048,7 +1570,10 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 mod tests {
     use super::*;
     use crate::{
-        ast::function_expr::{FunctionCallArgExpr, FunctionCallExpr},
+        ast::{
+            function_expr::{FunctionCallArgExpr, FunctionCallExpr},
+            simple_expr::SimpleExpr,
+        },
         execution_context::{ExecutionContext, State, Variables},
         functions::{
             FunctionArgKind, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,
@@ -1056,7 +1581,7 @@ mod tests {
             SimpleFunctionOptParam, SimpleFunctionParam,
         },
         lhs_types::{Array, Map},
-        rhs_types::IpRange,
+        rhs_types::{IntRange, IpRange},
         scheme::{FieldIndex, IndexAccessError},
         types::{ExpectedType, RhsValues},
         VariableType,
@@ -1510,6 +2035,132 @@ mod tests {
 
         ctx.set_field_value(field("tcp.port"), 443).unwrap();
         assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+    }
+
+    #[test]
+    fn test_int_cases() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with_2(
+                r#"tcp.port cases {
+                    80 => http.host == "example.org",
+                    443
+                    | 8000..8080 => http.host == "example.com",
+                    _ => http.host == "example.net",
+                }"#,
+                &SCHEME,
+                &VARIABLES
+            ),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("tcp.port")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::Cases {
+                    patterns: vec![
+                        (
+                            vec![CasePatternValue::IntRange(IntRange(80..=80))],
+                            LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
+                                lhs: IndexExpr {
+                                    lhs: LhsFieldExpr::Field(field("http.host")),
+                                    indexes: vec![],
+                                },
+                                op: ComparisonOpExpr::Ordering {
+                                    op: OrderingOp::Equal(2),
+                                    rhs: RhsValue::Bytes("example.org".to_owned().into())
+                                }
+                            }))
+                        ),
+                        (
+                            vec![
+                                CasePatternValue::IntRange(IntRange(443..=443)),
+                                CasePatternValue::IntRange(IntRange(8000..=8080))
+                            ],
+                            LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
+                                lhs: IndexExpr {
+                                    lhs: LhsFieldExpr::Field(field("http.host")),
+                                    indexes: vec![],
+                                },
+                                op: ComparisonOpExpr::Ordering {
+                                    op: OrderingOp::Equal(2),
+                                    rhs: RhsValue::Bytes("example.com".to_owned().into())
+                                }
+                            }))
+                        ),
+                        (
+                            vec![CasePatternValue::Bool],
+                            LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
+                                lhs: IndexExpr {
+                                    lhs: LhsFieldExpr::Field(field("http.host")),
+                                    indexes: vec![],
+                                },
+                                op: ComparisonOpExpr::Ordering {
+                                    op: OrderingOp::Equal(2),
+                                    rhs: RhsValue::Bytes("example.net".to_owned().into())
+                                }
+                            }))
+                        ),
+                    ],
+                    variant: 0,
+                },
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "tcp.port",
+                "op": "Cases",
+                "patterns": [
+                    [
+                        [
+                            { "IntRange": { "start": 80, "end": 80 } },
+                        ],
+                        {
+                            "lhs": "http.host",
+                            "op": "Equal",
+                            "rhs": "example.org"
+                        },
+                    ],
+                    [
+                        [
+                            { "IntRange": { "start": 443, "end": 443 } },
+                            { "IntRange": { "start": 8000, "end": 8080 } },
+
+                        ],
+                        {
+                            "lhs": "http.host",
+                            "op": "Equal",
+                            "rhs": "example.com"
+                        },
+                    ],
+                    [
+                        [
+                            "Bool",
+                        ],
+                        {
+                            "lhs": "http.host",
+                            "op": "Equal",
+                            "rhs": "example.net"
+                        },
+                    ]
+                ]
+            }
+        );
+
+        let expr = expr.compile(&VARIABLES);
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+
+        ctx.set_field_value(field("tcp.port"), 80).unwrap();
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("tcp.port"), 443).unwrap();
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("tcp.port"), 8080).unwrap();
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }
 
     #[test]

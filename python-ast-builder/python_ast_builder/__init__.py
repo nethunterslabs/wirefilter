@@ -1,6 +1,7 @@
 from python_ast_builder.ast_builder import (
     ByteSeparatorBuilder,
     BytesBuilder,
+    CasePatternValueBuilder,
     CombiningExprBuilder,
     ComparisonExprBuilder,
     ComparisonOpExprBuilder,

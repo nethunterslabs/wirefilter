@@ -114,7 +114,7 @@ pub use self::{
     },
     single_value_expr::{SingleValueExpr, SingleValueExprError},
     types::{
-        ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type, TypeMismatchError,
-        VariableType, VariableValue,
+        CasePatternValue, ExpectedType, GetType, LhsValue, RhsValue, RhsValues, Type,
+        TypeMismatchError, VariableType, VariableValue,
     },
 };

@@ -1,9 +1,9 @@
 use crate::{
     ast::{field_expr::IntOp, simple_expr::UnaryOp, LhsFieldExpr},
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
-    ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr, FunctionCallExpr,
-    IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues, SimpleExpr,
-    SingleValueExprAst, Variables,
+    CasePatternValue, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
+    FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
+    SimpleExpr, SingleValueExprAst, Variables,
 };
 use thiserror::Error;
 
@@ -33,6 +33,26 @@ impl Fmt for FieldIndex {
     }
 }
 
+impl Fmt for CasePatternValue {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        match self {
+            CasePatternValue::Bool => output.push('_'),
+            CasePatternValue::Int(num) => output.push_str(&num.to_string()),
+            CasePatternValue::IntRange(int_range) => int_range.fmt(0, output),
+            CasePatternValue::Float(float_num) => {
+                output.push_str(&format!("{:?}", float_num.into_inner()))
+            }
+            CasePatternValue::FloatRange(float_range) => float_range.fmt(0, output),
+            CasePatternValue::Bytes(bytes) => bytes.fmt(0, output),
+            CasePatternValue::Ip(ip) => output.push_str(&ip.to_string()),
+            CasePatternValue::IpRange(ip_range) => ip_range.fmt(0, output),
+            CasePatternValue::Regex(_) | CasePatternValue::Array(_) | CasePatternValue::Map(_) => {
+                unreachable!()
+            }
+        }
+    }
+}
+
 impl Fmt for RhsValue {
     fn fmt(&self, _indent: usize, output: &mut String) {
         match self {
@@ -50,7 +70,7 @@ impl Fmt for RhsValue {
 
 impl Fmt for RhsValues {
     fn fmt(&self, _indent: usize, output: &mut String) {
-        let indent = output.split('\n').last().unwrap().len();
+        let indent = output.split('\n').last().unwrap_or_default().len();
         let indent_str = " ".repeat(indent);
         let len;
 
@@ -219,6 +239,38 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 op.fmt(0, output);
                 output.push('$');
                 output.push_str(var.name_as_str());
+            }
+
+            ComparisonOpExpr::Cases { patterns, variant } => {
+                let indent = output.split('\n').last().unwrap_or_default().len();
+
+                match *variant {
+                    0 => output.push_str(" cases {"),
+                    1 => output.push_str(" CASES {"),
+                    _ => output.push_str(" => {"),
+                }
+
+                let indent_str = " ".repeat(indent + 2);
+
+                for (patterns, expr) in patterns {
+                    output.push('\n');
+                    output.push_str(&indent_str);
+                    for (i, pattern) in patterns.iter().enumerate() {
+                        if i > 0 {
+                            output.push('\n');
+                            output.push_str(&indent_str);
+                            output.push_str("| ");
+                        }
+                        pattern.fmt(0, output);
+                    }
+                    output.push_str(" => ");
+                    expr.fmt(indent + 2, output);
+                    output.push(',');
+                }
+
+                output.push('\n');
+                output.push_str(&" ".repeat(indent));
+                output.push('}');
             }
 
             ComparisonOpExpr::Int { op, rhs } => {
@@ -897,14 +949,18 @@ mod tests {
         ($input:expr, $expected:expr) => {
             let ast = SCHEME.parse($input, &VARIABLES).unwrap();
             let formatted = ast.fmt(&VARIABLES).unwrap();
-            assert_eq!(formatted, $expected);
+            assert_eq!(
+                formatted, $expected,
+                "Failed to format:\n{}\nGot:\n{}\nExpected:\n{}",
+                $input, formatted, $expected
+            );
 
             let filter = ast.compile(&VARIABLES);
             assert!(
                 filter
                     .execute(&EXECUTION_CONTEXT, &VARIABLES, &STATE)
                     .unwrap(),
-                "Failed to execute filter: {}",
+                "Failed to match filter: {}",
                 $input
             );
         };
@@ -1151,6 +1207,23 @@ mod tests {
                     "exam",
                     "ple",
                   ]"#
+        );
+    }
+
+    #[test]
+    fn test_fmt_case() {
+        test_fmt!(
+            r#"tcp.port cases {
+                    80 => http.host == "example.com",
+                    443 | 8000..8080 => http.host == "example.org",
+                    _ => http.host == "example.net"
+                }"#,
+            r#"tcp.port cases {
+          80 => http.host == "example.com",
+          443
+          | 8000..8080 => http.host == "example.org",
+          _ => http.host == "example.net",
+        }"#
         );
     }
 

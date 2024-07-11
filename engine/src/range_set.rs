@@ -54,3 +54,101 @@ impl<T> RangeSet<T> {
             .is_ok()
     }
 }
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct RangeSetWithId<T> {
+    ranges: Vec<(RangeInclusive<T>, usize)>,
+}
+
+impl<T: Ord + Copy> From<Vec<(RangeInclusive<T>, usize)>> for RangeSetWithId<T> {
+    fn from(mut ranges: Vec<(RangeInclusive<T>, usize)>) -> Self {
+        ranges.sort_unstable_by_key(|(range, _)| *range.start());
+        ranges.dedup_by(|(b, _), (a, _)| {
+            if b.start() <= a.end() {
+                if b.end() > a.end() {
+                    *a = *a.start()..=*b.end();
+                }
+                true
+            } else {
+                false
+            }
+        });
+        RangeSetWithId { ranges }
+    }
+}
+
+impl<T: Ord + Copy> FromIterator<(RangeInclusive<T>, usize)> for RangeSetWithId<T> {
+    fn from_iter<I: IntoIterator<Item = (RangeInclusive<T>, usize)>>(ranges: I) -> Self {
+        Vec::from_iter(ranges).into()
+    }
+}
+
+impl<T> RangeSetWithId<T> {
+    pub fn is_continuous(&self) -> bool
+    where
+        T: PartialOrd,
+    {
+        if self.ranges.is_empty() {
+            return true;
+        }
+
+        self.ranges.windows(2).all(|window| {
+            let ((prev, _), (next, _)) = (&window[0], &window[1]);
+            prev.end() >= next.start()
+        })
+    }
+
+    pub fn get(&self, index: usize) -> Option<&(RangeInclusive<T>, usize)> {
+        self.ranges.get(index)
+    }
+
+    pub fn get_min_start(&self) -> Option<T>
+    where
+        T: Ord + Copy,
+    {
+        self.ranges.iter().map(|(range, _)| *range.start()).min()
+    }
+
+    pub fn get_min_start_with_condition(&self, condition: impl Fn(&T) -> bool) -> Option<T>
+    where
+        T: Ord + Copy,
+    {
+        self.ranges
+            .iter()
+            .filter_map(|(range, _)| {
+                if condition(range.start()) {
+                    Some(*range.start())
+                } else {
+                    None
+                }
+            })
+            .min()
+    }
+
+    pub fn get_max_end(&self) -> Option<T>
+    where
+        T: Ord + Copy,
+    {
+        self.ranges.iter().map(|(range, _)| *range.end()).max()
+    }
+
+    pub fn get_max_end_with_condition(&self, condition: impl Fn(&T) -> bool) -> Option<T>
+    where
+        T: Ord + Copy,
+    {
+        self.ranges
+            .iter()
+            .filter_map(|(range, _)| {
+                if condition(range.end()) {
+                    Some(*range.end())
+                } else {
+                    None
+                }
+            })
+            .max()
+    }
+
+    pub fn len(&self) -> usize {
+        self.ranges.len()
+    }
+}

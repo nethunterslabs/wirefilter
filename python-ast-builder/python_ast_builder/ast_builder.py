@@ -217,6 +217,12 @@ class ComparisonOpExprBuilder:
             var: VariableBuilder,
         },
 
+        /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
+        Cases {
+            /// Cases patterns
+            patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
+        },
+
         /// Integer comparison
         Int {
             /// Integer comparison operator:
@@ -302,6 +308,9 @@ class ComparisonOpExprBuilder:
         IsTrue: None | bool = None,
         Ordering: None | Tuple["OrderingOpBuilder", "RhsValueBuilder"] = None,
         OrderingVariable: None | Tuple["OrderingOpBuilder", "VariableBuilder"] = None,
+        Cases: (
+            None | List[Tuple[List["CasePatternValueBuilder"], "LogicalExprBuilder"]]
+        ) = None,
         Int: None | Tuple["IntOpBuilder", int] = None,
         IntVariable: None | Tuple["IntOpBuilder", "VariableBuilder"] = None,
         Contains: "None | BytesBuilder" = None,
@@ -318,6 +327,7 @@ class ComparisonOpExprBuilder:
         self.IsTrue = IsTrue
         self.Ordering = Ordering
         self.OrderingVariable = OrderingVariable
+        self.Cases = Cases
         self.Int = Int
         self.IntVariable = IntVariable
         self.Contains = Contains
@@ -346,6 +356,15 @@ class ComparisonOpExprBuilder:
                 "OrderingVariable": {
                     "op": self.OrderingVariable[0].to_json(),
                     "var": self.OrderingVariable[1].to_json(),
+                }
+            }
+        elif self.Cases is not None:
+            return {
+                "Cases": {
+                    "patterns": [
+                        ([pattern.to_json() for pattern in patterns], expr.to_json())
+                        for patterns, expr in self.Cases
+                    ]
                 }
             }
         elif self.Int is not None:
@@ -598,6 +617,75 @@ class RhsValuesBuilder:
             return {"Ip": [ip.to_json() for ip in self.Ip]}
         elif self.Bytes is not None:
             return {"Bytes": [bytes.to_json() for bytes in self.Bytes]}
+        else:
+            raise ValueError("No valid field set")
+
+
+class CasePatternValueBuilder:
+    """
+    /// Builder for `CasePatternValue`.
+    pub enum CasePatternValueBuilder {
+        /// A boolean.
+        Bool,
+        /// A 32-bit integer number.
+        Int(i32),
+        /// Represents a range of integers.
+        IntRange((i32, i32)),
+        /// A 64-bit floating point number.
+        Float(f64),
+        /// Represents a range of floating point numbers.
+        FloatRange((f64, f64)),
+        /// An IPv4 or IPv6 address.
+        ///
+        /// These are represented as a single type to allow interop comparisons.
+        Ip(IpAddr),
+        /// Represents a range of IP addresses.
+        IpRange(IpRangeBuilder),
+        /// A raw bytes or a string field.
+        ///
+        /// These are completely interchangeable in runtime and differ only in
+        /// syntax representation, so we represent them as a single type.
+        Bytes(BytesBuilder),
+    }
+    """
+
+    def __init__(
+        self,
+        Bool: None | bool = None,
+        Int: None | int = None,
+        IntRange: None | Tuple[int, int] = None,
+        Float: None | float = None,
+        FloatRange: None | Tuple[float, float] = None,
+        Ip: None | str = None,
+        IpRange: "None | IpRangeBuilder" = None,
+        Bytes: "None | BytesBuilder" = None,
+    ):
+        self.Bool = Bool
+        self.Int = Int
+        self.IntRange = IntRange
+        self.Float = Float
+        self.FloatRange = FloatRange
+        self.Ip = Ip
+        self.IpRange = IpRange
+        self.Bytes = Bytes
+
+    def to_json(self) -> str | Dict[str, Any]:
+        if self.Bool is not None:
+            return "Bool"
+        elif self.Int is not None:
+            return {"Int": self.Int}
+        elif self.IntRange is not None:
+            return {"IntRange": self.IntRange}
+        elif self.Float is not None:
+            return {"Float": self.Float}
+        elif self.FloatRange is not None:
+            return {"FloatRange": self.FloatRange}
+        elif self.Ip is not None:
+            return {"Ip": self.Ip}
+        elif self.IpRange is not None:
+            return {"IpRange": self.IpRange.to_json()}
+        elif self.Bytes is not None:
+            return {"Bytes": self.Bytes.to_json()}
         else:
             raise ValueError("No valid field set")
 

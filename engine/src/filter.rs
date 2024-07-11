@@ -93,7 +93,6 @@ pub enum CompiledExpr<'s, U = ()> {
 }
 
 impl<'s, U> CompiledExpr<'s, U> {
-    #[cfg(test)]
     pub(crate) fn execute_one<'e>(
         &self,
         ctx: &'e ExecutionContext<'e, U>,

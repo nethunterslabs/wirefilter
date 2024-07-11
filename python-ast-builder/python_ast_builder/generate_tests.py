@@ -4,6 +4,7 @@ import os
 from python_ast_builder import (
     ByteSeparatorBuilder,
     BytesBuilder,
+    CasePatternValueBuilder,
     CombiningExprBuilder,
     ComparisonExprBuilder,
     ComparisonOpExprBuilder,
@@ -134,6 +135,33 @@ if __name__ == "__main__":
     rhs_values_builder4 = RhsValuesBuilder(Bytes=[bytes_builder1])
     write_to_file(rhs_values_builder4, "rhs_values_builder4")
 
+    case_pattern_value_builder1 = CasePatternValueBuilder(Bool=True)
+    write_to_file(case_pattern_value_builder1, "case_pattern_value_builder1")
+
+    case_pattern_value_builder2 = CasePatternValueBuilder(Int=1)
+    write_to_file(case_pattern_value_builder2, "case_pattern_value_builder2")
+
+    case_pattern_value_builder3 = CasePatternValueBuilder(IntRange=(1, 2))
+    write_to_file(case_pattern_value_builder3, "case_pattern_value_builder3")
+
+    case_pattern_value_builder4 = CasePatternValueBuilder(Float=1.0)
+    write_to_file(case_pattern_value_builder4, "case_pattern_value_builder4")
+
+    case_pattern_value_builder5 = CasePatternValueBuilder(FloatRange=(1.0, 2.0))
+    write_to_file(case_pattern_value_builder5, "case_pattern_value_builder5")
+
+    case_pattern_value_builder6 = CasePatternValueBuilder(Ip="127.0.0.1")
+    write_to_file(case_pattern_value_builder6, "case_pattern_value_builder6")
+
+    case_pattern_value_builder7 = CasePatternValueBuilder(IpRange=ip_range_builder1)
+    write_to_file(case_pattern_value_builder7, "case_pattern_value_builder7")
+
+    case_pattern_value_builder8 = CasePatternValueBuilder(IpRange=ip_range_builder2)
+    write_to_file(case_pattern_value_builder8, "case_pattern_value_builder8")
+
+    case_pattern_value_builder9 = CasePatternValueBuilder(Bytes=bytes_builder1)
+    write_to_file(case_pattern_value_builder9, "case_pattern_value_builder9")
+
     comparison_op_expr_builder1 = ComparisonOpExprBuilder(IsTrue=True)
     write_to_file(comparison_op_expr_builder1, "comparison_op_expr_builder1")
 
@@ -194,6 +222,30 @@ if __name__ == "__main__":
         HasAllVariable=(VariableBuilder("has_all_var"))
     )
     write_to_file(comparison_op_expr_builder15, "comparison_op_expr_builder15")
+
+    comparison_op_expr_builder16 = ComparisonOpExprBuilder(
+        Cases=[
+            (
+                [
+                    case_pattern_value_builder4,
+                    case_pattern_value_builder1,
+                ],
+                LogicalExprBuilder(
+                    Simple=SimpleExprBuilder(
+                        Comparison=ComparisonExprBuilder(
+                            IndexExprBuilder(
+                                LhsFieldExprBuilder(Field=field_builder), []
+                            ),
+                            ComparisonOpExprBuilder(
+                                Ordering=(ordering_op_builder, rhs_value_builder3)
+                            ),
+                        )
+                    )
+                ),
+            )
+        ]
+    )
+    write_to_file(comparison_op_expr_builder16, "comparison_op_expr_builder16")
 
     unary_expr_builder = UnaryExprBuilder(
         unary_op_builder,

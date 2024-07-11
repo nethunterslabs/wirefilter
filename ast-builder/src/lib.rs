@@ -11,13 +11,13 @@ pub mod ast;
 pub mod build;
 
 pub use ast::{
-    ByteSeparatorBuilder, BytesBuilder, CombiningExprBuilder, ComparisonExprBuilder,
-    ComparisonOpExprBuilder, ExplicitIpRangeBuilder, FieldBuilder, FieldIndexBuilder,
-    FilterAstBuilder, FunctionBuilder, FunctionCallArgExprBuilder, FunctionCallExprBuilder,
-    IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder, LhsFieldExprBuilder,
-    LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder, RhsValueBuilder,
-    RhsValuesBuilder, SimpleExprBuilder, SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder,
-    UnaryExprBuilder, UnaryOpBuilder, VariableBuilder,
+    ByteSeparatorBuilder, BytesBuilder, CasePatternValueBuilder, CombiningExprBuilder,
+    ComparisonExprBuilder, ComparisonOpExprBuilder, ExplicitIpRangeBuilder, FieldBuilder,
+    FieldIndexBuilder, FilterAstBuilder, FunctionBuilder, FunctionCallArgExprBuilder,
+    FunctionCallExprBuilder, IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder,
+    LhsFieldExprBuilder, LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder,
+    RhsValueBuilder, RhsValuesBuilder, SimpleExprBuilder, SingleValueExprAstBuilder,
+    StrTypeBuilder, TypeBuilder, UnaryExprBuilder, UnaryOpBuilder, VariableBuilder,
 };
 
 /// Result type for the builder.
@@ -50,13 +50,16 @@ pub enum BuilderError {
     /// Unsupported UnaryExpr.
     #[error("Unsupported UnaryExpr: {0:?}")]
     UnsupportedUnaryExpr(Type),
+    /// Unsupported CasePatternValue Type.
+    #[error("Unsupported CasePatternValue Type: {0:?}")]
+    UnsupportedCasePatternValue(Type),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::process::Command;
     use std::sync::Once;
 
@@ -645,7 +648,7 @@ mod tests {
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder1",
             wirefilter::ComparisonOpExpr::IsTrue,
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -655,7 +658,7 @@ mod tests {
                 op: wirefilter::OrderingOp::LessThan(0),
                 rhs: wirefilter::RhsValue::Int(1),
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -665,7 +668,7 @@ mod tests {
                 op: wirefilter::IntOp::BitwiseAnd(0),
                 rhs: 1,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -678,7 +681,7 @@ mod tests {
                 },
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -692,7 +695,7 @@ mod tests {
                 .unwrap(),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -705,7 +708,7 @@ mod tests {
                 ]),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -718,7 +721,7 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -731,7 +734,7 @@ mod tests {
                 }]),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -744,7 +747,7 @@ mod tests {
                     wirefilter::VariableType::Int
                 )
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -757,7 +760,7 @@ mod tests {
                     wirefilter::VariableType::Int
                 ),
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -770,7 +773,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -783,7 +786,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -796,7 +799,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -809,7 +812,7 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
         );
 
         test_builder!(
@@ -822,7 +825,36 @@ mod tests {
                 ),
                 variant: 0,
             },
-            VariablesUnwrapBuilderUnwrap
+            SchemeVariablesUnwrap
+        );
+
+        test_builder!(
+            ComparisonOpExprBuilder,
+            "comparison_op_expr_builder16",
+            wirefilter::ComparisonOpExpr::Cases {
+                patterns: vec![(
+                    vec![
+                        wirefilter::CasePatternValue::Float(1.0.into()),
+                        wirefilter::CasePatternValue::Bool,
+                    ],
+                    wirefilter::LogicalExpr::Simple(wirefilter::SimpleExpr::Comparison(
+                        wirefilter::ComparisonExpr {
+                            lhs: wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("http.version").unwrap()
+                                ),
+                                indexes: Vec::new(),
+                            },
+                            op: wirefilter::ComparisonOpExpr::Ordering {
+                                op: wirefilter::OrderingOp::LessThan(0),
+                                rhs: wirefilter::RhsValue::Float(1.0.into()),
+                            },
+                        }
+                    )),
+                )],
+                variant: 0,
+            },
+            SchemeVariablesUnwrap
         );
     }
 
@@ -948,7 +980,7 @@ mod tests {
             FunctionCallArgExprBuilder,
             "function_call_arg_expr_builder5",
             wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Ip(
-                std::net::Ipv4Addr::new(127, 0, 0, 1).into()
+                Ipv4Addr::new(127, 0, 0, 1).into()
             )),
             SchemeVariablesUnwrap
         );
@@ -1352,7 +1384,7 @@ mod tests {
         test_builder!(
             IpCidrBuilder,
             "ip_cidr_builder",
-            cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap(),
+            cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap(),
             Unwrap
         );
     }
@@ -1363,7 +1395,7 @@ mod tests {
             ExplicitIpRangeBuilder,
             "explicit_ip_range_builder",
             wirefilter::ExplicitIpRange::V4(
-                std::net::Ipv4Addr::new(127, 0, 0, 1)..=std::net::Ipv4Addr::new(127, 0, 0, 255)
+                Ipv4Addr::new(127, 0, 0, 1)..=Ipv4Addr::new(127, 0, 0, 255)
             )
         );
     }
@@ -1374,7 +1406,7 @@ mod tests {
             IpRangeBuilder,
             "ip_range_builder1",
             wirefilter::IpRange::Explicit(wirefilter::ExplicitIpRange::V4(
-                std::net::Ipv4Addr::new(127, 0, 0, 1)..=std::net::Ipv4Addr::new(127, 0, 0, 255)
+                Ipv4Addr::new(127, 0, 0, 1)..=Ipv4Addr::new(127, 0, 0, 255)
             )),
             UnwrapBuilderUnwrap
         );
@@ -1383,7 +1415,7 @@ mod tests {
             IpRangeBuilder,
             "ip_range_builder2",
             wirefilter::IpRange::Cidr(
-                cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
+                cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
             ),
             UnwrapBuilderUnwrap
         );
@@ -1415,7 +1447,7 @@ mod tests {
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder4",
-            wirefilter::RhsValue::Ip(std::net::Ipv4Addr::new(127, 0, 0, 1).into()),
+            wirefilter::RhsValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into()),
             BuilderUnwrap
         );
     }
@@ -1443,7 +1475,7 @@ mod tests {
             RhsValuesBuilder,
             "rhs_values_builder3",
             wirefilter::RhsValues::Ip(vec![wirefilter::IpRange::Cidr(
-                cidr::IpCidr::new(std::net::Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
+                cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
             )]),
             UnwrapBuilderUnwrap
         );
@@ -1455,6 +1487,111 @@ mod tests {
                 value: "value".into(),
                 ty: wirefilter::StrType::Escaped
             }]),
+            UnwrapBuilderUnwrap
+        );
+    }
+
+    #[test]
+    fn test_case_pattern_value_builder() {
+        /*
+                /// Builder for `CasePatternValue`.
+        #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+        pub enum CasePatternValueBuilder {
+            /// A boolean.
+            Bool,
+            /// A 32-bit integer number.
+            Int(i32),
+            /// Represents a range of integers.
+            IntRange((i32, i32)),
+            /// A 64-bit floating point number.
+            Float(f64),
+            /// Represents a range of floating point numbers.
+            FloatRange((f64, f64)),
+            /// An IPv4 or IPv6 address.
+            ///
+            /// These are represented as a single type to allow interop comparisons.
+            Ip(IpAddr),
+            /// Represents a range of IP addresses.
+            IpRange(IpRangeBuilder),
+            /// A raw bytes or a string field.
+            ///
+            /// These are completely interchangeable in runtime and differ only in
+            /// syntax representation, so we represent them as a single type.
+            Bytes(BytesBuilder),
+        }
+                 */
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder1",
+            wirefilter::CasePatternValue::Bool,
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder2",
+            wirefilter::CasePatternValue::Int(1),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder3",
+            wirefilter::CasePatternValue::IntRange(wirefilter::IntRange(1..=2)),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder4",
+            wirefilter::CasePatternValue::Float(1.0.into()),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder5",
+            wirefilter::CasePatternValue::FloatRange(wirefilter::FloatRange(
+                1.0.into()..=2.0.into()
+            )),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder6",
+            wirefilter::CasePatternValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into()),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder7",
+            wirefilter::CasePatternValue::IpRange(wirefilter::IpRange::Explicit(
+                wirefilter::ExplicitIpRange::V4(
+                    Ipv4Addr::new(127, 0, 0, 1)..=Ipv4Addr::new(127, 0, 0, 255)
+                )
+            )),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder8",
+            wirefilter::CasePatternValue::IpRange(wirefilter::IpRange::Cidr(
+                cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
+            )),
+            UnwrapBuilderUnwrap
+        );
+
+        test_builder!(
+            CasePatternValueBuilder,
+            "case_pattern_value_builder9",
+            wirefilter::CasePatternValue::Bytes(wirefilter::Bytes::Str {
+                value: "value".into(),
+                ty: wirefilter::StrType::Escaped
+            }),
             UnwrapBuilderUnwrap
         );
     }

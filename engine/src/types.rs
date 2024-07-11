@@ -7,6 +7,7 @@ use crate::{
     },
     scheme::{FieldIndex, IndexAccessError},
     strict_partial_ord::StrictPartialOrd,
+    LexErrorKind,
 };
 use ordered_float::OrderedFloat;
 use serde::{
@@ -193,11 +194,25 @@ macro_rules! declare_types {
     };
 
     // This is the entry point for the macro.
-    ($($(# $attrs:tt)* $name:ident $([$val_ty:ty])? ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty| ( $( $(#[$variable_value_docs:meta])* $variable_value_ty_name:ident ($variable_value_ty:ty) , )* ) ) , )*) => {
+    ($($(# $attrs:tt)* $name:ident $([$val_ty:ty])? ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty| ( $( $(#[$variable_value_docs:meta])* $variable_value_ty_name:ident ($variable_value_ty:ty) , )* ) | ( $( $(#[$case_value_docs:meta])* $case_value_ty_name:ident $(($case_value_ty:ty))? , )* ) ) , )*) => {
         /// Enumeration of supported types for field values.
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Hash)]
         pub enum Type {
             $($(# $attrs)* $name$(($val_ty))?,)*
+        }
+
+        /// Enumeration of types for case values.
+        ///
+        /// These are used in case statements to store pattern values.
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+        pub enum CasePatternValue {
+            $(
+                $(# $attrs)*
+                $(
+                    $(#[$case_value_docs])*
+                    $case_value_ty_name $(($case_value_ty))?,
+                )*
+            )*
         }
 
         /// Enumeration of types for variable values.
@@ -586,6 +601,100 @@ impl VariableValue {
     }
 }
 
+impl CasePatternValue {
+    /// Matches a case pattern value with a [`LhsValue`](enum@LhsValue).
+    pub fn matches(&self, value: &LhsValue<'_>) -> bool {
+        match (self, value) {
+            (CasePatternValue::Bool, _) => true,
+            (CasePatternValue::Int(a), LhsValue::Int(b)) => a == b,
+            (CasePatternValue::IntRange(a), LhsValue::Int(b)) => a.0.contains(b),
+            (CasePatternValue::Float(a), LhsValue::Float(b)) => a == b,
+            (CasePatternValue::FloatRange(a), LhsValue::Float(b)) => a.0.contains(b),
+            (CasePatternValue::Bytes(a), LhsValue::Bytes(b)) => a.as_bytes() == b.as_bytes(),
+            (CasePatternValue::Ip(a), LhsValue::Ip(b)) => a == b,
+            (CasePatternValue::IpRange(a), LhsValue::Ip(b)) => a.contains(b),
+            _ => false,
+        }
+    }
+
+    /// Checks if a case pattern value supports matching a [`Type`](enum@Type).
+    pub fn is_supported_lhs_value_match(&self, ty: &Type) -> bool {
+        matches!(
+            (self, ty),
+            (CasePatternValue::Int(_), Type::Int)
+                | (CasePatternValue::IntRange(_), Type::Int)
+                | (CasePatternValue::Float(_), Type::Float)
+                | (CasePatternValue::FloatRange(_), Type::Float)
+                | (CasePatternValue::Bytes(_), Type::Bytes)
+                | (CasePatternValue::Ip(_), Type::Ip)
+                | (CasePatternValue::IpRange(_), Type::Ip)
+        )
+    }
+
+    pub(crate) fn lex_with_lhs_type<'i>(
+        input: &'i str,
+        ty: &Type,
+    ) -> LexResult<'i, CasePatternValue> {
+        if let Ok(rest) = expect(input, "_") {
+            return Ok((CasePatternValue::Bool, rest));
+        }
+
+        match ty {
+            Type::Int => {
+                if let Ok((range, rest)) = IntRange::lex(input) {
+                    Ok((CasePatternValue::IntRange(range), rest))
+                } else {
+                    let (value, rest) = i32::lex(input)?;
+                    Ok((CasePatternValue::Int(value), rest))
+                }
+            }
+            Type::Float => {
+                if let Ok((range, rest)) = FloatRange::lex(input) {
+                    Ok((CasePatternValue::FloatRange(range), rest))
+                } else {
+                    let (value, rest) = OrderedFloat::lex(input)?;
+                    Ok((CasePatternValue::Float(value), rest))
+                }
+            }
+            Type::Bytes => {
+                let (value, rest) = Bytes::lex(input)?;
+                Ok((CasePatternValue::Bytes(value), rest))
+            }
+            Type::Ip => {
+                if let Ok((range, rest)) = IpRange::lex(input) {
+                    Ok((CasePatternValue::IpRange(range), rest))
+                } else {
+                    let (value, rest) = IpAddr::lex(input)?;
+                    Ok((CasePatternValue::Ip(value), rest))
+                }
+            }
+            _ => Err((LexErrorKind::CasePatternsNotSupported(ty.clone()), input)),
+        }
+    }
+
+    /// Returns the type of the case pattern value.
+    pub fn get_type(&self) -> Option<Type> {
+        match self {
+            CasePatternValue::Bool => Some(Type::Bool),
+            CasePatternValue::Int(_) => Some(Type::Int),
+            CasePatternValue::IntRange(_) => Some(Type::Int),
+            CasePatternValue::Float(_) => Some(Type::Float),
+            CasePatternValue::FloatRange(_) => Some(Type::Float),
+            CasePatternValue::Bytes(_) => Some(Type::Bytes),
+            CasePatternValue::Ip(_) => Some(Type::Ip),
+            CasePatternValue::IpRange(_) => Some(Type::Ip),
+            CasePatternValue::Array(_) | CasePatternValue::Map(_) | CasePatternValue::Regex(_) => {
+                None
+            }
+        }
+    }
+
+    /// Returns if it is a catch-all pattern.
+    pub fn is_catch_all(&self) -> bool {
+        matches!(self, CasePatternValue::Bool)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum BytesOrString<'a> {
@@ -908,6 +1017,8 @@ declare_types!(
         Bool(bool),
         /// Represents a list of booleans.
         BoolList(Vec<bool>),
+    ) | (
+        Bool,
     )),
 
     /// A 32-bit integer number.
@@ -919,6 +1030,10 @@ declare_types!(
         IntList(Vec<i32>),
         /// Represents a list of integer ranges.
         IntRangeList(Vec<IntRange>),
+    ) | (
+        Int(i32),
+        /// Represents a range of integers.
+        IntRange(IntRange),
     )),
 
     /// A 64-bit floating point number.
@@ -930,6 +1045,10 @@ declare_types!(
         FloatList(Vec<OrderedFloat<f64>>),
         /// Represents a list of floating point ranges.
         FloatRangeList(Vec<FloatRange>),
+    ) | (
+        Float(OrderedFloat<f64>),
+        /// Represents a range of floating point numbers.
+        FloatRange(FloatRange),
     )),
 
     /// An IPv4 or IPv6 address.
@@ -943,6 +1062,10 @@ declare_types!(
         IpList(Vec<IpAddr>),
         /// Represents a list of IP ranges.
         IpRangeList(Vec<IpRange>),
+    ) | (
+        Ip(IpAddr),
+        /// Represents a range of IP addresses.
+        IpRange(IpRange),
     )),
 
     /// A raw bytes or a string field.
@@ -953,21 +1076,29 @@ declare_types!(
         Bytes(Vec<u8>),
         /// Represents a list of bytes.
         BytesList(Vec<Vec<u8>>),
+    ) | (
+        Bytes(Bytes),
     )),
 
     /// An Array of [`Type`].
     Array[Box<Type>](#[serde(skip_deserializing)] Array<'a> | UninhabitedArray | UninhabitedArray | (
+        #[serde(skip)] Array(UninhabitedArray),
+    ) | (
         #[serde(skip)] Array(UninhabitedArray),
     )),
 
     /// A Map of string to [`Type`].
     Map[Box<Type>](#[serde(skip_deserializing)] Map<'a> | UninhabitedMap | UninhabitedMap | (
         #[serde(skip)] Map(UninhabitedMap),
-    ) ),
+    ) | (
+        #[serde(skip)] Map(UninhabitedMap),
+    )),
 
     /// A regex pattern.
     Regex(UninhabitedRegex | UninhabitedRegex | UninhabitedRegex | (
         Regex(Regex),
+    ) | (
+        Regex(UninhabitedRegex),
     )),
 );
 

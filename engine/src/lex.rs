@@ -178,6 +178,55 @@ pub enum LexErrorKind {
         /// Actual type
         actual: VariableType,
     },
+
+    /// Cases patterns not supported for type
+    #[error("case patterns not supported for type {0:?}")]
+    CasePatternsNotSupported(Type),
+
+    /// Expected case patterns
+    #[error("expected case patterns")]
+    ExpectedCasePatterns,
+
+    /// Expected catch-all pattern
+    #[error("expected catch-all pattern")]
+    ExpectedCatchAllPattern,
+
+    /// Duplicate case pattern
+    #[error("duplicate case pattern at index {index}, merge the case arms together")]
+    DuplicateCasePattern {
+        /// The index of the duplicate case pattern
+        index: usize,
+    },
+
+    /// Duplicate case expression
+    #[error("duplicate case expression at index {index}, merge the case arms together")]
+    DuplicateCaseExpression {
+        /// The index of the duplicate case expression
+        index: usize,
+    },
+
+    /// Single case pattern
+    #[error("single case pattern, use an AND instead")]
+    SingleCasePattern,
+
+    /// Duplicate catch-all pattern
+    #[error("duplicate catch-all pattern")]
+    DuplicateCatchAllPattern,
+
+    /// Non-catch-all pattern after catch-all
+    #[error("non-catch-all pattern after catch-all")]
+    NonCatchAllPatternAfterCatchAll,
+
+    /// Overlapping case pattern
+    #[error("overlapping case pattern at index {index}")]
+    OverlappingCasePattern {
+        /// The index of the overlapping case pattern
+        index: usize,
+    },
+
+    /// Non-exhaustive case patterns
+    #[error("non-exhaustive case patterns")]
+    NonExhaustiveCasePatterns,
 }
 
 pub type LexError<'i> = (LexErrorKind, &'i str);
