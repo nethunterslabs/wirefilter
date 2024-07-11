@@ -831,7 +831,7 @@ mod tests {
         test_builder!(
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder16",
-            wirefilter::ComparisonOpExpr::Cases {
+            wirefilter::ComparisonOpExpr::Cases(wirefilter::Cases {
                 patterns: vec![(
                     vec![
                         wirefilter::CasePatternValue::Float(1.0.into()),
@@ -853,7 +853,7 @@ mod tests {
                     )),
                 )],
                 variant: 0,
-            },
+            }),
             SchemeVariablesUnwrap
         );
     }

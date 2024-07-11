@@ -1,5 +1,9 @@
 use crate::{
-    ast::{field_expr::IntOp, simple_expr::UnaryOp, LhsFieldExpr},
+    ast::{
+        field_expr::{Cases, IntOp},
+        simple_expr::UnaryOp,
+        LhsFieldExpr,
+    },
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
     CasePatternValue, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
     FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
@@ -225,7 +229,7 @@ impl Fmt for IntOp {
 }
 
 impl<'s> Fmt for ComparisonExpr<'s> {
-    fn fmt(&self, _indent: usize, output: &mut String) {
+    fn fmt(&self, indent: usize, output: &mut String) {
         self.lhs.fmt(0, output);
 
         match &self.op {
@@ -241,36 +245,8 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                 output.push_str(var.name_as_str());
             }
 
-            ComparisonOpExpr::Cases { patterns, variant } => {
-                let indent = output.split('\n').last().unwrap_or_default().len();
-
-                match *variant {
-                    0 => output.push_str(" cases {"),
-                    1 => output.push_str(" CASES {"),
-                    _ => output.push_str(" => {"),
-                }
-
-                let indent_str = " ".repeat(indent + 2);
-
-                for (patterns, expr) in patterns {
-                    output.push('\n');
-                    output.push_str(&indent_str);
-                    for (i, pattern) in patterns.iter().enumerate() {
-                        if i > 0 {
-                            output.push('\n');
-                            output.push_str(&indent_str);
-                            output.push_str("| ");
-                        }
-                        pattern.fmt(0, output);
-                    }
-                    output.push_str(" => ");
-                    expr.fmt(indent + 2, output);
-                    output.push(',');
-                }
-
-                output.push('\n');
-                output.push_str(&" ".repeat(indent));
-                output.push('}');
+            ComparisonOpExpr::Cases(cases) => {
+                cases.fmt(indent, output);
             }
 
             ComparisonOpExpr::Int { op, rhs } => {
@@ -480,6 +456,40 @@ impl<'s> Fmt for SimpleExpr<'s> {
                 }
             },
         }
+    }
+}
+
+impl<'s> Fmt for Cases<'s> {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        let indent = output.split('\n').last().unwrap_or_default().len();
+
+        match self.variant {
+            0 => output.push_str(" cases {"),
+            1 => output.push_str(" CASES {"),
+            _ => output.push_str(" => {"),
+        }
+
+        let indent_str = " ".repeat(indent + 2);
+
+        for (patterns, expr) in &self.patterns {
+            output.push('\n');
+            output.push_str(&indent_str);
+            for (i, pattern) in patterns.iter().enumerate() {
+                if i > 0 {
+                    output.push('\n');
+                    output.push_str(&indent_str);
+                    output.push_str("| ");
+                }
+                pattern.fmt(0, output);
+            }
+            output.push_str(" => ");
+            expr.fmt(indent + 2, output);
+            output.push(',');
+        }
+
+        output.push('\n');
+        output.push_str(&" ".repeat(indent));
+        output.push('}');
     }
 }
 

@@ -114,10 +114,7 @@ pub enum ComparisonOpExprBuilder {
     },
 
     /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
-    Cases {
-        /// Cases patterns
-        patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
-    },
+    Cases(CasesBuilder),
 
     /// Integer comparison
     Int {
@@ -196,6 +193,13 @@ pub enum ComparisonOpExprBuilder {
         /// `Variable` from the `Scheme`
         var: VariableBuilder,
     },
+}
+
+/// Builder for `Cases`.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct CasesBuilder {
+    /// Cases patterns
+    pub(crate) patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
 }
 
 /// Builder for `Regex`.

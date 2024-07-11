@@ -4,6 +4,7 @@ import os
 from python_ast_builder import (
     ByteSeparatorBuilder,
     BytesBuilder,
+    CasesBuilder,
     CasePatternValueBuilder,
     CombiningExprBuilder,
     ComparisonExprBuilder,
@@ -224,26 +225,28 @@ if __name__ == "__main__":
     write_to_file(comparison_op_expr_builder15, "comparison_op_expr_builder15")
 
     comparison_op_expr_builder16 = ComparisonOpExprBuilder(
-        Cases=[
-            (
-                [
-                    case_pattern_value_builder4,
-                    case_pattern_value_builder1,
-                ],
-                LogicalExprBuilder(
-                    Simple=SimpleExprBuilder(
-                        Comparison=ComparisonExprBuilder(
-                            IndexExprBuilder(
-                                LhsFieldExprBuilder(Field=field_builder), []
-                            ),
-                            ComparisonOpExprBuilder(
-                                Ordering=(ordering_op_builder, rhs_value_builder3)
-                            ),
+        Cases=CasesBuilder(
+            patterns=[
+                (
+                    [
+                        case_pattern_value_builder4,
+                        case_pattern_value_builder1,
+                    ],
+                    LogicalExprBuilder(
+                        Simple=SimpleExprBuilder(
+                            Comparison=ComparisonExprBuilder(
+                                IndexExprBuilder(
+                                    LhsFieldExprBuilder(Field=field_builder), []
+                                ),
+                                ComparisonOpExprBuilder(
+                                    Ordering=(ordering_op_builder, rhs_value_builder3)
+                                ),
+                            )
                         )
-                    )
-                ),
-            )
-        ]
+                    ),
+                )
+            ]
+        )
     )
     write_to_file(comparison_op_expr_builder16, "comparison_op_expr_builder16")
 

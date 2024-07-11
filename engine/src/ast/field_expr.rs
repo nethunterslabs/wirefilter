@@ -114,6 +114,10 @@ lex_enum!(ComparisonOp {
     BytesOp => Bytes,
 });
 
+lex_enum!(CasesOp {
+    "cases" | "CASES" | "=>" => Cases,
+});
+
 /// Operator and right-hand side expression of a
 /// comparison expression.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
@@ -153,12 +157,7 @@ pub enum ComparisonOpExpr<'s> {
 
     /// "cases {...}" / "CASES {...}" / "=>" comparison
     #[serde(serialize_with = "serialize_cases")]
-    Cases {
-        /// Cases patterns
-        patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
-        /// Variant, used for formatting
-        variant: u8,
-    },
+    Cases(Cases<'s>),
 
     /// Integer comparison
     Int {
@@ -285,16 +284,12 @@ fn serialize_is_true<S: Serializer>(ser: S) -> Result<S::Ok, S::Error> {
     out.end()
 }
 
-fn serialize_cases<S: Serializer>(
-    patterns: &Vec<(Vec<CasePatternValue>, LogicalExpr<'_>)>,
-    _: &u8,
-    ser: S,
-) -> Result<S::Ok, S::Error> {
+fn serialize_cases<S: Serializer>(cases: &Cases<'_>, ser: S) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeStruct;
 
     let mut out = ser.serialize_struct("ComparisonOpExpr", 2)?;
     out.serialize_field("op", "Cases")?;
-    out.serialize_field("patterns", patterns)?;
+    out.serialize_field("patterns", &cases.patterns)?;
     out.end()
 }
 
@@ -316,6 +311,507 @@ fn serialize_has_any<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S
 
 fn serialize_has_all<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("HasAll", rhs, ser)
+}
+
+/// "cases {...}" / "CASES {...}" / "=>"
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+pub struct Cases<'s> {
+    /// Cases patterns
+    pub patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
+    /// Variant, used for formatting
+    pub variant: u8,
+}
+
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for Cases<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (lhs, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
+        let lhs_type = lhs.get_type();
+
+        Self::lex_with_lhs_type(input, scheme, None, lhs_type, None, variables)
+    }
+}
+
+impl<'s> GetType for Cases<'s> {
+    fn get_type(&self) -> Type {
+        self.patterns.first().unwrap().1.get_type()
+    }
+}
+
+impl<'s> Cases<'s> {
+    pub(crate) fn lex_with_lhs_type<'i>(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variant: Option<u8>,
+        lhs_type: Type,
+        expected_type: Option<Type>,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let initial_input = skip_space(input);
+
+        let (variant, input) = if let Some(variant) = variant {
+            (variant, input)
+        } else {
+            let (op, input) = CasesOp::lex(initial_input)?;
+            match op {
+                CasesOp::Cases(variant) => (variant, input),
+            }
+        };
+
+        let input = expect(input, "{")?;
+        let mut input = skip_space(input);
+        let mut all_patterns = Vec::new();
+        let mut uses_catch_all_pattern = false;
+        let mut pattern_type;
+        loop {
+            let mut patterns = IndexSet::new();
+            let mut index = 0;
+            loop {
+                let (pattern, rest) = CasePatternValue::lex_with_lhs_type(input, &lhs_type)?;
+                if pattern == CasePatternValue::Bool {
+                    if uses_catch_all_pattern {
+                        return Err((LexErrorKind::DuplicateCatchAllPattern, span(input, rest)));
+                    } else {
+                        uses_catch_all_pattern = true;
+                    }
+                } else if uses_catch_all_pattern {
+                    return Err((
+                        LexErrorKind::NonCatchAllPatternAfterCatchAll,
+                        span(input, rest),
+                    ));
+                } else if !pattern.is_supported_lhs_value_match(&lhs_type) {
+                    return Err((
+                        LexErrorKind::TypeMismatch(TypeMismatchError {
+                            expected: pattern.get_type().unwrap_or(Type::Bool).into(),
+                            actual: lhs_type,
+                        }),
+                        span(input, rest),
+                    ));
+                }
+
+                pattern_type = pattern.get_type().unwrap_or(Type::Bool);
+
+                input = skip_space(rest);
+
+                let len = patterns.len();
+                patterns.insert(pattern);
+                if len == patterns.len() {
+                    return Err((
+                        LexErrorKind::DuplicateCasePattern { index },
+                        span(input, rest),
+                    ));
+                }
+
+                if let Ok(rest) = expect(input, "|") {
+                    input = skip_space(rest);
+                } else {
+                    break;
+                }
+
+                index += 1;
+            }
+
+            if patterns.is_empty() {
+                return Err((
+                    LexErrorKind::ExpectedCasePatterns,
+                    span(initial_input, input),
+                ));
+            }
+
+            input = skip_space(input);
+            input = expect(input, "=>")?;
+            input = skip_space(input);
+
+            let (logical_expr, rest) = LogicalExpr::lex_with_2(input, scheme, variables)?;
+            let ty = logical_expr.get_type();
+            if let Some(expected_type) = &expected_type {
+                if &ty != expected_type {
+                    return Err((
+                        LexErrorKind::TypeMismatch(TypeMismatchError {
+                            expected: expected_type.clone().into(),
+                            actual: ty,
+                        }),
+                        input,
+                    ));
+                }
+            } else if pattern_type != ty {
+                return Err((
+                    LexErrorKind::TypeMismatch(TypeMismatchError {
+                        expected: pattern_type.into(),
+                        actual: ty,
+                    }),
+                    span(input, rest),
+                ));
+            }
+            all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), logical_expr));
+
+            input = skip_space(rest);
+            if expect(input, "}").is_ok() {
+                break;
+            }
+            if let Ok(new_input) = expect(input, ",") {
+                input = skip_space(new_input);
+            }
+            if expect(input, "}").is_ok() {
+                break;
+            }
+            input = skip_space(input);
+        }
+
+        if all_patterns.is_empty() {
+            return Err((
+                LexErrorKind::ExpectedCasePatterns,
+                span(initial_input, input),
+            ));
+        } else if all_patterns.len() == 1 {
+            return Err((LexErrorKind::SingleCasePattern, span(initial_input, input)));
+        } else {
+            let mut duplicate_case_pattern = None;
+            for (i, (patterns, _)) in all_patterns.iter().enumerate() {
+                for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
+                    if i != j && patterns == other_patterns {
+                        duplicate_case_pattern = Some(i);
+                        break;
+                    }
+                }
+                if duplicate_case_pattern.is_some() {
+                    break;
+                }
+            }
+
+            if let Some(i) = duplicate_case_pattern {
+                return Err((
+                    LexErrorKind::DuplicateCasePattern { index: i },
+                    span(initial_input, input),
+                ));
+            }
+
+            let mut duplicate_case_expr = None;
+            for (i, (patterns, _)) in all_patterns.iter().enumerate() {
+                for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
+                    if i != j && patterns == other_patterns {
+                        duplicate_case_expr = Some(i);
+                        break;
+                    }
+                }
+                if duplicate_case_expr.is_some() {
+                    break;
+                }
+            }
+
+            if let Some(i) = duplicate_case_expr {
+                return Err((
+                    LexErrorKind::DuplicateCaseExpression { index: i },
+                    span(initial_input, input),
+                ));
+            }
+
+            match lhs_type {
+                Type::Bytes => {
+                    if let Some((last_pattern, _)) = all_patterns.last() {
+                        if !last_pattern.iter().any(|p| p.is_catch_all()) {
+                            return Err((
+                                LexErrorKind::ExpectedCatchAllPattern,
+                                span(initial_input, input),
+                            ));
+                        }
+                    }
+                }
+                Type::Int => {
+                    let mut has_catch_all = false;
+                    if let Some((last_pattern, _)) = all_patterns.last() {
+                        if last_pattern.iter().any(|p| p.is_catch_all()) {
+                            has_catch_all = true;
+                        }
+                    }
+
+                    let all_patterns_flat =
+                        RangeSetWithId::from_iter(all_patterns.iter().enumerate().flat_map(
+                            |(index, (patterns, _))| {
+                                patterns
+                                    .iter()
+                                    .filter_map(|p| match p {
+                                        CasePatternValue::Int(value) => {
+                                            Some((*value..=*value, index))
+                                        }
+                                        CasePatternValue::IntRange(int_range) => {
+                                            Some((int_range.0.clone(), index))
+                                        }
+                                        CasePatternValue::Bool => None,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                        ));
+
+                    for i in 0..all_patterns_flat.len() - 1 {
+                        if let Some((pattern, pattern_index)) = all_patterns_flat.get(i) {
+                            if let Some((next_pattern, _)) = all_patterns_flat.get(i + 1) {
+                                if pattern.end() >= next_pattern.start() {
+                                    return Err((
+                                        LexErrorKind::OverlappingCasePattern {
+                                            index: *pattern_index,
+                                        },
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    if !has_catch_all {
+                        if !all_patterns_flat.is_continuous() {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        if let Some(min_start) = all_patterns_flat.get_min_start() {
+                            if min_start != i32::MIN {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+
+                            if let Some(max_end) = all_patterns_flat.get_max_end() {
+                                if max_end != i32::MAX {
+                                    return Err((
+                                        LexErrorKind::NonExhaustiveCasePatterns,
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            } else {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+                        } else {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+                    }
+                }
+                Type::Float => {
+                    let mut has_catch_all = false;
+                    if let Some((last_pattern, _)) = all_patterns.last() {
+                        if last_pattern.iter().any(|p| p.is_catch_all()) {
+                            has_catch_all = true;
+                        }
+                    }
+
+                    let all_patterns_flat =
+                        RangeSetWithId::from_iter(all_patterns.iter().enumerate().flat_map(
+                            |(index, (patterns, _))| {
+                                patterns
+                                    .iter()
+                                    .filter_map(|p| match p {
+                                        CasePatternValue::Float(value) => {
+                                            Some((*value..=*value, index))
+                                        }
+                                        CasePatternValue::FloatRange(float_range) => {
+                                            Some((float_range.0.clone(), index))
+                                        }
+                                        CasePatternValue::Bool => None,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                        ));
+
+                    for i in 0..all_patterns_flat.len() - 1 {
+                        if let Some((pattern, pattern_index)) = all_patterns_flat.get(i) {
+                            if let Some((next_pattern, _)) = all_patterns_flat.get(i + 1) {
+                                if pattern.end() >= next_pattern.start() {
+                                    return Err((
+                                        LexErrorKind::OverlappingCasePattern {
+                                            index: *pattern_index,
+                                        },
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    if !has_catch_all {
+                        if !all_patterns_flat.is_continuous() {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        if let Some(min_start) = all_patterns_flat.get_min_start() {
+                            if min_start != f64::MIN {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+
+                            if let Some(max_end) = all_patterns_flat.get_max_end() {
+                                if max_end != f64::MAX {
+                                    return Err((
+                                        LexErrorKind::NonExhaustiveCasePatterns,
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            } else {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+                        } else {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+                    }
+                }
+                Type::Ip => {
+                    let mut has_catch_all = false;
+                    if let Some((last_pattern, _)) = all_patterns.last() {
+                        if last_pattern.iter().any(|p| p.is_catch_all()) {
+                            has_catch_all = true;
+                        }
+                    }
+
+                    let all_patterns_flat =
+                        RangeSetWithId::from_iter(all_patterns.iter().enumerate().flat_map(
+                            |(index, (patterns, _))| {
+                                patterns
+                                    .iter()
+                                    .filter_map(|p| match p {
+                                        CasePatternValue::Ip(value) => {
+                                            Some((*value..=*value, index))
+                                        }
+                                        CasePatternValue::IpRange(ip_range) => {
+                                            Some((ip_range.as_range(), index))
+                                        }
+                                        CasePatternValue::Bool => None,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                        ));
+
+                    for i in 0..all_patterns_flat.len() - 1 {
+                        if let Some((pattern, pattern_index)) = all_patterns_flat.get(i) {
+                            if let Some((next_pattern, _)) = all_patterns_flat.get(i + 1) {
+                                if pattern.end() >= next_pattern.start() {
+                                    return Err((
+                                        LexErrorKind::OverlappingCasePattern {
+                                            index: *pattern_index,
+                                        },
+                                        span(initial_input, input),
+                                    ));
+                                }
+
+                                if pattern.end() == next_pattern.start() {
+                                    return Err((
+                                        LexErrorKind::OverlappingCasePattern {
+                                            index: *pattern_index,
+                                        },
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    if !has_catch_all {
+                        if !all_patterns_flat.is_continuous() {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+
+                        if let (Some(min_start_v4), Some(min_start_v6)) = (
+                            all_patterns_flat.get_min_start_with_condition(IpAddr::is_ipv4),
+                            all_patterns_flat.get_min_start_with_condition(IpAddr::is_ipv6),
+                        ) {
+                            if min_start_v4 != IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+                                && min_start_v6 != IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+                            {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+
+                            if let (Some(max_end_v4), Some(max_end_v6)) = (
+                                all_patterns_flat.get_max_end_with_condition(IpAddr::is_ipv4),
+                                all_patterns_flat.get_max_end_with_condition(IpAddr::is_ipv6),
+                            ) {
+                                if max_end_v4 != IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))
+                                    && max_end_v6
+                                        != IpAddr::V6(Ipv6Addr::new(
+                                            65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535,
+                                        ))
+                                {
+                                    return Err((
+                                        LexErrorKind::NonExhaustiveCasePatterns,
+                                        span(initial_input, input),
+                                    ));
+                                }
+                            } else {
+                                return Err((
+                                    LexErrorKind::NonExhaustiveCasePatterns,
+                                    span(initial_input, input),
+                                ));
+                            }
+                        } else {
+                            return Err((
+                                LexErrorKind::NonExhaustiveCasePatterns,
+                                span(initial_input, input),
+                            ));
+                        }
+                    }
+
+                    if let Some((last_pattern, _)) = all_patterns.last() {
+                        if !last_pattern.iter().any(|p| p.is_catch_all()) {
+                            return Err((
+                                LexErrorKind::ExpectedCatchAllPattern,
+                                span(initial_input, input),
+                            ));
+                        }
+                    }
+
+                    if all_patterns.len() == 1 {
+                        return Err((LexErrorKind::SingleCasePattern, span(initial_input, input)));
+                    }
+                }
+                _ => {
+                    return Err((
+                        LexErrorKind::CasePatternsNotSupported(lhs_type),
+                        span(initial_input, input),
+                    ));
+                }
+            }
+        }
+
+        input = expect(input, "}")?;
+        input = skip_space(input);
+
+        Ok((
+            Self {
+                patterns: all_patterns,
+                variant,
+            },
+            input,
+        ))
+    }
 }
 
 /// Left-hand side of a field expression
@@ -662,467 +1158,26 @@ impl<'s> ComparisonExpr<'s> {
                 | (Type::Int, ComparisonOp::Cases(variant))
                 | (Type::Float, ComparisonOp::Cases(variant))
                 | (Type::Ip, ComparisonOp::Cases(variant)) => {
-                    let input = expect(input, "{")?;
-                    let mut input = skip_space(input);
-                    let mut all_patterns = Vec::new();
-                    let mut uses_catch_all_pattern = false;
-                    loop {
-                        let mut patterns = IndexSet::new();
-                        let mut index = 0;
-                        loop {
-                            let (pattern, rest) =
-                                CasePatternValue::lex_with_lhs_type(input, &lhs_type)?;
-                            if pattern == CasePatternValue::Bool {
-                                if uses_catch_all_pattern {
-                                    return Err((
-                                        LexErrorKind::DuplicateCatchAllPattern,
-                                        span(input, rest),
-                                    ));
-                                } else {
-                                    uses_catch_all_pattern = true;
-                                }
-                            } else if uses_catch_all_pattern {
-                                return Err((
-                                    LexErrorKind::NonCatchAllPatternAfterCatchAll,
-                                    span(input, rest),
-                                ));
-                            } else if !pattern.is_supported_lhs_value_match(&lhs_type) {
-                                return Err((
-                                    LexErrorKind::TypeMismatch(TypeMismatchError {
-                                        expected: pattern.get_type().unwrap_or(Type::Bool).into(),
-                                        actual: lhs_type,
-                                    }),
-                                    span(input, rest),
-                                ));
-                            }
-
-                            input = skip_space(rest);
-
-                            let len = patterns.len();
-                            patterns.insert(pattern);
-                            if len == patterns.len() {
-                                return Err((
-                                    LexErrorKind::DuplicateCasePattern { index },
-                                    span(input, rest),
-                                ));
-                            }
-
-                            if let Ok(rest) = expect(input, "|") {
-                                input = skip_space(rest);
-                            } else {
-                                break;
-                            }
-
-                            index += 1;
-                        }
-
-                        input = skip_space(input);
-                        input = expect(input, "=>")?;
-                        input = skip_space(input);
-
-                        let (logical_expr, rest) =
-                            LogicalExpr::lex_with_2(input, scheme, variables)?;
-                        // LogicalExpr::lex_with can return an AST where the root is an
-                        // LogicalExpr::Combining of type [`Array(Bool)`].
-                        //
-                        // It must do this because we need to be able to use
-                        // LogicalExpr::Combining of type [`Array(Bool)`]
-                        // as arguments to functions, however it should not be valid as a
-                        // case expression in a comparison expression.
-                        //
-                        // Here we enforce the constraint that the case expression of the AST, a
-                        // LogicalExpr, must evaluate to type [`Bool`].
-                        let ty = logical_expr.get_type();
-                        if ty != Type::Bool {
-                            return Err((
-                                LexErrorKind::TypeMismatch(TypeMismatchError {
-                                    expected: Type::Bool.into(),
-                                    actual: ty,
-                                }),
-                                input,
-                            ));
-                        }
-                        all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), logical_expr));
-
-                        input = skip_space(rest);
-                        if expect(input, "}").is_ok() {
-                            break;
-                        }
-                        if let Ok(new_input) = expect(input, ",") {
-                            input = skip_space(new_input);
-                        }
-                        if expect(input, "}").is_ok() {
-                            break;
-                        }
-                        input = skip_space(input);
-                    }
-
-                    if all_patterns.is_empty() {
-                        return Err((
-                            LexErrorKind::ExpectedCasePatterns,
-                            span(initial_input, input),
-                        ));
-                    } else if all_patterns.len() == 1 {
-                        return Err((LexErrorKind::SingleCasePattern, span(initial_input, input)));
-                    } else {
-                        let mut duplicate_case_pattern = None;
-                        for (i, (patterns, _)) in all_patterns.iter().enumerate() {
-                            for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
-                                if i != j && patterns == other_patterns {
-                                    duplicate_case_pattern = Some(i);
-                                    break;
-                                }
-                            }
-                            if duplicate_case_pattern.is_some() {
-                                break;
-                            }
-                        }
-
-                        if let Some(i) = duplicate_case_pattern {
-                            return Err((
-                                LexErrorKind::DuplicateCasePattern { index: i },
-                                span(initial_input, input),
-                            ));
-                        }
-
-                        let mut duplicate_case_expr = None;
-                        for (i, (patterns, _)) in all_patterns.iter().enumerate() {
-                            for (j, (other_patterns, _)) in all_patterns.iter().enumerate() {
-                                if i != j && patterns == other_patterns {
-                                    duplicate_case_expr = Some(i);
-                                    break;
-                                }
-                            }
-                            if duplicate_case_expr.is_some() {
-                                break;
-                            }
-                        }
-
-                        if let Some(i) = duplicate_case_expr {
-                            return Err((
-                                LexErrorKind::DuplicateCaseExpression { index: i },
-                                span(initial_input, input),
-                            ));
-                        }
-
-                        match lhs_type {
-                            Type::Bytes => {
-                                if let Some((last_pattern, _)) = all_patterns.last() {
-                                    if !last_pattern.iter().any(|p| p.is_catch_all()) {
-                                        return Err((
-                                            LexErrorKind::ExpectedCatchAllPattern,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-                                }
-                            }
-                            Type::Int => {
-                                let mut has_catch_all = false;
-                                if let Some((last_pattern, _)) = all_patterns.last() {
-                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
-                                        has_catch_all = true;
-                                    }
-                                }
-
-                                let all_patterns_flat = RangeSetWithId::from_iter(
-                                    all_patterns.iter().enumerate().flat_map(
-                                        |(index, (patterns, _))| {
-                                            patterns
-                                                .iter()
-                                                .filter_map(|p| match p {
-                                                    CasePatternValue::Int(value) => {
-                                                        Some((*value..=*value, index))
-                                                    }
-                                                    CasePatternValue::IntRange(int_range) => {
-                                                        Some((int_range.0.clone(), index))
-                                                    }
-                                                    CasePatternValue::Bool => None,
-                                                    _ => unreachable!(),
-                                                })
-                                                .collect::<Vec<_>>()
-                                        },
-                                    ),
-                                );
-
-                                for i in 0..all_patterns_flat.len() - 1 {
-                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
-                                    {
-                                        if let Some((next_pattern, _)) =
-                                            all_patterns_flat.get(i + 1)
-                                        {
-                                            if pattern.end() >= next_pattern.start() {
-                                                return Err((
-                                                    LexErrorKind::OverlappingCasePattern {
-                                                        index: *pattern_index,
-                                                    },
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if !has_catch_all {
-                                    if !all_patterns_flat.is_continuous() {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-
-                                    if let Some(min_start) = all_patterns_flat.get_min_start() {
-                                        if min_start != i32::MIN {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-
-                                        if let Some(max_end) = all_patterns_flat.get_max_end() {
-                                            if max_end != i32::MAX {
-                                                return Err((
-                                                    LexErrorKind::NonExhaustiveCasePatterns,
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        } else {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-                                    } else {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-                                }
-                            }
-                            Type::Float => {
-                                let mut has_catch_all = false;
-                                if let Some((last_pattern, _)) = all_patterns.last() {
-                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
-                                        has_catch_all = true;
-                                    }
-                                }
-
-                                let all_patterns_flat = RangeSetWithId::from_iter(
-                                    all_patterns.iter().enumerate().flat_map(
-                                        |(index, (patterns, _))| {
-                                            patterns
-                                                .iter()
-                                                .filter_map(|p| match p {
-                                                    CasePatternValue::Float(value) => {
-                                                        Some((*value..=*value, index))
-                                                    }
-                                                    CasePatternValue::FloatRange(float_range) => {
-                                                        Some((float_range.0.clone(), index))
-                                                    }
-                                                    CasePatternValue::Bool => None,
-                                                    _ => unreachable!(),
-                                                })
-                                                .collect::<Vec<_>>()
-                                        },
-                                    ),
-                                );
-
-                                for i in 0..all_patterns_flat.len() - 1 {
-                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
-                                    {
-                                        if let Some((next_pattern, _)) =
-                                            all_patterns_flat.get(i + 1)
-                                        {
-                                            if pattern.end() >= next_pattern.start() {
-                                                return Err((
-                                                    LexErrorKind::OverlappingCasePattern {
-                                                        index: *pattern_index,
-                                                    },
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if !has_catch_all {
-                                    if !all_patterns_flat.is_continuous() {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-
-                                    if let Some(min_start) = all_patterns_flat.get_min_start() {
-                                        if min_start != f64::MIN {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-
-                                        if let Some(max_end) = all_patterns_flat.get_max_end() {
-                                            if max_end != f64::MAX {
-                                                return Err((
-                                                    LexErrorKind::NonExhaustiveCasePatterns,
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        } else {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-                                    } else {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-                                }
-                            }
-                            Type::Ip => {
-                                let mut has_catch_all = false;
-                                if let Some((last_pattern, _)) = all_patterns.last() {
-                                    if last_pattern.iter().any(|p| p.is_catch_all()) {
-                                        has_catch_all = true;
-                                    }
-                                }
-
-                                let all_patterns_flat = RangeSetWithId::from_iter(
-                                    all_patterns.iter().enumerate().flat_map(
-                                        |(index, (patterns, _))| {
-                                            patterns
-                                                .iter()
-                                                .filter_map(|p| match p {
-                                                    CasePatternValue::Ip(value) => {
-                                                        Some((*value..=*value, index))
-                                                    }
-                                                    CasePatternValue::IpRange(ip_range) => {
-                                                        Some((ip_range.as_range(), index))
-                                                    }
-                                                    CasePatternValue::Bool => None,
-                                                    _ => unreachable!(),
-                                                })
-                                                .collect::<Vec<_>>()
-                                        },
-                                    ),
-                                );
-
-                                for i in 0..all_patterns_flat.len() - 1 {
-                                    if let Some((pattern, pattern_index)) = all_patterns_flat.get(i)
-                                    {
-                                        if let Some((next_pattern, _)) =
-                                            all_patterns_flat.get(i + 1)
-                                        {
-                                            if pattern.end() >= next_pattern.start() {
-                                                return Err((
-                                                    LexErrorKind::OverlappingCasePattern {
-                                                        index: *pattern_index,
-                                                    },
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-
-                                            if pattern.end() == next_pattern.start() {
-                                                return Err((
-                                                    LexErrorKind::OverlappingCasePattern {
-                                                        index: *pattern_index,
-                                                    },
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if !has_catch_all {
-                                    if !all_patterns_flat.is_continuous() {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-
-                                    if let (Some(min_start_v4), Some(min_start_v6)) = (
-                                        all_patterns_flat
-                                            .get_min_start_with_condition(IpAddr::is_ipv4),
-                                        all_patterns_flat
-                                            .get_min_start_with_condition(IpAddr::is_ipv6),
-                                    ) {
-                                        if min_start_v4 != IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-                                            && min_start_v6 != IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-                                        {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-
-                                        if let (Some(max_end_v4), Some(max_end_v6)) = (
-                                            all_patterns_flat
-                                                .get_max_end_with_condition(IpAddr::is_ipv4),
-                                            all_patterns_flat
-                                                .get_max_end_with_condition(IpAddr::is_ipv6),
-                                        ) {
-                                            if max_end_v4
-                                                != IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))
-                                                && max_end_v6
-                                                    != IpAddr::V6(Ipv6Addr::new(
-                                                        65535, 65535, 65535, 65535, 65535, 65535,
-                                                        65535, 65535,
-                                                    ))
-                                            {
-                                                return Err((
-                                                    LexErrorKind::NonExhaustiveCasePatterns,
-                                                    span(initial_input, input),
-                                                ));
-                                            }
-                                        } else {
-                                            return Err((
-                                                LexErrorKind::NonExhaustiveCasePatterns,
-                                                span(initial_input, input),
-                                            ));
-                                        }
-                                    } else {
-                                        return Err((
-                                            LexErrorKind::NonExhaustiveCasePatterns,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-                                }
-
-                                if let Some((last_pattern, _)) = all_patterns.last() {
-                                    if !last_pattern.iter().any(|p| p.is_catch_all()) {
-                                        return Err((
-                                            LexErrorKind::ExpectedCatchAllPattern,
-                                            span(initial_input, input),
-                                        ));
-                                    }
-                                }
-
-                                if all_patterns.len() == 1 {
-                                    return Err((
-                                        LexErrorKind::SingleCasePattern,
-                                        span(initial_input, input),
-                                    ));
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-
-                    input = expect(input, "}")?;
-                    input = skip_space(input);
-
-                    (
-                        ComparisonOpExpr::Cases {
-                            patterns: all_patterns,
-                            variant,
-                        },
+                    // LogicalExpr::lex_with can return an AST where the root is an
+                    // LogicalExpr::Combining of type [`Array(Bool)`].
+                    //
+                    // It must do this because we need to be able to use
+                    // LogicalExpr::Combining of type [`Array(Bool)`]
+                    // as arguments to functions, however it should not be valid as a
+                    // case expression in a comparison expression.
+                    //
+                    // Here we enforce the constraint that the case expression of the AST, a
+                    // LogicalExpr, must evaluate to type [`Bool`].
+                    let (cases, input) = Cases::lex_with_lhs_type(
                         input,
-                    )
+                        scheme,
+                        Some(variant),
+                        lhs_type,
+                        Some(Type::Bool),
+                        variables,
+                    )?;
+
+                    (ComparisonOpExpr::Cases(cases), input)
                 }
                 _ => {
                     return Err((
@@ -1245,12 +1300,9 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 ),
             },
 
-            ComparisonOpExpr::Cases {
-                patterns,
-                variant: _,
-            } => {
-                let mut compiled_patterns = Vec::with_capacity(patterns.len());
-                for (pattern, logical_expr) in patterns {
+            ComparisonOpExpr::Cases(cases) => {
+                let mut compiled_patterns = Vec::with_capacity(cases.patterns.len());
+                for (pattern, logical_expr) in cases.patterns {
                     let compiled_expr = compiler.compile_logical_expr(logical_expr, variables);
                     compiled_patterns.push((pattern, compiled_expr));
                 }
@@ -2055,7 +2107,7 @@ mod tests {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::Cases {
+                op: ComparisonOpExpr::Cases(Cases {
                     patterns: vec![
                         (
                             vec![CasePatternValue::IntRange(IntRange(80..=80))],
@@ -2101,7 +2153,7 @@ mod tests {
                         ),
                     ],
                     variant: 0,
-                },
+                }),
             }
         );
 

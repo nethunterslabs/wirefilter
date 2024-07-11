@@ -218,10 +218,7 @@ class ComparisonOpExprBuilder:
         },
 
         /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
-        Cases {
-            /// Cases patterns
-            patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
-        },
+        Cases(CasesBuilder),
 
         /// Integer comparison
         Int {
@@ -308,9 +305,7 @@ class ComparisonOpExprBuilder:
         IsTrue: None | bool = None,
         Ordering: None | Tuple["OrderingOpBuilder", "RhsValueBuilder"] = None,
         OrderingVariable: None | Tuple["OrderingOpBuilder", "VariableBuilder"] = None,
-        Cases: (
-            None | List[Tuple[List["CasePatternValueBuilder"], "LogicalExprBuilder"]]
-        ) = None,
+        Cases: "None | CasesBuilder" = None,
         Int: None | Tuple["IntOpBuilder", int] = None,
         IntVariable: None | Tuple["IntOpBuilder", "VariableBuilder"] = None,
         Contains: "None | BytesBuilder" = None,
@@ -360,12 +355,7 @@ class ComparisonOpExprBuilder:
             }
         elif self.Cases is not None:
             return {
-                "Cases": {
-                    "patterns": [
-                        ([pattern.to_json() for pattern in patterns], expr.to_json())
-                        for patterns, expr in self.Cases
-                    ]
-                }
+                "Cases": self.Cases.to_json(),
             }
         elif self.Int is not None:
             return {"Int": {"op": self.Int[0].to_json(), "rhs": self.Int[1]}}
@@ -414,6 +404,32 @@ class ComparisonOpExprBuilder:
             return {"HasAllVariable": {"var": self.HasAllVariable.to_json()}}
         else:
             raise ValueError("No valid field set")
+
+
+class CasesBuilder:
+    """
+    /// "cases {...}" / "CASES {...}" / "=>"
+    pub struct Cases<'s> {
+        /// Cases patterns
+        pub patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
+        /// Variant, used for formatting
+        pub variant: u8,
+    }
+    """
+
+    def __init__(
+        self,
+        patterns: List[Tuple[List["CasePatternValueBuilder"], "LogicalExprBuilder"]],
+    ):
+        self.patterns = patterns
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            "patterns": [
+                ([pattern.to_json() for pattern in patterns], expr.to_json())
+                for patterns, expr in self.patterns
+            ]
+        }
 
 
 class RegexBuilder:

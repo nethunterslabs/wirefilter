@@ -4,11 +4,11 @@ use std::net::IpAddr;
 
 use cidr::IpCidr;
 use wirefilter::{
-    ByteSeparator, Bytes, CasePatternValue, ComparisonExpr, ComparisonOpExpr, ExplicitIpRange,
-    FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr, FunctionCallExpr, GetType,
-    IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, LogicalExpr, LogicalOp, OrderedFloat,
-    OrderingOp, Regex, RhsValue, RhsValues, Scheme, SimpleExpr, SingleValueExprAst, StrType, Type,
-    UnaryOp, UnknownVariableError, Variable, Variables,
+    ByteSeparator, Bytes, CasePatternValue, Cases, ComparisonExpr, ComparisonOpExpr,
+    ExplicitIpRange, FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr,
+    FunctionCallExpr, GetType, IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, LogicalExpr,
+    LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme, SimpleExpr,
+    SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError, Variable, Variables,
 };
 
 use crate::ast::*;
@@ -565,21 +565,9 @@ impl ComparisonOpExprBuilder {
                     var: var.build(variables)?,
                 }
             }
-            ComparisonOpExprBuilder::Cases { patterns } => ComparisonOpExpr::Cases {
-                patterns: patterns
-                    .into_iter()
-                    .map(|(patterns, expr)| {
-                        Ok((
-                            patterns
-                                .into_iter()
-                                .map(|pattern| pattern.build())
-                                .collect::<Result<Vec<_>>>()?,
-                            expr.build(scheme, variables)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                variant: 0,
-            },
+            ComparisonOpExprBuilder::Cases(cases) => {
+                ComparisonOpExpr::Cases(cases.build(scheme, variables)?)
+            }
             ComparisonOpExprBuilder::Int { op, rhs } => ComparisonOpExpr::Int {
                 op: op.build(),
                 rhs,
@@ -647,20 +635,9 @@ impl ComparisonOpExprBuilder {
                     var: VariableBuilder::from(var),
                 }
             }
-            ComparisonOpExpr::Cases { patterns, .. } => ComparisonOpExprBuilder::Cases {
-                patterns: patterns
-                    .into_iter()
-                    .map(|(patterns, expr)| {
-                        Ok((
-                            patterns
-                                .into_iter()
-                                .map(CasePatternValueBuilder::from)
-                                .collect::<Result<Vec<_>>>()?,
-                            LogicalExprBuilder::from(expr)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-            },
+            ComparisonOpExpr::Cases(cases) => {
+                ComparisonOpExprBuilder::Cases(CasesBuilder::from(cases)?)
+            }
             ComparisonOpExpr::Int { op, rhs } => ComparisonOpExprBuilder::Int {
                 op: IntOpBuilder::from(op),
                 rhs,
@@ -707,6 +684,52 @@ impl ComparisonOpExprBuilder {
                     var: VariableBuilder::from(var),
                 }
             }
+        })
+    }
+}
+
+impl CasesBuilder {
+    /// Creates a new `CasesBuilder` with the given `patterns`.
+    pub fn new(patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>) -> Self {
+        Self { patterns }
+    }
+
+    /// Builds a `Cases` from the `CasesBuilder`.
+    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<Cases<'s>> {
+        Ok(Cases {
+            patterns: self
+                .patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    Ok((
+                        patterns
+                            .into_iter()
+                            .map(CasePatternValueBuilder::build)
+                            .collect::<Result<Vec<_>>>()?,
+                        expr.build(scheme, variables)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            variant: 0,
+        })
+    }
+
+    /// Creates a new `CasesBuilder` from the given `Cases`.
+    pub fn from(cases: Cases<'_>) -> Result<Self> {
+        Ok(Self {
+            patterns: cases
+                .patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    Ok((
+                        patterns
+                            .into_iter()
+                            .map(CasePatternValueBuilder::from)
+                            .collect::<Result<Vec<_>>>()?,
+                        LogicalExprBuilder::from(expr)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
         })
     }
 }
