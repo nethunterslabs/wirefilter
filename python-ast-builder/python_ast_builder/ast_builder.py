@@ -19,11 +19,33 @@ class SingleValueExprAstBuilder:
     Builder for `SingleValueExprAst`.
     """
 
-    def __init__(self, op: "LhsFieldExprBuilder"):
+    def __init__(self, op: "SingleIndexExprBuilder"):
         self.op = op
 
     def to_json(self) -> Dict[str, Any]:
         return {"op": self.op.to_json()}
+
+
+class SingleIndexExprBuilder:
+    """
+    Builder for `SingleIndexExprAst`.
+    pub struct SingleIndexExprBuilder {
+        /// Index expression.
+        pub(crate) op: IndexExprBuilder,
+        /// Optional cases expression.
+        pub(crate) cases: Option<CasesBuilder<IndexExprBuilder>>,
+    }
+    """
+
+    def __init__(self, op: "IndexExprBuilder", cases: "None | CasesBuilder"):
+        self.op = op
+        self.cases = cases
+
+    def to_json(self) -> Dict[str, Any]:
+        if self.cases is not None:
+            return {"op": self.op.to_json(), "cases": self.cases.to_json()}
+        else:
+            return {"op": self.op.to_json()}
 
 
 class LogicalExprBuilder:
@@ -218,7 +240,7 @@ class ComparisonOpExprBuilder:
         },
 
         /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
-        Cases(CasesBuilder),
+        Cases(CasesBuilder<LogicalExprBuilder>),
 
         /// Integer comparison
         Int {
@@ -408,18 +430,21 @@ class ComparisonOpExprBuilder:
 
 class CasesBuilder:
     """
-    /// "cases {...}" / "CASES {...}" / "=>"
-    pub struct Cases<'s> {
+    /// Builder for `Cases`.
+    pub struct CasesBuilder<E> {
         /// Cases patterns
-        pub patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
-        /// Variant, used for formatting
-        pub variant: u8,
+        pub(crate) patterns: Vec<(Vec<CasePatternValueBuilder>, E)>,
     }
     """
 
     def __init__(
         self,
-        patterns: List[Tuple[List["CasePatternValueBuilder"], "LogicalExprBuilder"]],
+        patterns: List[
+            Tuple[
+                List["CasePatternValueBuilder"],
+                "LogicalExprBuilder | IndexExprBuilder",
+            ]
+        ],
     ):
         self.patterns = patterns
 

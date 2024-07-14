@@ -2,12 +2,12 @@ use crate::{
     ast::{
         field_expr::{Cases, IntOp},
         simple_expr::UnaryOp,
-        LhsFieldExpr,
+        SingleIndexExpr,
     },
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
     CasePatternValue, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
-    FunctionCallExpr, IndexExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue, RhsValues,
-    SimpleExpr, SingleValueExprAst, Variables,
+    FunctionCallExpr, IndexExpr, LhsFieldExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue,
+    RhsValues, SimpleExpr, SingleValueExprAst, Variables,
 };
 use thiserror::Error;
 
@@ -459,7 +459,7 @@ impl<'s> Fmt for SimpleExpr<'s> {
     }
 }
 
-impl<'s> Fmt for Cases<'s> {
+impl<T: Fmt> Fmt for Cases<T> {
     fn fmt(&self, _indent: usize, output: &mut String) {
         let indent = output.split('\n').last().unwrap_or_default().len();
 
@@ -640,6 +640,16 @@ fn escape(string: &str, hex_and_oct: bool) -> String {
     res
 }
 
+impl<'s> Fmt for SingleIndexExpr<'s> {
+    fn fmt(&self, indent: usize, output: &mut String) {
+        self.op.fmt(indent, output);
+
+        if let Some(cases) = &self.cases {
+            cases.fmt(indent, output);
+        }
+    }
+}
+
 impl<'s> SingleValueExprAst<'s> {
     /// Format a [`SingleValueExprAst`] in an opinionated way.
     pub fn fmt(&self, variables: &Variables) -> Result<String, FormatError> {
@@ -655,7 +665,7 @@ impl<'s> SingleValueExprAst<'s> {
         let mut formatted = String::new();
         self.op.fmt(indent, &mut formatted);
 
-        let formatted_ast = self
+        let formatted_ast: SingleValueExprAst<'_> = self
             .scheme
             .parse_single_value_expr(&formatted, variables)
             .map_err(|e| FormatError::ParseError(e.to_string()))?;

@@ -86,7 +86,7 @@ pub use self::{
     ast::{
         field_expr::{Cases, ComparisonExpr, ComparisonOpExpr, IntOp, LhsFieldExpr, OrderingOp},
         function_expr::{FunctionCallArgExpr, FunctionCallExpr},
-        index_expr::IndexExpr,
+        index_expr::{IndexExpr, SingleIndexExpr},
         logical_expr::{LogicalExpr, LogicalOp},
         simple_expr::{SimpleExpr, UnaryOp},
         visitor::{Visitor, VisitorMut},

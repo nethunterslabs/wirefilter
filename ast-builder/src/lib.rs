@@ -16,9 +16,11 @@ pub use ast::{
     FieldIndexBuilder, FilterAstBuilder, FunctionBuilder, FunctionCallArgExprBuilder,
     FunctionCallExprBuilder, IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder,
     LhsFieldExprBuilder, LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder,
-    RhsValueBuilder, RhsValuesBuilder, SimpleExprBuilder, SingleValueExprAstBuilder,
-    StrTypeBuilder, TypeBuilder, UnaryExprBuilder, UnaryOpBuilder, VariableBuilder,
+    RhsValueBuilder, RhsValuesBuilder, SimpleExprBuilder, SingleIndexExprBuilder,
+    SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder, UnaryExprBuilder, UnaryOpBuilder,
+    VariableBuilder,
 };
+pub use build::AstBuilder;
 
 /// Result type for the builder.
 pub type Result<T> = std::result::Result<T, BuilderError>;
@@ -137,6 +139,7 @@ mod tests {
                 http.version: Float,
                 ip.addr: Ip,
                 ssl: Bool,
+                ssl.version: Float,
                 tcp.port: Int,
             };
 
@@ -237,204 +240,12 @@ mod tests {
         let json_file = read_json_ast_file(file_name);
 
         serde_json::from_str(&json_file)
-            .map_err(|e| format!("Failed to parse json in test {}: {}", stringify!(T), e))
+            .map_err(|e| format!("Failed to parse json in test {}: {}", file_name, e))
             .unwrap()
     }
 
     macro_rules! test_builder {
         ($builder:ident, $file_name:literal, $expected:expr) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, BuilderUnwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast).unwrap();
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, Scheme) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&SCHEME);
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, Variables) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&VARIABLES);
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, SchemeVariables) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&SCHEME, &VARIABLES);
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, SchemeUnwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&SCHEME).unwrap();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, VariablesUnwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&VARIABLES).unwrap();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, VariablesUnwrapBuilderUnwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build(&VARIABLES).unwrap();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast).unwrap();
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, SchemeVariablesUnwrap) => {
             let builder: $builder = get_builder_from_json($file_name);
 
             let ast = builder.clone().build(&SCHEME, &VARIABLES).unwrap();
@@ -447,55 +258,7 @@ mod tests {
                 $file_name
             );
 
-            let builder_from_ast = $builder::from(ast).unwrap();
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, Unwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build().unwrap();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast);
-
-            assert_eq!(
-                builder,
-                builder_from_ast,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-        };
-
-        ($builder:ident, $file_name:literal, $expected:expr, UnwrapBuilderUnwrap) => {
-            let builder: $builder = get_builder_from_json($file_name);
-
-            let ast = builder.clone().build().unwrap();
-
-            assert_eq!(
-                ast,
-                $expected,
-                "Failed test: {} - {}",
-                stringify!($builder),
-                $file_name
-            );
-
-            let builder_from_ast = $builder::from(ast).unwrap();
+            let builder_from_ast = $builder::parse_ast(ast.clone()).unwrap();
 
             assert_eq!(
                 builder,
@@ -557,8 +320,7 @@ mod tests {
         test_builder!(
             FieldBuilder,
             "field_builder",
-            SCHEME.get_field("http.version").unwrap(),
-            SchemeUnwrap
+            SCHEME.get_field("http.version").unwrap()
         );
     }
 
@@ -567,8 +329,7 @@ mod tests {
         test_builder!(
             FunctionBuilder,
             "function_builder",
-            SCHEME.get_function("len").unwrap(),
-            SchemeUnwrap
+            SCHEME.get_function("len").unwrap()
         );
     }
 
@@ -580,25 +341,18 @@ mod tests {
             wirefilter::Variable::new_with_type(
                 "bytes_var".to_owned(),
                 wirefilter::VariableType::Bytes
-            ),
-            VariablesUnwrap
+            )
         );
     }
 
     #[test]
     fn test_type_builder() {
-        test_builder!(
-            TypeBuilder,
-            "type_builder1",
-            wirefilter::Type::Bool,
-            BuilderUnwrap
-        );
+        test_builder!(TypeBuilder, "type_builder1", wirefilter::Type::Bool);
 
         test_builder!(
             TypeBuilder,
             "type_builder2",
-            wirefilter::Type::Array(Box::new(Type::Bytes)),
-            BuilderUnwrap
+            wirefilter::Type::Array(Box::new(Type::Bytes))
         );
     }
 
@@ -617,8 +371,7 @@ mod tests {
             RegexBuilder,
             "regex_builder1",
             wirefilter::Regex::parse_str_with_str_type(r"^\d{3}$", wirefilter::StrType::Escaped)
-                .unwrap(),
-            Unwrap
+                .unwrap()
         );
 
         test_builder!(
@@ -628,8 +381,7 @@ mod tests {
                 r"^\d{3}$",
                 wirefilter::StrType::Raw { hash_count: 3 }
             )
-            .unwrap(),
-            Unwrap
+            .unwrap()
         );
     }
 
@@ -647,8 +399,7 @@ mod tests {
         test_builder!(
             ComparisonOpExprBuilder,
             "comparison_op_expr_builder1",
-            wirefilter::ComparisonOpExpr::IsTrue,
-            SchemeVariablesUnwrap
+            wirefilter::ComparisonOpExpr::IsTrue
         );
 
         test_builder!(
@@ -657,8 +408,7 @@ mod tests {
             wirefilter::ComparisonOpExpr::Ordering {
                 op: wirefilter::OrderingOp::LessThan(0),
                 rhs: wirefilter::RhsValue::Int(1),
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -667,8 +417,7 @@ mod tests {
             wirefilter::ComparisonOpExpr::Int {
                 op: wirefilter::IntOp::BitwiseAnd(0),
                 rhs: 1,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -680,8 +429,7 @@ mod tests {
                     ty: wirefilter::StrType::Escaped,
                 },
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -694,8 +442,7 @@ mod tests {
                 )
                 .unwrap(),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -707,8 +454,7 @@ mod tests {
                     wirefilter::IntRange(3..=4),
                 ]),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -720,8 +466,7 @@ mod tests {
                     ty: wirefilter::StrType::Escaped,
                 }]),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -733,8 +478,7 @@ mod tests {
                     ty: wirefilter::StrType::Escaped,
                 }]),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -746,8 +490,7 @@ mod tests {
                     "int_var".to_owned(),
                     wirefilter::VariableType::Int
                 )
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -759,8 +502,7 @@ mod tests {
                     "int_var".to_owned(),
                     wirefilter::VariableType::Int
                 ),
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -772,8 +514,7 @@ mod tests {
                     wirefilter::VariableType::Bytes
                 ),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -785,8 +526,7 @@ mod tests {
                     wirefilter::VariableType::Regex
                 ),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -798,8 +538,7 @@ mod tests {
                     wirefilter::VariableType::BytesList
                 ),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -811,8 +550,7 @@ mod tests {
                     wirefilter::VariableType::BytesList
                 ),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -824,8 +562,7 @@ mod tests {
                     wirefilter::VariableType::BytesList
                 ),
                 variant: 0,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -853,8 +590,7 @@ mod tests {
                     )),
                 )],
                 variant: 0,
-            }),
-            SchemeVariablesUnwrap
+            })
         );
     }
 
@@ -879,8 +615,7 @@ mod tests {
                         },
                     }
                 ))
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -892,8 +627,7 @@ mod tests {
             wirefilter::IndexExpr {
                 lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
                 indexes: Vec::new(),
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -907,8 +641,7 @@ mod tests {
                     wirefilter::FieldIndex::ArrayIndex(1),
                     wirefilter::FieldIndex::MapKey("key".into()),
                 ],
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -917,8 +650,7 @@ mod tests {
         test_builder!(
             LhsFieldExprBuilder,
             "lhs_field_expr_builder1",
-            wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
-            SchemeVariablesUnwrap
+            wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap())
         );
 
         test_builder!(
@@ -936,8 +668,7 @@ mod tests {
                     }
                 )],
                 context: None,
-            }),
-            SchemeVariablesUnwrap
+            })
         );
     }
 
@@ -949,15 +680,13 @@ mod tests {
             wirefilter::FunctionCallArgExpr::IndexExpr(wirefilter::IndexExpr {
                 lhs: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.host").unwrap()),
                 indexes: Vec::new(),
-            }),
-            SchemeVariablesUnwrap
+            })
         );
 
         test_builder!(
             FunctionCallArgExprBuilder,
             "function_call_arg_expr_builder2",
-            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Int(1)),
-            SchemeVariablesUnwrap
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Int(1))
         );
 
         test_builder!(
@@ -965,15 +694,13 @@ mod tests {
             "function_call_arg_expr_builder3",
             wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Bytes(
                 "value".as_bytes().to_owned().into()
-            )),
-            SchemeVariablesUnwrap
+            ))
         );
 
         test_builder!(
             FunctionCallArgExprBuilder,
             "function_call_arg_expr_builder4",
-            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Float(1.0.into())),
-            SchemeVariablesUnwrap
+            wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Float(1.0.into()))
         );
 
         test_builder!(
@@ -981,8 +708,7 @@ mod tests {
             "function_call_arg_expr_builder5",
             wirefilter::FunctionCallArgExpr::Literal(wirefilter::RhsValue::Ip(
                 Ipv4Addr::new(127, 0, 0, 1).into()
-            )),
-            SchemeVariablesUnwrap
+            ))
         );
 
         test_builder!(
@@ -1001,8 +727,7 @@ mod tests {
                         rhs: wirefilter::RhsValue::Int(1),
                     },
                 }
-            )),
-            SchemeVariablesUnwrap
+            ))
         );
     }
 
@@ -1023,8 +748,7 @@ mod tests {
                     }
                 )],
                 context: None,
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1042,8 +766,7 @@ mod tests {
                     op: wirefilter::OrderingOp::LessThan(0),
                     rhs: wirefilter::RhsValue::Int(1),
                 },
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -1055,8 +778,7 @@ mod tests {
                     indexes: Vec::new(),
                 },
                 op: wirefilter::ComparisonOpExpr::IsTrue,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -1071,8 +793,7 @@ mod tests {
                     op: wirefilter::IntOp::BitwiseAnd(0),
                     rhs: 1,
                 },
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -1090,8 +811,7 @@ mod tests {
                     },
                     variant: 0,
                 },
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
@@ -1110,8 +830,7 @@ mod tests {
                     .unwrap(),
                     variant: 0,
                 },
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1138,8 +857,7 @@ mod tests {
                     op: wirefilter::OrderingOp::LessThan(0),
                     rhs: wirefilter::RhsValue::Int(1),
                 },
-            }),
-            SchemeVariablesUnwrap
+            })
         );
 
         test_builder!(
@@ -1161,8 +879,7 @@ mod tests {
                         },
                     }
                 ))
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1203,8 +920,7 @@ mod tests {
                         }
                     )),
                 ],
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1226,8 +942,7 @@ mod tests {
                         rhs: wirefilter::RhsValue::Int(1),
                     },
                 }
-            )),
-            SchemeVariablesUnwrap
+            ))
         );
 
         test_builder!(
@@ -1249,8 +964,7 @@ mod tests {
                         },
                     }
                 ))
-            }),
-            SchemeVariablesUnwrap
+            })
         );
 
         test_builder!(
@@ -1288,8 +1002,7 @@ mod tests {
                         }
                     )),
                 ],
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1314,8 +1027,7 @@ mod tests {
                     }
                 )),
                 scheme: &SCHEME,
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1326,32 +1038,60 @@ mod tests {
             SingleValueExprAstBuilder,
             "single_value_expr_ast_builder1",
             wirefilter::SingleValueExprAst {
-                op: wirefilter::LhsFieldExpr::Field(SCHEME.get_field("http.version").unwrap()),
+                op: wirefilter::SingleIndexExpr {
+                    op: wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::Field(
+                            SCHEME.get_field("http.version").unwrap()
+                        ),
+                        indexes: Vec::new(),
+                    },
+                    cases: Some(wirefilter::Cases {
+                        patterns: vec![(
+                            vec![
+                                wirefilter::CasePatternValue::Float(1.0.into()),
+                                wirefilter::CasePatternValue::Bool,
+                            ],
+                            wirefilter::IndexExpr {
+                                lhs: wirefilter::LhsFieldExpr::Field(
+                                    SCHEME.get_field("ssl.version").unwrap(),
+                                ),
+                                indexes: Vec::new(),
+                            },
+                        )],
+                        variant: 0,
+                    }),
+                },
                 scheme: &SCHEME,
-            },
-            SchemeVariablesUnwrap
+            }
         );
 
         test_builder!(
             SingleValueExprAstBuilder,
             "single_value_expr_ast_builder2",
             wirefilter::SingleValueExprAst {
-                op: wirefilter::LhsFieldExpr::FunctionCallExpr(wirefilter::FunctionCallExpr {
-                    function: SCHEME.get_function("len").unwrap(),
-                    return_type: wirefilter::Type::Int,
-                    args: vec![wirefilter::FunctionCallArgExpr::IndexExpr(
-                        wirefilter::IndexExpr {
-                            lhs: wirefilter::LhsFieldExpr::Field(
-                                SCHEME.get_field("http.host").unwrap()
-                            ),
-                            indexes: Vec::new(),
-                        }
-                    )],
-                    context: None,
-                }),
+                op: wirefilter::SingleIndexExpr {
+                    op: wirefilter::IndexExpr {
+                        lhs: wirefilter::LhsFieldExpr::FunctionCallExpr(
+                            wirefilter::FunctionCallExpr {
+                                function: SCHEME.get_function("len").unwrap(),
+                                return_type: wirefilter::Type::Int,
+                                args: vec![wirefilter::FunctionCallArgExpr::IndexExpr(
+                                    wirefilter::IndexExpr {
+                                        lhs: wirefilter::LhsFieldExpr::Field(
+                                            SCHEME.get_field("http.host").unwrap()
+                                        ),
+                                        indexes: Vec::new(),
+                                    }
+                                )],
+                                context: None,
+                            }
+                        ),
+                        indexes: Vec::new(),
+                    },
+                    cases: None,
+                },
                 scheme: &SCHEME,
-            },
-            SchemeVariablesUnwrap
+            }
         );
     }
 
@@ -1384,8 +1124,7 @@ mod tests {
         test_builder!(
             IpCidrBuilder,
             "ip_cidr_builder",
-            cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap(),
-            Unwrap
+            cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
         );
     }
 
@@ -1407,8 +1146,7 @@ mod tests {
             "ip_range_builder1",
             wirefilter::IpRange::Explicit(wirefilter::ExplicitIpRange::V4(
                 Ipv4Addr::new(127, 0, 0, 1)..=Ipv4Addr::new(127, 0, 0, 255)
-            )),
-            UnwrapBuilderUnwrap
+            ))
         );
 
         test_builder!(
@@ -1416,8 +1154,7 @@ mod tests {
             "ip_range_builder2",
             wirefilter::IpRange::Cidr(
                 cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
-            ),
-            UnwrapBuilderUnwrap
+            )
         );
     }
 
@@ -1426,29 +1163,25 @@ mod tests {
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder1",
-            wirefilter::RhsValue::Int(1),
-            BuilderUnwrap
+            wirefilter::RhsValue::Int(1)
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder2",
-            wirefilter::RhsValue::Bytes("value".as_bytes().to_owned().into()),
-            BuilderUnwrap
+            wirefilter::RhsValue::Bytes("value".as_bytes().to_owned().into())
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder3",
-            wirefilter::RhsValue::Float(1.0.into()),
-            BuilderUnwrap
+            wirefilter::RhsValue::Float(1.0.into())
         );
 
         test_builder!(
             RhsValueBuilder,
             "rhs_value_builder4",
-            wirefilter::RhsValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into()),
-            BuilderUnwrap
+            wirefilter::RhsValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into())
         );
     }
 
@@ -1460,15 +1193,13 @@ mod tests {
             wirefilter::RhsValues::Int(vec![
                 wirefilter::IntRange(1..=2),
                 wirefilter::IntRange(3..=4),
-            ]),
-            UnwrapBuilderUnwrap
+            ])
         );
 
         test_builder!(
             RhsValuesBuilder,
             "rhs_values_builder2",
-            wirefilter::RhsValues::Float(vec![wirefilter::FloatRange(1.0.into()..=10.0.into())]),
-            UnwrapBuilderUnwrap
+            wirefilter::RhsValues::Float(vec![wirefilter::FloatRange(1.0.into()..=10.0.into())])
         );
 
         test_builder!(
@@ -1476,8 +1207,7 @@ mod tests {
             "rhs_values_builder3",
             wirefilter::RhsValues::Ip(vec![wirefilter::IpRange::Cidr(
                 cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
-            )]),
-            UnwrapBuilderUnwrap
+            )])
         );
 
         test_builder!(
@@ -1486,67 +1216,34 @@ mod tests {
             wirefilter::RhsValues::Bytes(vec![wirefilter::Bytes::Str {
                 value: "value".into(),
                 ty: wirefilter::StrType::Escaped
-            }]),
-            UnwrapBuilderUnwrap
+            }])
         );
     }
 
     #[test]
     fn test_case_pattern_value_builder() {
-        /*
-                /// Builder for `CasePatternValue`.
-        #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-        pub enum CasePatternValueBuilder {
-            /// A boolean.
-            Bool,
-            /// A 32-bit integer number.
-            Int(i32),
-            /// Represents a range of integers.
-            IntRange((i32, i32)),
-            /// A 64-bit floating point number.
-            Float(f64),
-            /// Represents a range of floating point numbers.
-            FloatRange((f64, f64)),
-            /// An IPv4 or IPv6 address.
-            ///
-            /// These are represented as a single type to allow interop comparisons.
-            Ip(IpAddr),
-            /// Represents a range of IP addresses.
-            IpRange(IpRangeBuilder),
-            /// A raw bytes or a string field.
-            ///
-            /// These are completely interchangeable in runtime and differ only in
-            /// syntax representation, so we represent them as a single type.
-            Bytes(BytesBuilder),
-        }
-                 */
-
         test_builder!(
             CasePatternValueBuilder,
             "case_pattern_value_builder1",
-            wirefilter::CasePatternValue::Bool,
-            UnwrapBuilderUnwrap
+            wirefilter::CasePatternValue::Bool
         );
 
         test_builder!(
             CasePatternValueBuilder,
             "case_pattern_value_builder2",
-            wirefilter::CasePatternValue::Int(1),
-            UnwrapBuilderUnwrap
+            wirefilter::CasePatternValue::Int(1)
         );
 
         test_builder!(
             CasePatternValueBuilder,
             "case_pattern_value_builder3",
-            wirefilter::CasePatternValue::IntRange(wirefilter::IntRange(1..=2)),
-            UnwrapBuilderUnwrap
+            wirefilter::CasePatternValue::IntRange(wirefilter::IntRange(1..=2))
         );
 
         test_builder!(
             CasePatternValueBuilder,
             "case_pattern_value_builder4",
-            wirefilter::CasePatternValue::Float(1.0.into()),
-            UnwrapBuilderUnwrap
+            wirefilter::CasePatternValue::Float(1.0.into())
         );
 
         test_builder!(
@@ -1554,15 +1251,13 @@ mod tests {
             "case_pattern_value_builder5",
             wirefilter::CasePatternValue::FloatRange(wirefilter::FloatRange(
                 1.0.into()..=2.0.into()
-            )),
-            UnwrapBuilderUnwrap
+            ))
         );
 
         test_builder!(
             CasePatternValueBuilder,
             "case_pattern_value_builder6",
-            wirefilter::CasePatternValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into()),
-            UnwrapBuilderUnwrap
+            wirefilter::CasePatternValue::Ip(Ipv4Addr::new(127, 0, 0, 1).into())
         );
 
         test_builder!(
@@ -1572,8 +1267,7 @@ mod tests {
                 wirefilter::ExplicitIpRange::V4(
                     Ipv4Addr::new(127, 0, 0, 1)..=Ipv4Addr::new(127, 0, 0, 255)
                 )
-            )),
-            UnwrapBuilderUnwrap
+            ))
         );
 
         test_builder!(
@@ -1581,8 +1275,7 @@ mod tests {
             "case_pattern_value_builder8",
             wirefilter::CasePatternValue::IpRange(wirefilter::IpRange::Cidr(
                 cidr::IpCidr::new(Ipv4Addr::new(127, 0, 0, 0).into(), 24).unwrap()
-            )),
-            UnwrapBuilderUnwrap
+            ))
         );
 
         test_builder!(
@@ -1591,8 +1284,7 @@ mod tests {
             wirefilter::CasePatternValue::Bytes(wirefilter::Bytes::Str {
                 value: "value".into(),
                 ty: wirefilter::StrType::Escaped
-            }),
-            UnwrapBuilderUnwrap
+            })
         );
     }
 }

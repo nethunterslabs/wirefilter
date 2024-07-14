@@ -1,13 +1,13 @@
 use super::{
     function_expr::FunctionCallExpr,
     visitor::{Visitor, VisitorMut},
-    Expr,
+    Expr, ValueExpr,
 };
 use crate::{
     ast::{index_expr::IndexExpr, logical_expr::LogicalExpr},
     compiler::Compiler,
-    execution_context::Variables,
-    filter::{CompiledExpr, CompiledValueExpr},
+    execution_context::{ExecutionContext, State, Variables},
+    filter::{CompiledExpr, CompiledValueExpr, CompiledValueResult},
     lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
     range_set::{RangeSet, RangeSetWithId},
     rhs_types::{Bytes, ExplicitIpRange, Regex, Variable},
@@ -157,7 +157,7 @@ pub enum ComparisonOpExpr<'s> {
 
     /// "cases {...}" / "CASES {...}" / "=>" comparison
     #[serde(serialize_with = "serialize_cases")]
-    Cases(Cases<'s>),
+    Cases(Cases<LogicalExpr<'s>>),
 
     /// Integer comparison
     Int {
@@ -284,7 +284,10 @@ fn serialize_is_true<S: Serializer>(ser: S) -> Result<S::Ok, S::Error> {
     out.end()
 }
 
-fn serialize_cases<S: Serializer>(cases: &Cases<'_>, ser: S) -> Result<S::Ok, S::Error> {
+fn serialize_cases<S: Serializer>(
+    cases: &Cases<LogicalExpr<'_>>,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeStruct;
 
     let mut out = ser.serialize_struct("ComparisonOpExpr", 2)?;
@@ -315,40 +318,119 @@ fn serialize_has_all<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S
 
 /// "cases {...}" / "CASES {...}" / "=>"
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
-pub struct Cases<'s> {
+pub struct Cases<E> {
     /// Cases patterns
-    pub patterns: Vec<(Vec<CasePatternValue>, LogicalExpr<'s>)>,
+    pub patterns: Vec<(Vec<CasePatternValue>, E)>,
     /// Variant, used for formatting
     pub variant: u8,
 }
 
-impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for Cases<'s> {
-    fn lex_with_2(
-        input: &'i str,
-        scheme: &'s Scheme,
-        variables: &Variables,
-    ) -> LexResult<'i, Self> {
-        let (lhs, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
-        let lhs_type = lhs.get_type();
+pub struct CompiledCases<E> {
+    pub patterns: Vec<(Vec<CasePatternValue>, E)>,
+    ty: Type,
+}
 
-        Self::lex_with_lhs_type(input, scheme, None, lhs_type, None, variables)
+impl<E> CompiledCases<E> {
+    pub fn new(patterns: Vec<(Vec<CasePatternValue>, E)>, ty: Type) -> Self {
+        Self { patterns, ty }
     }
 }
 
-impl<'s> GetType for Cases<'s> {
+impl<'s, U> CompiledCases<CompiledExpr<'s, U>> {
+    pub fn execute(
+        &self,
+        value: &LhsValue<'_>,
+        default: bool,
+        ctx: &ExecutionContext<'_, U>,
+        variables: &Variables,
+        state: &State<'_>,
+    ) -> bool {
+        for (patterns, compiled_expr) in &self.patterns {
+            for pattern in patterns {
+                if pattern.matches(value) {
+                    return compiled_expr.execute_one(ctx, variables, state);
+                }
+            }
+        }
+
+        default
+    }
+}
+
+impl<'s, U> CompiledCases<CompiledValueExpr<'s, U>> {
+    pub fn execute<'e>(
+        &self,
+        value: &LhsValue<'_>,
+        ctx: &'e ExecutionContext<'e, U>,
+        variables: &Variables,
+        state: &State<'e>,
+    ) -> CompiledValueResult<'e> {
+        for (patterns, compiled_expr) in &self.patterns {
+            for pattern in patterns {
+                if pattern.matches(value) {
+                    return compiled_expr.execute(ctx, variables, state);
+                }
+            }
+        }
+
+        Err(self.ty.clone())
+    }
+}
+
+impl<'s> Cases<LogicalExpr<'s>> {
+    pub(crate) fn compile_exprs_with_compiler<U: 's, C: Compiler<'s, U>>(
+        self,
+        compiler: &mut C,
+        variables: &Variables,
+    ) -> CompiledCases<CompiledExpr<'s, U>> {
+        let ty = self.get_type();
+        CompiledCases::new(
+            self.patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    let compiled_expr = expr.compile_with_compiler(compiler, variables);
+                    (patterns, compiled_expr)
+                })
+                .collect(),
+            ty,
+        )
+    }
+}
+
+impl<'s> Cases<IndexExpr<'s>> {
+    pub(crate) fn compile_value_exprs_with_compiler<U: 's, C: Compiler<'s, U>>(
+        self,
+        compiler: &mut C,
+        variables: &Variables,
+    ) -> CompiledCases<CompiledValueExpr<'s, U>> {
+        let ty = self.get_type();
+        CompiledCases::new(
+            self.patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    let compiled_expr = expr.compile_with_compiler(compiler, variables);
+                    (patterns, compiled_expr)
+                })
+                .collect(),
+            ty,
+        )
+    }
+}
+
+impl<E: GetType> GetType for Cases<E> {
     fn get_type(&self) -> Type {
         self.patterns.first().unwrap().1.get_type()
     }
 }
 
-impl<'s> Cases<'s> {
-    pub(crate) fn lex_with_lhs_type<'i>(
+impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> {
+    pub(crate) fn lex_with_lhs_type(
         input: &'i str,
         scheme: &'s Scheme,
         variant: Option<u8>,
         lhs_type: Type,
         expected_type: Option<Type>,
-        variables: &Variables,
+        variables: &'v Variables,
     ) -> LexResult<'i, Self> {
         let initial_input = skip_space(input);
 
@@ -425,8 +507,8 @@ impl<'s> Cases<'s> {
             input = expect(input, "=>")?;
             input = skip_space(input);
 
-            let (logical_expr, rest) = LogicalExpr::lex_with_2(input, scheme, variables)?;
-            let ty = logical_expr.get_type();
+            let (expr, rest) = E::lex_with_2(input, scheme, variables)?;
+            let ty = expr.get_type();
             if let Some(expected_type) = &expected_type {
                 if &ty != expected_type {
                     return Err((
@@ -446,7 +528,7 @@ impl<'s> Cases<'s> {
                     span(input, rest),
                 ));
             }
-            all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), logical_expr));
+            all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), expr));
 
             input = skip_space(rest);
             if expect(input, "}").is_ok() {
@@ -1301,24 +1383,13 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             },
 
             ComparisonOpExpr::Cases(cases) => {
-                let mut compiled_patterns = Vec::with_capacity(cases.patterns.len());
-                for (pattern, logical_expr) in cases.patterns {
-                    let compiled_expr = compiler.compile_logical_expr(logical_expr, variables);
-                    compiled_patterns.push((pattern, compiled_expr));
-                }
+                let compiled_patterns = cases.compile_exprs_with_compiler(compiler, variables);
 
                 lhs.compile_with(
                     compiler,
                     false,
                     move |x, ctx, variables, state| {
-                        for (patterns, compiled_expr) in &compiled_patterns {
-                            for pattern in patterns {
-                                if pattern.matches(x) {
-                                    return compiled_expr.execute_one(ctx, variables, state);
-                                }
-                            }
-                        }
-                        false
+                        compiled_patterns.execute(x, false, ctx, variables, state)
                     },
                     variables,
                 )

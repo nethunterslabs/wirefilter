@@ -5,67 +5,98 @@ use std::net::IpAddr;
 use cidr::IpCidr;
 use wirefilter::{
     ByteSeparator, Bytes, CasePatternValue, Cases, ComparisonExpr, ComparisonOpExpr,
-    ExplicitIpRange, FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr,
+    ExplicitIpRange, Field, FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr,
     FunctionCallExpr, GetType, IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, LogicalExpr,
     LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme, SimpleExpr,
-    SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError, Variable, Variables,
+    SingleIndexExpr, SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError, Variable,
+    Variables,
 };
 
 use crate::ast::*;
 use crate::BuilderError;
 use crate::Result;
 
-impl FilterAstBuilder {
-    /// Creates a new `FilterAstBuilder` with the given root `LogicalExprBuilder`.
-    pub fn new(op: LogicalExprBuilder) -> Self {
-        Self { op }
-    }
+/// A trait for building and parsing ASTs.
+pub trait AstBuilder<'s, 'v, T> {
+    /// Builds a `T` from the `AstBuilder`.
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<T>;
 
-    /// Builds a `FilterAst` from the `FilterAstBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<FilterAst<'s>> {
+    /// Creates a new `AstBuilder` from the given `T`.
+    fn parse_ast(ast: T) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, FilterAst<'s>> for FilterAstBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<FilterAst<'s>> {
         Ok(FilterAst {
             scheme,
             op: self.op.build(scheme, variables)?,
         })
     }
 
-    /// Creates a new `FilterAstBuilder` from the given `FilterAst`.
-    pub fn from(filter_ast: FilterAst<'_>) -> Result<Self> {
+    fn parse_ast(filter_ast: FilterAst<'_>) -> Result<Self> {
         Ok(Self {
-            op: LogicalExprBuilder::from(filter_ast.op)?,
+            op: LogicalExprBuilder::parse_ast(filter_ast.op)?,
         })
     }
 }
 
-impl SingleValueExprAstBuilder {
-    /// Creates a new `SingleValueExprAstBuilder` with the given root `LhsFieldExprBuilder`.
-    pub fn new(op: LhsFieldExprBuilder) -> Self {
+impl FilterAstBuilder {
+    /// Creates a new `FilterAstBuilder` with the given root `LogicalExprBuilder`.
+    pub fn new(op: LogicalExprBuilder) -> Self {
         Self { op }
     }
+}
 
-    /// Builds a `SingleValueExprAst` from the `SingleValueExprAstBuilder`.
-    pub fn build<'s>(
-        self,
-        scheme: &'s Scheme,
-        variables: &Variables,
-    ) -> Result<SingleValueExprAst<'s>> {
+impl<'s, 'v> AstBuilder<'s, 'v, SingleValueExprAst<'s>> for SingleValueExprAstBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<SingleValueExprAst<'s>> {
         Ok(SingleValueExprAst {
             scheme,
             op: self.op.build(scheme, variables)?,
         })
     }
 
-    /// Creates a new `SingleValueExprAstBuilder` from the given `SingleValueExprAst`.
-    pub fn from(single_value_expr: SingleValueExprAst<'_>) -> Result<Self> {
+    fn parse_ast(single_value_expr: SingleValueExprAst<'_>) -> Result<Self> {
         Ok(Self {
-            op: LhsFieldExprBuilder::from(single_value_expr.op)?,
+            op: SingleIndexExprBuilder::parse_ast(single_value_expr.op)?,
         })
     }
 }
 
-impl LogicalExprBuilder {
-    /// Builds a `LogicalExprAst` from the `LogicalExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LogicalExpr<'s>> {
+impl SingleValueExprAstBuilder {
+    /// Creates a new `SingleValueExprAstBuilder` with the given root `SingleIndexExprBuilder`.
+    pub fn new(op: SingleIndexExprBuilder) -> Self {
+        Self { op }
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, SingleIndexExpr<'s>> for SingleIndexExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<SingleIndexExpr<'s>> {
+        Ok(SingleIndexExpr {
+            op: self.op.build(scheme, variables)?,
+            cases: if let Some(cases) = self.cases {
+                Some(cases.build(scheme, variables)?)
+            } else {
+                None
+            },
+        })
+    }
+
+    fn parse_ast(single_value_expr: SingleIndexExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            op: IndexExprBuilder::parse_ast(single_value_expr.op)?,
+            cases: if let Some(cases) = single_value_expr.cases {
+                Some(CasesBuilder::parse_ast(cases)?)
+            } else {
+                None
+            },
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, LogicalExpr<'s>> for LogicalExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<LogicalExpr<'s>> {
         match self {
             LogicalExprBuilder::Simple(builder) => {
                 Ok(LogicalExpr::Simple(builder.build(scheme, variables)?))
@@ -74,19 +105,51 @@ impl LogicalExprBuilder {
         }
     }
 
-    /// Creates a new `LogicalExprBuilder` from the given `LogicalExpr`.
-    pub fn from(logical_expr: LogicalExpr<'_>) -> Result<Self> {
+    fn parse_ast(logical_expr: LogicalExpr<'_>) -> Result<Self> {
         Ok(match logical_expr {
-            LogicalExpr::Simple(expr) => LogicalExprBuilder::Simple(SimpleExprBuilder::from(expr)?),
+            LogicalExpr::Simple(expr) => {
+                LogicalExprBuilder::Simple(SimpleExprBuilder::parse_ast(expr)?)
+            }
             LogicalExpr::Combining { op, items } => {
                 LogicalExprBuilder::Combining(CombiningExprBuilder::new(
-                    LogicalOpBuilder::from(op),
+                    LogicalOpBuilder::parse_ast(op)?,
                     items
                         .into_iter()
-                        .map(LogicalExprBuilder::from)
+                        .map(LogicalExprBuilder::parse_ast)
                         .collect::<Result<Vec<_>>>()?,
                 ))
             }
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, LogicalExpr<'s>> for CombiningExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<LogicalExpr<'s>> {
+        Ok(LogicalExpr::Combining {
+            op: self.op.build(scheme, variables)?,
+            items: self
+                .items
+                .into_iter()
+                .map(|i| i.build(scheme, variables))
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
+
+    fn parse_ast(logical_expr: LogicalExpr<'_>) -> Result<Self> {
+        Ok(match logical_expr {
+            LogicalExpr::Simple(expr) => CombiningExprBuilder::new(
+                LogicalOpBuilder::parse_ast(LogicalOp::And(0))?,
+                vec![LogicalExprBuilder::Simple(SimpleExprBuilder::parse_ast(
+                    expr,
+                )?)],
+            ),
+            LogicalExpr::Combining { op, items } => CombiningExprBuilder::new(
+                LogicalOpBuilder::parse_ast(op)?,
+                items
+                    .into_iter()
+                    .map(LogicalExprBuilder::parse_ast)
+                    .collect::<Result<Vec<_>>>()?,
+            ),
         })
     }
 }
@@ -96,60 +159,28 @@ impl CombiningExprBuilder {
     pub fn new(op: LogicalOpBuilder, items: Vec<LogicalExprBuilder>) -> Self {
         Self { op, items }
     }
-
-    /// Builds a `CombiningExpr` from the `CombiningExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LogicalExpr<'s>> {
-        Ok(LogicalExpr::Combining {
-            op: self.op.build(),
-            items: self
-                .items
-                .into_iter()
-                .map(|i| i.build(scheme, variables))
-                .collect::<Result<Vec<_>>>()?,
-        })
-    }
-
-    /// Creates a new `CombiningExprBuilder` from the given `LogicalExpr`.
-    pub fn from(logical_expr: LogicalExpr<'_>) -> Result<Self> {
-        Ok(match logical_expr {
-            LogicalExpr::Simple(expr) => CombiningExprBuilder::new(
-                LogicalOpBuilder::from(LogicalOp::And(0)),
-                vec![LogicalExprBuilder::Simple(SimpleExprBuilder::from(expr)?)],
-            ),
-            LogicalExpr::Combining { op, items } => CombiningExprBuilder::new(
-                LogicalOpBuilder::from(op),
-                items
-                    .into_iter()
-                    .map(LogicalExprBuilder::from)
-                    .collect::<Result<Vec<_>>>()?,
-            ),
-        })
-    }
 }
 
-impl LogicalOpBuilder {
-    /// Builds a `LogicalOp` from the `LogicalOpBuilder`.
-    pub fn build(self) -> LogicalOp {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, LogicalOp> for LogicalOpBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<LogicalOp> {
+        Ok(match self {
             LogicalOpBuilder::Or => LogicalOp::Or(0),
             LogicalOpBuilder::Xor => LogicalOp::Xor(0),
             LogicalOpBuilder::And => LogicalOp::And(0),
-        }
+        })
     }
 
-    /// Creates a new `LogicalOpBuilder` from the given `LogicalOp`.
-    pub fn from(logical_op: LogicalOp) -> Self {
-        match logical_op {
+    fn parse_ast(logical_op: LogicalOp) -> Result<Self> {
+        Ok(match logical_op {
             LogicalOp::Or(_) => LogicalOpBuilder::Or,
             LogicalOp::Xor(_) => LogicalOpBuilder::Xor,
             LogicalOp::And(_) => LogicalOpBuilder::And,
-        }
+        })
     }
 }
 
-impl SimpleExprBuilder {
-    /// Builds a `SimpleExprAst` from the `SimpleExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<SimpleExpr<'s>> {
+impl<'s, 'v> AstBuilder<'s, 'v, SimpleExpr<'s>> for SimpleExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<SimpleExpr<'s>> {
         match self {
             SimpleExprBuilder::Comparison(builder) => {
                 Ok(SimpleExpr::Comparison(builder.build(scheme, variables)?))
@@ -161,19 +192,37 @@ impl SimpleExprBuilder {
         }
     }
 
-    /// Creates a new `SimpleExprBuilder` from the given `SimpleExpr`.
-    pub fn from(simple_expr: SimpleExpr<'_>) -> Result<Self> {
+    fn parse_ast(simple_expr: SimpleExpr<'_>) -> Result<Self> {
         Ok(match simple_expr {
             SimpleExpr::Comparison(comparison) => {
-                SimpleExprBuilder::Comparison(ComparisonExprBuilder::from(comparison)?)
+                SimpleExprBuilder::Comparison(ComparisonExprBuilder::parse_ast(comparison)?)
             }
             SimpleExpr::Parenthesized(expr) => {
-                SimpleExprBuilder::Parenthesized(Box::new(LogicalExprBuilder::from(*expr)?))
+                SimpleExprBuilder::Parenthesized(Box::new(LogicalExprBuilder::parse_ast(*expr)?))
             }
             SimpleExpr::Unary { .. } => {
-                SimpleExprBuilder::Unary(UnaryExprBuilder::from(simple_expr)?)
+                SimpleExprBuilder::Unary(UnaryExprBuilder::parse_ast(simple_expr)?)
             }
         })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, SimpleExpr<'s>> for UnaryExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<SimpleExpr<'s>> {
+        Ok(SimpleExpr::Unary {
+            op: self.op.build(scheme, variables)?,
+            arg: Box::new(self.arg.build(scheme, variables)?),
+        })
+    }
+
+    fn parse_ast(simple_expr: SimpleExpr<'_>) -> Result<Self> {
+        match simple_expr {
+            SimpleExpr::Unary { op, arg } => Ok(Self {
+                op: UnaryOpBuilder::parse_ast(op)?,
+                arg: Box::new(SimpleExprBuilder::parse_ast(*arg)?),
+            }),
+            _ => Err(BuilderError::UnsupportedUnaryExpr(simple_expr.get_type())),
+        }
     }
 }
 
@@ -185,40 +234,35 @@ impl UnaryExprBuilder {
             arg: Box::new(arg),
         }
     }
+}
 
-    /// Builds a `UnaryExpr` from the `UnaryExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<SimpleExpr<'s>> {
-        Ok(SimpleExpr::Unary {
-            op: self.op.build(),
-            arg: Box::new(self.arg.build(scheme, variables)?),
+impl<'s, 'v> AstBuilder<'s, 'v, UnaryOp> for UnaryOpBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<UnaryOp> {
+        Ok(match self {
+            UnaryOpBuilder::Not => UnaryOp::Not(0),
         })
     }
 
-    /// Creates a new `UnaryExprBuilder` from the given `SimpleExpr`.
-    pub fn from(expr: SimpleExpr<'_>) -> Result<Self> {
-        match expr {
-            SimpleExpr::Unary { op, arg } => Ok(Self {
-                op: UnaryOpBuilder::from(op),
-                arg: Box::new(SimpleExprBuilder::from(*arg)?),
-            }),
-            _ => Err(BuilderError::UnsupportedUnaryExpr(expr.get_type())),
-        }
+    fn parse_ast(unary_op: UnaryOp) -> Result<Self> {
+        Ok(match unary_op {
+            UnaryOp::Not(_) => UnaryOpBuilder::Not,
+        })
     }
 }
 
-impl UnaryOpBuilder {
-    /// Builds a `UnaryOp` from the `UnaryOpBuilder`.
-    pub fn build(self) -> UnaryOp {
-        match self {
-            UnaryOpBuilder::Not => UnaryOp::Not(0),
-        }
+impl<'s, 'v> AstBuilder<'s, 'v, ComparisonExpr<'s>> for ComparisonExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<ComparisonExpr<'s>> {
+        Ok(ComparisonExpr {
+            lhs: self.lhs.build(scheme, variables)?,
+            op: self.op.build(scheme, variables)?,
+        })
     }
 
-    /// Creates a new `UnaryOpBuilder` from the given `UnaryOp`.
-    pub fn from(unary_op: UnaryOp) -> Self {
-        match unary_op {
-            UnaryOp::Not(_) => UnaryOpBuilder::Not,
-        }
+    fn parse_ast(comparison_expr: ComparisonExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            lhs: IndexExprBuilder::parse_ast(comparison_expr.lhs)?,
+            op: ComparisonOpExprBuilder::parse_ast(comparison_expr.op)?,
+        })
     }
 }
 
@@ -227,24 +271,20 @@ impl ComparisonExprBuilder {
     pub fn new(lhs: IndexExprBuilder, op: ComparisonOpExprBuilder) -> Self {
         Self { lhs, op }
     }
+}
 
-    /// Builds a `ComparisonExpr` from the `ComparisonExprBuilder`.
-    pub fn build<'s>(
-        self,
-        scheme: &'s Scheme,
-        variables: &Variables,
-    ) -> Result<ComparisonExpr<'s>> {
-        Ok(ComparisonExpr {
-            lhs: self.lhs.build(scheme, variables)?,
-            op: self.op.build(scheme, variables)?,
-        })
+impl<'s, 'v> AstBuilder<'s, 'v, Regex> for RegexBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<Regex> {
+        Ok(Regex::parse_str_with_str_type(
+            &self.value,
+            self.ty.build(scheme, variables)?,
+        )?)
     }
 
-    /// Creates a new `ComparisonExprBuilder` from the given `ComparisonExpr`.
-    pub fn from(comparison_expr: ComparisonExpr<'_>) -> Result<Self> {
+    fn parse_ast(regex: Regex) -> Result<Self> {
         Ok(Self {
-            lhs: IndexExprBuilder::from(comparison_expr.lhs)?,
-            op: ComparisonOpExprBuilder::from(comparison_expr.op)?,
+            value: regex.as_str().to_string(),
+            ty: StrTypeBuilder::parse_ast(regex.ty())?,
         })
     }
 }
@@ -254,111 +294,86 @@ impl RegexBuilder {
     pub fn new(value: String, ty: StrTypeBuilder) -> Self {
         Self { value, ty }
     }
-
-    /// Builds a `Regex` from the `RegexBuilder`.
-    pub fn build(self) -> Result<Regex> {
-        Ok(Regex::parse_str_with_str_type(
-            &self.value,
-            self.ty.build(),
-        )?)
-    }
-
-    /// Creates a new `RegexBuilder` from the given `Regex`.
-    pub fn from(regex: Regex) -> Self {
-        Self {
-            value: regex.as_str().to_string(),
-            ty: StrTypeBuilder::from(regex.ty()),
-        }
-    }
 }
 
-impl BytesBuilder {
-    /// Builds a `Bytes` from the `BytesBuilder`.
-    pub fn build(self) -> Bytes {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, Bytes> for BytesBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<Bytes> {
+        Ok(match self {
             BytesBuilder::Str { value, ty } => Bytes::Str {
                 value,
-                ty: ty.build(),
+                ty: ty.build(scheme, variables)?,
             },
             BytesBuilder::Raw { value, separator } => Bytes::Raw {
                 value,
-                separator: separator.build(),
+                separator: separator.build(scheme, variables)?,
             },
-        }
+        })
     }
 
-    /// Creates a new `BytesBuilder` from the given `Bytes`.
-    pub fn from(bytes: Bytes) -> Self {
-        match bytes {
+    fn parse_ast(bytes: Bytes) -> Result<Self> {
+        Ok(match bytes {
             Bytes::Str { value, ty } => BytesBuilder::Str {
                 value,
-                ty: StrTypeBuilder::from(ty),
+                ty: StrTypeBuilder::parse_ast(ty)?,
             },
             Bytes::Raw { value, separator } => BytesBuilder::Raw {
                 value,
-                separator: ByteSeparatorBuilder::from(separator),
+                separator: ByteSeparatorBuilder::parse_ast(separator)?,
             },
-        }
+        })
     }
 }
 
-impl StrTypeBuilder {
-    /// Builds a `StrType` from the `StrTypeBuilder`.
-    pub fn build(self) -> StrType {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, StrType> for StrTypeBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<StrType> {
+        Ok(match self {
             StrTypeBuilder::Raw { hash_count } => StrType::Raw { hash_count },
             StrTypeBuilder::Escaped => StrType::Escaped,
-        }
+        })
     }
 
-    /// Creates a new `StrTypeBuilder` from the given `StrType`.
-    pub fn from(str_type: StrType) -> Self {
-        match str_type {
+    fn parse_ast(str_type: StrType) -> Result<Self> {
+        Ok(match str_type {
             StrType::Raw { hash_count } => StrTypeBuilder::Raw { hash_count },
             StrType::Escaped => StrTypeBuilder::Escaped,
-        }
+        })
     }
 }
 
-impl ByteSeparatorBuilder {
-    /// Builds a `ByteSeparator` from the `ByteSeparatorBuilder`.
-    pub fn build(self) -> ByteSeparator {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, ByteSeparator> for ByteSeparatorBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<ByteSeparator> {
+        Ok(match self {
             ByteSeparatorBuilder::Colon => ByteSeparator::Colon(0),
             ByteSeparatorBuilder::Dash => ByteSeparator::Dash(0),
             ByteSeparatorBuilder::Dot => ByteSeparator::Dot(0),
-        }
+        })
     }
 
-    /// Creates a new `ByteSeparatorBuilder` from the given `ByteSeparator`.
-    pub fn from(separator: ByteSeparator) -> Self {
-        match separator {
+    fn parse_ast(separator: ByteSeparator) -> Result<Self> {
+        Ok(match separator {
             ByteSeparator::Colon(_) => ByteSeparatorBuilder::Colon,
             ByteSeparator::Dash(_) => ByteSeparatorBuilder::Dash,
             ByteSeparator::Dot(_) => ByteSeparatorBuilder::Dot,
-        }
+        })
     }
 }
 
-impl IntOpBuilder {
-    /// Builds a `IntOp` from the `IntOpBuilder`.
-    pub fn build(self) -> IntOp {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, IntOp> for IntOpBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<IntOp> {
+        Ok(match self {
             IntOpBuilder::BitwiseAnd => IntOp::BitwiseAnd(0),
-        }
+        })
     }
 
-    /// Creates a new `IntOpBuilder` from the given `IntOp`.
-    pub fn from(int_op: IntOp) -> Self {
-        match int_op {
+    fn parse_ast(int_op: IntOp) -> Result<Self> {
+        Ok(match int_op {
             IntOp::BitwiseAnd(_) => IntOpBuilder::BitwiseAnd,
-        }
+        })
     }
 }
 
-impl CasePatternValueBuilder {
-    /// Builds a `CasePatternValue` from the `CasePatternValueBuilder`.
-    pub fn build(self) -> Result<CasePatternValue> {
+impl<'s, 'v> AstBuilder<'s, 'v, CasePatternValue> for CasePatternValueBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<CasePatternValue> {
         Ok(match self {
             CasePatternValueBuilder::Bool => CasePatternValue::Bool,
             CasePatternValueBuilder::Int(value) => CasePatternValue::Int(value),
@@ -370,13 +385,16 @@ impl CasePatternValueBuilder {
                 CasePatternValue::FloatRange(FloatRange(OrderedFloat(first)..=OrderedFloat(last)))
             }
             CasePatternValueBuilder::Ip(value) => CasePatternValue::Ip(value),
-            CasePatternValueBuilder::IpRange(range) => CasePatternValue::IpRange(range.build()?),
-            CasePatternValueBuilder::Bytes(value) => CasePatternValue::Bytes(value.build()),
+            CasePatternValueBuilder::IpRange(range) => {
+                CasePatternValue::IpRange(range.build(scheme, variables)?)
+            }
+            CasePatternValueBuilder::Bytes(value) => {
+                CasePatternValue::Bytes(value.build(scheme, variables)?)
+            }
         })
     }
 
-    /// Creates a new `CasePatternValueBuilder` from the given `CasePatternValue`.
-    pub fn from(case_pattern_value: CasePatternValue) -> Result<Self> {
+    fn parse_ast(case_pattern_value: CasePatternValue) -> Result<Self> {
         Ok(match case_pattern_value {
             CasePatternValue::Bool => CasePatternValueBuilder::Bool,
             CasePatternValue::Int(value) => CasePatternValueBuilder::Int(value),
@@ -390,10 +408,10 @@ impl CasePatternValueBuilder {
             )),
             CasePatternValue::Ip(value) => CasePatternValueBuilder::Ip(value),
             CasePatternValue::IpRange(range) => {
-                CasePatternValueBuilder::IpRange(IpRangeBuilder::from(range)?)
+                CasePatternValueBuilder::IpRange(IpRangeBuilder::parse_ast(range)?)
             }
             CasePatternValue::Bytes(value) => {
-                CasePatternValueBuilder::Bytes(BytesBuilder::from(value))
+                CasePatternValueBuilder::Bytes(BytesBuilder::parse_ast(value)?)
             }
             _ => {
                 return Err(BuilderError::UnsupportedCasePatternValue(
@@ -404,32 +422,29 @@ impl CasePatternValueBuilder {
     }
 }
 
-impl RhsValueBuilder {
-    /// Builds a `RhsValue` from the `RhsValueBuilder`.
-    pub fn build(self) -> RhsValue {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, RhsValue> for RhsValueBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<RhsValue> {
+        Ok(match self {
             RhsValueBuilder::Int(value) => RhsValue::Int(value),
             RhsValueBuilder::Float(value) => RhsValue::Float(OrderedFloat(value)),
             RhsValueBuilder::Ip(value) => RhsValue::Ip(value),
-            RhsValueBuilder::Bytes(value) => RhsValue::Bytes(value.build()),
-        }
+            RhsValueBuilder::Bytes(value) => RhsValue::Bytes(value.build(scheme, variables)?),
+        })
     }
 
-    /// Creates a new `RhsValueBuilder` from the given `RhsValue`.
-    pub fn from(rhs_value: RhsValue) -> Result<Self> {
+    fn parse_ast(rhs_value: RhsValue) -> Result<Self> {
         Ok(match rhs_value {
             RhsValue::Int(value) => RhsValueBuilder::Int(value),
             RhsValue::Float(value) => RhsValueBuilder::Float(value.into_inner()),
             RhsValue::Ip(value) => RhsValueBuilder::Ip(value),
-            RhsValue::Bytes(value) => RhsValueBuilder::Bytes(BytesBuilder::from(value)),
+            RhsValue::Bytes(value) => RhsValueBuilder::Bytes(BytesBuilder::parse_ast(value)?),
             _ => return Err(BuilderError::UnsupportedRhsValue(rhs_value.get_type())),
         })
     }
 }
 
-impl RhsValuesBuilder {
-    /// Builds a `RhsValues` from the `RhsValuesBuilder`.
-    pub fn build(self) -> Result<RhsValues> {
+impl<'s, 'v> AstBuilder<'s, 'v, RhsValues> for RhsValuesBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<RhsValues> {
         Ok(match self {
             RhsValuesBuilder::Int(values) => RhsValues::Int(
                 values
@@ -446,20 +461,19 @@ impl RhsValuesBuilder {
             RhsValuesBuilder::Ip(values) => RhsValues::Ip(
                 values
                     .into_iter()
-                    .map(|value| value.build())
+                    .map(|value| value.build(scheme, variables))
                     .collect::<Result<Vec<_>>>()?,
             ),
             RhsValuesBuilder::Bytes(values) => RhsValues::Bytes(
                 values
                     .into_iter()
-                    .map(BytesBuilder::build)
-                    .collect::<Vec<_>>(),
+                    .map(|value| value.build(scheme, variables))
+                    .collect::<Result<Vec<_>>>()?,
             ),
         })
     }
 
-    /// Creates a new `RhsValuesBuilder` from the given `RhsValues`.
-    pub fn from(rhs_values: RhsValues) -> Result<Self> {
+    fn parse_ast(rhs_values: RhsValues) -> Result<Self> {
         Ok(match rhs_values {
             RhsValues::Int(values) => RhsValuesBuilder::Int(
                 values
@@ -476,56 +490,70 @@ impl RhsValuesBuilder {
             RhsValues::Ip(values) => RhsValuesBuilder::Ip(
                 values
                     .into_iter()
-                    .map(IpRangeBuilder::from)
+                    .map(IpRangeBuilder::parse_ast)
                     .collect::<Result<Vec<_>>>()?,
             ),
-            RhsValues::Bytes(values) => {
-                RhsValuesBuilder::Bytes(values.into_iter().map(BytesBuilder::from).collect())
-            }
+            RhsValues::Bytes(values) => RhsValuesBuilder::Bytes(
+                values
+                    .into_iter()
+                    .map(BytesBuilder::parse_ast)
+                    .collect::<Result<_>>()?,
+            ),
             _ => return Err(BuilderError::UnsupportedRhsValue(rhs_values.get_type())),
         })
     }
 }
 
-impl IpRangeBuilder {
-    /// Builds a `IpRange` from the `IpRangeBuilder`.
-    pub fn build(self) -> Result<IpRange> {
+impl<'s, 'v> AstBuilder<'s, 'v, IpRange> for IpRangeBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<IpRange> {
         Ok(match self {
-            IpRangeBuilder::Explicit(builder) => IpRange::Explicit(builder.build()),
-            IpRangeBuilder::Cidr(builder) => IpRange::Cidr(builder.build()?),
+            IpRangeBuilder::Explicit(builder) => {
+                IpRange::Explicit(builder.build(scheme, variables)?)
+            }
+            IpRangeBuilder::Cidr(builder) => IpRange::Cidr(builder.build(scheme, variables)?),
         })
     }
 
-    /// Creates a new `IpRangeBuilder` from the given `IpRange`.
-    pub fn from(ip_range: IpRange) -> Result<Self> {
+    fn parse_ast(ip_range: IpRange) -> Result<Self> {
         Ok(match ip_range {
             IpRange::Explicit(range) => {
-                IpRangeBuilder::Explicit(ExplicitIpRangeBuilder::from(range))
+                IpRangeBuilder::Explicit(ExplicitIpRangeBuilder::parse_ast(range)?)
             }
-            IpRange::Cidr(cidr) => IpRangeBuilder::Cidr(IpCidrBuilder::from(cidr)),
+            IpRange::Cidr(cidr) => IpRangeBuilder::Cidr(IpCidrBuilder::parse_ast(cidr)?),
         })
     }
 }
 
-impl ExplicitIpRangeBuilder {
-    /// Builds a `ExplicitIpRange` from the `ExplicitIpRangeBuilder`.
-    pub fn build(self) -> ExplicitIpRange {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, ExplicitIpRange> for ExplicitIpRangeBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<ExplicitIpRange> {
+        Ok(match self {
             ExplicitIpRangeBuilder::V4((first, last)) => ExplicitIpRange::V4(first..=last),
             ExplicitIpRangeBuilder::V6((first, last)) => ExplicitIpRange::V6(first..=last),
-        }
+        })
     }
 
-    /// Creates a new `ExplicitIpRangeBuilder` from the given `ExplicitIpRange`.
-    pub fn from(explicit_ip_range: ExplicitIpRange) -> Self {
-        match explicit_ip_range {
+    fn parse_ast(explicit_ip_range: ExplicitIpRange) -> Result<Self> {
+        Ok(match explicit_ip_range {
             ExplicitIpRange::V4(range) => {
                 ExplicitIpRangeBuilder::V4((*range.start(), *range.end()))
             }
             ExplicitIpRange::V6(range) => {
                 ExplicitIpRangeBuilder::V6((*range.start(), *range.end()))
             }
-        }
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, IpCidr> for IpCidrBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<IpCidr> {
+        Ok(IpCidr::new(self.0, self.1)?)
+    }
+
+    fn parse_ast(ip_cidr: IpCidr) -> Result<Self> {
+        Ok(IpCidrBuilder::new(
+            ip_cidr.first_address(),
+            ip_cidr.network_length(),
+        ))
     }
 }
 
@@ -534,168 +562,146 @@ impl IpCidrBuilder {
     pub fn new(addr: IpAddr, len: u8) -> Self {
         Self(addr, len)
     }
-
-    /// Builds a `IpCidr` from the `IpCidrBuilder`.
-    pub fn build(self) -> Result<IpCidr> {
-        Ok(IpCidr::new(self.0, self.1)?)
-    }
-
-    /// Creates a new `IpCidrBuilder` from the given `IpCidr`.
-    pub fn from(ip_cidr: IpCidr) -> Self {
-        IpCidrBuilder::new(ip_cidr.first_address(), ip_cidr.network_length())
-    }
 }
 
-impl ComparisonOpExprBuilder {
-    /// Builds a `ComparisonOpExpr` from the `ComparisonOpExprBuilder`.
-    pub fn build<'s>(
-        self,
-        scheme: &'s Scheme,
-        variables: &Variables,
-    ) -> Result<ComparisonOpExpr<'s>> {
+impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<ComparisonOpExpr<'s>> {
         Ok(match self {
             ComparisonOpExprBuilder::IsTrue => ComparisonOpExpr::IsTrue,
             ComparisonOpExprBuilder::Ordering { op, rhs } => ComparisonOpExpr::Ordering {
-                op: op.build(),
-                rhs: rhs.build(),
+                op: op.build(scheme, variables)?,
+                rhs: rhs.build(scheme, variables)?,
             },
             ComparisonOpExprBuilder::OrderingVariable { op, var } => {
                 ComparisonOpExpr::OrderingVariable {
-                    op: op.build(),
-                    var: var.build(variables)?,
+                    op: op.build(scheme, variables)?,
+                    var: var.build(scheme, variables)?,
                 }
             }
             ComparisonOpExprBuilder::Cases(cases) => {
                 ComparisonOpExpr::Cases(cases.build(scheme, variables)?)
             }
             ComparisonOpExprBuilder::Int { op, rhs } => ComparisonOpExpr::Int {
-                op: op.build(),
+                op: op.build(scheme, variables)?,
                 rhs,
             },
             ComparisonOpExprBuilder::IntVariable { op, var } => ComparisonOpExpr::IntVariable {
-                op: op.build(),
-                var: var.build(variables)?,
+                op: op.build(scheme, variables)?,
+                var: var.build(scheme, variables)?,
             },
             ComparisonOpExprBuilder::Contains { rhs } => ComparisonOpExpr::Contains {
-                rhs: rhs.build(),
+                rhs: rhs.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::ContainsVariable { var } => {
                 ComparisonOpExpr::ContainsVariable {
-                    var: var.build(variables)?,
+                    var: var.build(scheme, variables)?,
                     variant: 0,
                 }
             }
             ComparisonOpExprBuilder::Matches { rhs } => ComparisonOpExpr::Matches {
-                rhs: rhs.build()?,
+                rhs: rhs.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::MatchesVariable { var } => ComparisonOpExpr::MatchesVariable {
-                var: var.build(variables)?,
+                var: var.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::OneOf { rhs } => ComparisonOpExpr::OneOf {
-                rhs: rhs.build()?,
+                rhs: rhs.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::OneOfVariable { var } => ComparisonOpExpr::OneOfVariable {
-                var: var.build(variables)?,
+                var: var.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAny { rhs } => ComparisonOpExpr::HasAny {
-                rhs: rhs.build()?,
+                rhs: rhs.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAnyVariable { var } => ComparisonOpExpr::HasAnyVariable {
-                var: var.build(variables)?,
+                var: var.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAll { rhs } => ComparisonOpExpr::HasAll {
-                rhs: rhs.build()?,
+                rhs: rhs.build(scheme, variables)?,
                 variant: 0,
             },
             ComparisonOpExprBuilder::HasAllVariable { var } => ComparisonOpExpr::HasAllVariable {
-                var: var.build(variables)?,
+                var: var.build(scheme, variables)?,
                 variant: 0,
             },
         })
     }
 
-    /// Creates a new `ComparisonOpExprBuilder` from the given `ComparisonOpExpr`.
-    pub fn from(comparison_op_expr: ComparisonOpExpr) -> Result<Self> {
+    fn parse_ast(comparison_op_expr: ComparisonOpExpr) -> Result<Self> {
         Ok(match comparison_op_expr {
             ComparisonOpExpr::IsTrue => ComparisonOpExprBuilder::IsTrue,
             ComparisonOpExpr::Ordering { op, rhs } => ComparisonOpExprBuilder::Ordering {
-                op: OrderingOpBuilder::from(op),
-                rhs: RhsValueBuilder::from(rhs)?,
+                op: OrderingOpBuilder::parse_ast(op)?,
+                rhs: RhsValueBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::OrderingVariable { op, var } => {
                 ComparisonOpExprBuilder::OrderingVariable {
-                    op: OrderingOpBuilder::from(op),
-                    var: VariableBuilder::from(var),
+                    op: OrderingOpBuilder::parse_ast(op)?,
+                    var: VariableBuilder::parse_ast(var)?,
                 }
             }
             ComparisonOpExpr::Cases(cases) => {
-                ComparisonOpExprBuilder::Cases(CasesBuilder::from(cases)?)
+                ComparisonOpExprBuilder::Cases(CasesBuilder::parse_ast(cases)?)
             }
             ComparisonOpExpr::Int { op, rhs } => ComparisonOpExprBuilder::Int {
-                op: IntOpBuilder::from(op),
+                op: IntOpBuilder::parse_ast(op)?,
                 rhs,
             },
             ComparisonOpExpr::IntVariable { op, var } => ComparisonOpExprBuilder::IntVariable {
-                op: IntOpBuilder::from(op),
-                var: VariableBuilder::from(var),
+                op: IntOpBuilder::parse_ast(op)?,
+                var: VariableBuilder::parse_ast(var)?,
             },
             ComparisonOpExpr::Contains { rhs, variant: _ } => ComparisonOpExprBuilder::Contains {
-                rhs: BytesBuilder::from(rhs),
+                rhs: BytesBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::ContainsVariable { var, variant: _ } => {
                 ComparisonOpExprBuilder::ContainsVariable {
-                    var: VariableBuilder::from(var),
+                    var: VariableBuilder::parse_ast(var)?,
                 }
             }
             ComparisonOpExpr::Matches { rhs, .. } => ComparisonOpExprBuilder::Matches {
-                rhs: RegexBuilder::from(rhs),
+                rhs: RegexBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::MatchesVariable { var, .. } => {
                 ComparisonOpExprBuilder::MatchesVariable {
-                    var: VariableBuilder::from(var),
+                    var: VariableBuilder::parse_ast(var)?,
                 }
             }
             ComparisonOpExpr::OneOf { rhs, .. } => ComparisonOpExprBuilder::OneOf {
-                rhs: RhsValuesBuilder::from(rhs)?,
+                rhs: RhsValuesBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::OneOfVariable { var, .. } => ComparisonOpExprBuilder::OneOfVariable {
-                var: VariableBuilder::from(var),
+                var: VariableBuilder::parse_ast(var)?,
             },
             ComparisonOpExpr::HasAny { rhs, .. } => ComparisonOpExprBuilder::HasAny {
-                rhs: RhsValuesBuilder::from(rhs)?,
+                rhs: RhsValuesBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::HasAnyVariable { var, .. } => {
                 ComparisonOpExprBuilder::HasAnyVariable {
-                    var: VariableBuilder::from(var),
+                    var: VariableBuilder::parse_ast(var)?,
                 }
             }
             ComparisonOpExpr::HasAll { rhs, .. } => ComparisonOpExprBuilder::HasAll {
-                rhs: RhsValuesBuilder::from(rhs)?,
+                rhs: RhsValuesBuilder::parse_ast(rhs)?,
             },
             ComparisonOpExpr::HasAllVariable { var, .. } => {
                 ComparisonOpExprBuilder::HasAllVariable {
-                    var: VariableBuilder::from(var),
+                    var: VariableBuilder::parse_ast(var)?,
                 }
             }
         })
     }
 }
 
-impl CasesBuilder {
-    /// Creates a new `CasesBuilder` with the given `patterns`.
-    pub fn new(patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>) -> Self {
-        Self { patterns }
-    }
-
-    /// Builds a `Cases` from the `CasesBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<Cases<'s>> {
+impl<'s, 'v> AstBuilder<'s, 'v, Cases<LogicalExpr<'s>>> for CasesBuilder<LogicalExprBuilder> {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<Cases<LogicalExpr<'s>>> {
         Ok(Cases {
             patterns: self
                 .patterns
@@ -704,7 +710,7 @@ impl CasesBuilder {
                     Ok((
                         patterns
                             .into_iter()
-                            .map(CasePatternValueBuilder::build)
+                            .map(|pattern| pattern.build(scheme, variables))
                             .collect::<Result<Vec<_>>>()?,
                         expr.build(scheme, variables)?,
                     ))
@@ -714,8 +720,7 @@ impl CasesBuilder {
         })
     }
 
-    /// Creates a new `CasesBuilder` from the given `Cases`.
-    pub fn from(cases: Cases<'_>) -> Result<Self> {
+    fn parse_ast(cases: Cases<LogicalExpr<'s>>) -> Result<Self> {
         Ok(Self {
             patterns: cases
                 .patterns
@@ -724,9 +729,9 @@ impl CasesBuilder {
                     Ok((
                         patterns
                             .into_iter()
-                            .map(CasePatternValueBuilder::from)
+                            .map(CasePatternValueBuilder::parse_ast)
                             .collect::<Result<Vec<_>>>()?,
-                        LogicalExprBuilder::from(expr)?,
+                        LogicalExprBuilder::parse_ast(expr)?,
                     ))
                 })
                 .collect::<Result<Vec<_>>>()?,
@@ -734,29 +739,99 @@ impl CasesBuilder {
     }
 }
 
-impl OrderingOpBuilder {
-    /// Builds a `OrderingOp` from the `OrderingOpBuilder`.
-    pub fn build(self) -> OrderingOp {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, Cases<IndexExpr<'s>>> for CasesBuilder<IndexExprBuilder> {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<Cases<IndexExpr<'s>>> {
+        Ok(Cases {
+            patterns: self
+                .patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    Ok((
+                        patterns
+                            .into_iter()
+                            .map(|pattern| pattern.build(scheme, variables))
+                            .collect::<Result<Vec<_>>>()?,
+                        expr.build(scheme, variables)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            variant: 0,
+        })
+    }
+
+    fn parse_ast(cases: Cases<IndexExpr<'s>>) -> Result<Self> {
+        Ok(Self {
+            patterns: cases
+                .patterns
+                .into_iter()
+                .map(|(patterns, expr)| {
+                    Ok((
+                        patterns
+                            .into_iter()
+                            .map(CasePatternValueBuilder::parse_ast)
+                            .collect::<Result<Vec<_>>>()?,
+                        IndexExprBuilder::parse_ast(expr)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
+}
+
+impl<'s, 'v, E: AstBuilder<'s, 'v, E>> CasesBuilder<E> {
+    /// Creates a new `CasesBuilder` with the given `patterns`.
+    pub fn new(patterns: Vec<(Vec<CasePatternValueBuilder>, E)>) -> Self {
+        Self { patterns }
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, OrderingOp> for OrderingOpBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<OrderingOp> {
+        Ok(match self {
             OrderingOpBuilder::Equal => OrderingOp::Equal(0),
             OrderingOpBuilder::NotEqual => OrderingOp::NotEqual(0),
             OrderingOpBuilder::GreaterThanEqual => OrderingOp::GreaterThanEqual(0),
             OrderingOpBuilder::LessThanEqual => OrderingOp::LessThanEqual(0),
             OrderingOpBuilder::GreaterThan => OrderingOp::GreaterThan(0),
             OrderingOpBuilder::LessThan => OrderingOp::LessThan(0),
-        }
+        })
     }
 
-    /// Creates a new `OrderingOpBuilder` from the given `OrderingOp`.
-    pub fn from(ordering_op: OrderingOp) -> Self {
-        match ordering_op {
+    fn parse_ast(ordering_op: OrderingOp) -> Result<Self> {
+        Ok(match ordering_op {
             OrderingOp::Equal(_) => OrderingOpBuilder::Equal,
             OrderingOp::NotEqual(_) => OrderingOpBuilder::NotEqual,
             OrderingOp::GreaterThanEqual(_) => OrderingOpBuilder::GreaterThanEqual,
             OrderingOp::LessThanEqual(_) => OrderingOpBuilder::LessThanEqual,
             OrderingOp::GreaterThan(_) => OrderingOpBuilder::GreaterThan,
             OrderingOp::LessThan(_) => OrderingOpBuilder::LessThan,
-        }
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, IndexExpr<'s>> for IndexExprBuilder {
+    /// Builds a `IndexExpr` from the `IndexExprBuilder`.
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<IndexExpr<'s>> {
+        Ok(IndexExpr {
+            lhs: self.lhs.build(scheme, variables)?,
+            indexes: self
+                .indexes
+                .into_iter()
+                .map(|f| f.build(scheme, variables))
+                .collect::<Result<_>>()?,
+        })
+    }
+
+    /// Creates a new `IndexExprBuilder` from the given `IndexExpr`.
+    fn parse_ast(index_expr: IndexExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            lhs: LhsFieldExprBuilder::parse_ast(index_expr.lhs)?,
+            indexes: index_expr
+                .indexes
+                .into_iter()
+                .map(FieldIndexBuilder::parse_ast)
+                .collect::<Result<_>>()?,
+        })
     }
 }
 
@@ -765,70 +840,73 @@ impl IndexExprBuilder {
     pub fn new(lhs: LhsFieldExprBuilder, indexes: Vec<FieldIndexBuilder>) -> Self {
         Self { lhs, indexes }
     }
-
-    /// Builds a `IndexExpr` from the `IndexExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<IndexExpr<'s>> {
-        Ok(IndexExpr {
-            lhs: self.lhs.build(scheme, variables)?,
-            indexes: self
-                .indexes
-                .into_iter()
-                .map(FieldIndexBuilder::build)
-                .collect(),
-        })
-    }
-
-    /// Creates a new `IndexExprBuilder` from the given `IndexExpr`.
-    pub fn from(index_expr: IndexExpr<'_>) -> Result<Self> {
-        Ok(Self {
-            lhs: LhsFieldExprBuilder::from(index_expr.lhs)?,
-            indexes: index_expr
-                .indexes
-                .into_iter()
-                .map(FieldIndexBuilder::from)
-                .collect(),
-        })
-    }
 }
 
-impl FieldIndexBuilder {
-    /// Builds a `FieldIndex` from the `FieldIndexBuilder`.
-    pub fn build(self) -> FieldIndex {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, FieldIndex> for FieldIndexBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<FieldIndex> {
+        Ok(match self {
             FieldIndexBuilder::ArrayIndex(index) => FieldIndex::ArrayIndex(index),
             FieldIndexBuilder::MapKey(key) => FieldIndex::MapKey(key),
             FieldIndexBuilder::MapEach => FieldIndex::MapEach,
-        }
+        })
     }
 
-    /// Creates a new `FieldIndexBuilder` from the given `FieldIndex`.
-    pub fn from(field_index: FieldIndex) -> Self {
-        match field_index {
+    fn parse_ast(field_index: FieldIndex) -> Result<Self> {
+        Ok(match field_index {
             FieldIndex::ArrayIndex(index) => FieldIndexBuilder::ArrayIndex(index),
             FieldIndex::MapKey(key) => FieldIndexBuilder::MapKey(key),
             FieldIndex::MapEach => FieldIndexBuilder::MapEach,
-        }
+        })
     }
 }
 
-impl LhsFieldExprBuilder {
-    /// Builds a `LhsFieldExpr` from the `LhsFieldExprBuilder`.
-    pub fn build<'s>(self, scheme: &'s Scheme, variables: &Variables) -> Result<LhsFieldExpr<'s>> {
+impl<'s, 'v> AstBuilder<'s, 'v, LhsFieldExpr<'s>> for LhsFieldExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<LhsFieldExpr<'s>> {
         match self {
-            LhsFieldExprBuilder::Field(builder) => Ok(LhsFieldExpr::Field(builder.build(scheme)?)),
+            LhsFieldExprBuilder::Field(builder) => {
+                Ok(LhsFieldExpr::Field(builder.build(scheme, variables)?))
+            }
             LhsFieldExprBuilder::FunctionCallExpr(builder) => Ok(LhsFieldExpr::FunctionCallExpr(
                 builder.build(scheme, variables)?,
             )),
         }
     }
 
-    /// Creates a new `LhsFieldExprBuilder` from the given `LhsFieldExpr`.
-    pub fn from(lhs_field_expr: LhsFieldExpr<'_>) -> Result<Self> {
+    fn parse_ast(lhs_field_expr: LhsFieldExpr<'_>) -> Result<Self> {
         Ok(match lhs_field_expr {
-            LhsFieldExpr::Field(field) => LhsFieldExprBuilder::Field(FieldBuilder::from(field)),
-            LhsFieldExpr::FunctionCallExpr(expr) => {
-                LhsFieldExprBuilder::FunctionCallExpr(FunctionCallExprBuilder::from(expr)?)
+            LhsFieldExpr::Field(field) => {
+                LhsFieldExprBuilder::Field(FieldBuilder::parse_ast(field)?)
             }
+            LhsFieldExpr::FunctionCallExpr(expr) => {
+                LhsFieldExprBuilder::FunctionCallExpr(FunctionCallExprBuilder::parse_ast(expr)?)
+            }
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, FunctionCallExpr<'s>> for FunctionCallExprBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<FunctionCallExpr<'s>> {
+        Ok(FunctionCallExpr {
+            function: self.function.build(scheme, variables)?,
+            return_type: self.return_type.build(scheme, variables)?,
+            args: self
+                .args
+                .into_iter()
+                .map(|a| a.build(scheme, variables))
+                .collect::<Result<Vec<_>>>()?,
+            context: None,
+        })
+    }
+
+    fn parse_ast(expr: FunctionCallExpr<'_>) -> Result<Self> {
+        Ok(Self {
+            function: FunctionBuilder::parse_ast(expr.function)?,
+            return_type: TypeBuilder::parse_ast(expr.return_type)?,
+            args: expr
+                .args
+                .into_iter()
+                .map(FunctionCallArgExprBuilder::parse_ast)
+                .collect::<Result<Vec<_>>>()?,
         })
     }
 }
@@ -846,106 +924,83 @@ impl FunctionCallExprBuilder {
             args,
         }
     }
-
-    /// Builds a `FunctionCallExpr` from the `FunctionCallExprBuilder`.
-    pub fn build<'s>(
-        self,
-        scheme: &'s Scheme,
-        variables: &Variables,
-    ) -> Result<FunctionCallExpr<'s>> {
-        Ok(FunctionCallExpr {
-            function: self.function.build(scheme)?,
-            return_type: self.return_type.build(),
-            args: self
-                .args
-                .into_iter()
-                .map(|a| a.build(scheme, variables))
-                .collect::<Result<Vec<_>>>()?,
-            context: None,
-        })
-    }
-
-    /// Creates a new `FunctionCallExprBuilder` from the given `FunctionCallExpr`.
-    pub fn from(expr: FunctionCallExpr<'_>) -> Result<Self> {
-        Ok(Self {
-            function: FunctionBuilder::from(expr.function),
-            return_type: TypeBuilder::from(expr.return_type)?,
-            args: expr
-                .args
-                .into_iter()
-                .map(FunctionCallArgExprBuilder::from)
-                .collect::<Result<Vec<_>>>()?,
-        })
-    }
 }
 
-impl TypeBuilder {
-    /// Builds a `Type` from the `TypeBuilder`.
-    pub fn build(self) -> Type {
-        match self {
+impl<'s, 'v> AstBuilder<'s, 'v, Type> for TypeBuilder {
+    fn build(self, _scheme: &'s Scheme, _variables: &'v Variables) -> Result<Type> {
+        Ok(match self {
             TypeBuilder::Bool => Type::Bool,
             TypeBuilder::Int => Type::Int,
             TypeBuilder::Float => Type::Float,
             TypeBuilder::Ip => Type::Ip,
             TypeBuilder::Bytes => Type::Bytes,
-            TypeBuilder::Array(inner) => Type::Array(Box::new(inner.build())),
-            TypeBuilder::Map(inner) => Type::Map(Box::new(inner.build())),
-        }
+            TypeBuilder::Array(inner) => Type::Array(Box::new(inner.build(_scheme, _variables)?)),
+            TypeBuilder::Map(inner) => Type::Map(Box::new(inner.build(_scheme, _variables)?)),
+        })
     }
 
-    /// Creates a new `TypeBuilder` from the given `Type`.
-    pub fn from(ty: Type) -> Result<Self> {
+    fn parse_ast(ty: Type) -> Result<Self> {
         Ok(match ty {
             Type::Bool => TypeBuilder::Bool,
             Type::Int => TypeBuilder::Int,
             Type::Float => TypeBuilder::Float,
             Type::Ip => TypeBuilder::Ip,
             Type::Bytes => TypeBuilder::Bytes,
-            Type::Array(inner) => TypeBuilder::Array(Box::new(TypeBuilder::from(*inner)?)),
-            Type::Map(inner) => TypeBuilder::Map(Box::new(TypeBuilder::from(*inner)?)),
+            Type::Array(inner) => TypeBuilder::Array(Box::new(TypeBuilder::parse_ast(*inner)?)),
+            Type::Map(inner) => TypeBuilder::Map(Box::new(TypeBuilder::parse_ast(*inner)?)),
             _ => return Err(BuilderError::UnsupportedType(ty)),
         })
     }
 }
 
-impl FunctionCallArgExprBuilder {
-    /// Builds a `FunctionCallArgExpr` from the `FunctionCallArgExprBuilder`.
-    pub fn build<'s>(
+impl<'s, 'v> AstBuilder<'s, 'v, FunctionCallArgExpr<'s>> for FunctionCallArgExprBuilder {
+    fn build(
         self,
         scheme: &'s Scheme,
-        variables: &Variables,
+        variables: &'v Variables,
     ) -> Result<FunctionCallArgExpr<'s>> {
         Ok(match self {
             FunctionCallArgExprBuilder::IndexExpr(builder) => {
                 FunctionCallArgExpr::IndexExpr(builder.build(scheme, variables)?)
             }
             FunctionCallArgExprBuilder::Literal(value) => {
-                FunctionCallArgExpr::Literal(value.build())
+                FunctionCallArgExpr::Literal(value.build(scheme, variables)?)
             }
             FunctionCallArgExprBuilder::SimpleExpr(builder) => {
                 FunctionCallArgExpr::SimpleExpr(builder.build(scheme, variables)?)
             }
             FunctionCallArgExprBuilder::Variable(builder) => {
-                FunctionCallArgExpr::Variable(builder.build(variables)?)
+                FunctionCallArgExpr::Variable(builder.build(scheme, variables)?)
             }
         })
     }
 
-    /// Creates a new `FunctionCallArgExprBuilder` from the given `FunctionCallArgExpr`.
-    pub fn from(arg: FunctionCallArgExpr<'_>) -> Result<Self> {
+    fn parse_ast(arg: FunctionCallArgExpr<'_>) -> Result<Self> {
         Ok(match arg {
             FunctionCallArgExpr::IndexExpr(expr) => {
-                FunctionCallArgExprBuilder::IndexExpr(IndexExprBuilder::from(expr)?)
+                FunctionCallArgExprBuilder::IndexExpr(IndexExprBuilder::parse_ast(expr)?)
             }
             FunctionCallArgExpr::Literal(value) => {
-                FunctionCallArgExprBuilder::Literal(RhsValueBuilder::from(value)?)
+                FunctionCallArgExprBuilder::Literal(RhsValueBuilder::parse_ast(value)?)
             }
             FunctionCallArgExpr::SimpleExpr(expr) => {
-                FunctionCallArgExprBuilder::SimpleExpr(SimpleExprBuilder::from(expr)?)
+                FunctionCallArgExprBuilder::SimpleExpr(SimpleExprBuilder::parse_ast(expr)?)
             }
             FunctionCallArgExpr::Variable(variable) => {
-                FunctionCallArgExprBuilder::Variable(VariableBuilder::from(variable))
+                FunctionCallArgExprBuilder::Variable(VariableBuilder::parse_ast(variable)?)
             }
+        })
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, Function<'s>> for FunctionBuilder {
+    fn build(self, scheme: &'s Scheme, _variables: &'v Variables) -> Result<Function<'s>> {
+        Ok(scheme.get_function(&self.name)?)
+    }
+
+    fn parse_ast(function: Function<'_>) -> Result<Self> {
+        Ok(Self {
+            name: function.name().to_string(),
         })
     }
 }
@@ -955,28 +1010,10 @@ impl FunctionBuilder {
     pub fn new(name: String) -> Self {
         Self { name }
     }
-
-    /// Builds a `Function` from the `FunctionBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<Function<'_>> {
-        Ok(scheme.get_function(&self.name)?)
-    }
-
-    /// Creates a new `FunctionBuilder` from the given `Function`.
-    pub fn from(function: Function<'_>) -> Self {
-        Self {
-            name: function.name().to_string(),
-        }
-    }
 }
 
-impl VariableBuilder {
-    /// Creates a new `VariableBuilder` with the given `name`.
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-
-    /// Builds a `Variable` from the `VariableBuilder`.
-    pub fn build(self, variables: &Variables) -> Result<Variable> {
+impl<'s, 'v> AstBuilder<'s, 'v, Variable> for VariableBuilder {
+    fn build(self, _scheme: &'s Scheme, variables: &'v Variables) -> Result<Variable> {
         if let Some(variable_value) = variables.get(&self.name) {
             Ok(Variable::new_with_type(
                 self.name,
@@ -987,11 +1024,29 @@ impl VariableBuilder {
         }
     }
 
-    /// Creates a new `VariableBuilder` from the given `Variable`.
-    pub fn from(variable: Variable) -> Self {
-        Self {
+    fn parse_ast(variable: Variable) -> Result<Self> {
+        Ok(Self {
             name: variable.take_name().to_string(),
-        }
+        })
+    }
+}
+
+impl VariableBuilder {
+    /// Creates a new `VariableBuilder` with the given `name`.
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, Field<'s>> for FieldBuilder {
+    fn build(self, scheme: &'s Scheme, _variables: &Variables) -> Result<Field<'s>> {
+        Ok(scheme.get_field(&self.name)?)
+    }
+
+    fn parse_ast(field: Field<'s>) -> Result<Self> {
+        Ok(Self {
+            name: field.name().to_string(),
+        })
     }
 }
 
@@ -999,17 +1054,5 @@ impl FieldBuilder {
     /// Creates a new `FieldBuilder` with the given `name`.
     pub fn new(name: String) -> Self {
         Self { name }
-    }
-
-    /// Builds a `Field` from the `FieldBuilder`.
-    pub fn build(self, scheme: &Scheme) -> Result<wirefilter::Field<'_>> {
-        Ok(scheme.get_field(&self.name)?)
-    }
-
-    /// Creates a new `FieldBuilder` from the given `wirefilter::Field`.
-    pub fn from(field: wirefilter::Field<'_>) -> Self {
-        Self {
-            name: field.name().to_string(),
-        }
     }
 }

@@ -6,7 +6,7 @@ pub mod logical_expr;
 pub mod simple_expr;
 pub mod visitor;
 
-use self::{field_expr::LhsFieldExpr, logical_expr::LogicalExpr};
+use self::{index_expr::SingleIndexExpr, logical_expr::LogicalExpr};
 use crate::{
     compiler::{Compiler, DefaultCompiler},
     execution_context::Variables,
@@ -60,7 +60,7 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + Serialize {
     }
 }
 
-/// A parsed single value expression AST. Used to parse a LhsFieldExpr which is compiled then to a SingleValueExprAst.
+/// A parsed single value expression AST. Used to parse a SingleIndexExpr which is compiled then to a SingleValueExprAst.
 ///
 /// It's attached to its corresponding [`Scheme`](struct@Scheme) because all
 /// parsed fields are represented as indices and are valid only when
@@ -72,7 +72,7 @@ pub struct SingleValueExprAst<'s> {
     #[serde(skip)]
     pub scheme: &'s Scheme,
     /// The root of the AST.
-    pub op: LhsFieldExpr<'s>,
+    pub op: SingleIndexExpr<'s>,
 }
 
 impl<'s> Debug for SingleValueExprAst<'s> {
@@ -87,7 +87,7 @@ impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for SingleValueExprAst<'s> {
         scheme: &'s Scheme,
         variables: &Variables,
     ) -> LexResult<'i, Self> {
-        let (op, input) = LhsFieldExpr::lex_with_2(input, scheme, variables)?;
+        let (op, input) = SingleIndexExpr::lex_with_2(input, scheme, variables)?;
         Ok((SingleValueExprAst { scheme, op }, input))
     }
 }

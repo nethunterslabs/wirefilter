@@ -25,6 +25,7 @@ from python_ast_builder.ast_builder import (
     RhsValueBuilder,
     RhsValuesBuilder,
     SimpleExprBuilder,
+    SingleIndexExprBuilder,
     SingleValueExprAstBuilder,
     StrTypeBuilder,
     TypeBuilder,

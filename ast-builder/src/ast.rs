@@ -13,7 +13,16 @@ pub struct FilterAstBuilder {
 /// Builder for `SingleValueExprAst`.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SingleValueExprAstBuilder {
-    pub(crate) op: LhsFieldExprBuilder,
+    pub(crate) op: SingleIndexExprBuilder,
+}
+
+/// Builder for `SingleIndexExprAst`.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct SingleIndexExprBuilder {
+    /// Index expression.
+    pub(crate) op: IndexExprBuilder,
+    /// Optional cases expression.
+    pub(crate) cases: Option<CasesBuilder<IndexExprBuilder>>,
 }
 
 /// Builder for `LogicalExprAst`.
@@ -114,7 +123,7 @@ pub enum ComparisonOpExprBuilder {
     },
 
     /// "cases {...}" / "CASES {...}" / "=> {...}" comparison
-    Cases(CasesBuilder),
+    Cases(CasesBuilder<LogicalExprBuilder>),
 
     /// Integer comparison
     Int {
@@ -197,9 +206,9 @@ pub enum ComparisonOpExprBuilder {
 
 /// Builder for `Cases`.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct CasesBuilder {
+pub struct CasesBuilder<E> {
     /// Cases patterns
-    pub(crate) patterns: Vec<(Vec<CasePatternValueBuilder>, LogicalExprBuilder)>,
+    pub(crate) patterns: Vec<(Vec<CasePatternValueBuilder>, E)>,
 }
 
 /// Builder for `Regex`.

@@ -1,5 +1,5 @@
 use super::{
-    field_expr::LhsFieldExpr,
+    field_expr::{Cases, CasesOp, LhsFieldExpr},
     visitor::{Visitor, VisitorMut},
     ValueExpr,
 };
@@ -13,6 +13,63 @@ use crate::{
     types::{GetType, IntoIter, LhsValue, Type, TypeMismatchError},
 };
 use serde::{ser::SerializeSeq, Serialize, Serializer};
+
+/// SingleIndexExpr is an IndexExpr which returns a single value.
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+pub struct SingleIndexExpr<'s> {
+    /// Index expression.
+    pub op: IndexExpr<'s>,
+    /// Cases expressions.
+    pub cases: Option<Cases<IndexExpr<'s>>>,
+}
+
+impl<'s> SingleIndexExpr<'s> {
+    pub(crate) fn compile_with_compiler<U: 's, C: Compiler<'s, U> + 's>(
+        self,
+        compiler: &mut C,
+        variables: &Variables,
+    ) -> CompiledValueExpr<'s, U> {
+        let Self { op, cases } = self;
+        let op = op.compile_with_compiler(compiler, variables);
+
+        if let Some(cases) = cases {
+            let cases = cases.compile_value_exprs_with_compiler(compiler, variables);
+            CompiledValueExpr::new(move |ctx, variables, state| {
+                let val = op.execute(ctx, variables, state)?;
+                cases.execute(&val, ctx, variables, state)
+            })
+        } else {
+            op
+        }
+    }
+}
+
+impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for SingleIndexExpr<'s> {
+    fn lex_with_2(
+        input: &'i str,
+        scheme: &'s Scheme,
+        variables: &Variables,
+    ) -> LexResult<'i, Self> {
+        let (op, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
+        let lhs_type = op.get_type();
+        let input = skip_space(input);
+
+        if CasesOp::lex(input).is_ok() {
+            let (cases, input) =
+                Cases::lex_with_lhs_type(input, scheme, None, lhs_type, None, variables)?;
+
+            Ok((
+                SingleIndexExpr {
+                    op,
+                    cases: Some(cases),
+                },
+                input,
+            ))
+        } else {
+            Ok((SingleIndexExpr { op, cases: None }, input))
+        }
+    }
+}
 
 /// IndexExpr is an expr that destructures an index into an LhsFieldExpr.
 ///

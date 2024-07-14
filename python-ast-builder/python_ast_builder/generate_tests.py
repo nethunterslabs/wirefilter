@@ -28,6 +28,7 @@ from python_ast_builder import (
     RhsValueBuilder,
     RhsValuesBuilder,
     SimpleExprBuilder,
+    SingleIndexExprBuilder,
     SingleValueExprAstBuilder,
     StrTypeBuilder,
     TypeBuilder,
@@ -463,23 +464,50 @@ if __name__ == "__main__":
     write_to_file(filter_ast_builder, "filter_ast_builder")
 
     single_value_expr_ast_builder1 = SingleValueExprAstBuilder(
-        op=LhsFieldExprBuilder(Field=field_builder)
+        op=SingleIndexExprBuilder(
+            op=IndexExprBuilder(
+                lhs=LhsFieldExprBuilder(Field=field_builder), indexes=[]
+            ),
+            cases=CasesBuilder(
+                patterns=[
+                    (
+                        [
+                            case_pattern_value_builder4,
+                            case_pattern_value_builder1,
+                        ],
+                        IndexExprBuilder(
+                            LhsFieldExprBuilder(Field=FieldBuilder("ssl.version")),
+                            [],
+                        ),
+                    )
+                ]
+            ),
+        )
     )
     write_to_file(single_value_expr_ast_builder1, "single_value_expr_ast_builder1")
 
     single_value_expr_ast_builder2 = SingleValueExprAstBuilder(
-        op=LhsFieldExprBuilder(
-            FunctionCallExpr=FunctionCallExprBuilder(
-                function_builder,
-                TypeBuilder(Int=True),
-                [
-                    FunctionCallArgExprBuilder(
-                        IndexExpr=IndexExprBuilder(
-                            LhsFieldExprBuilder(Field=FieldBuilder("http.host")), []
-                        )
+        op=SingleIndexExprBuilder(
+            op=IndexExprBuilder(
+                lhs=LhsFieldExprBuilder(
+                    FunctionCallExpr=FunctionCallExprBuilder(
+                        function_builder,
+                        TypeBuilder(Int=True),
+                        [
+                            FunctionCallArgExprBuilder(
+                                IndexExpr=IndexExprBuilder(
+                                    LhsFieldExprBuilder(
+                                        Field=FieldBuilder("http.host")
+                                    ),
+                                    [],
+                                )
+                            )
+                        ],
                     )
-                ],
-            )
+                ),
+                indexes=[],
+            ),
+            cases=None,
         )
     )
     write_to_file(single_value_expr_ast_builder2, "single_value_expr_ast_builder2")
