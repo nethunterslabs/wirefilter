@@ -72,9 +72,15 @@ impl Fmt for RhsValue {
     }
 }
 
+fn calculate_indent(output: &str) -> usize {
+    let last_line = output.rsplit_once('\n').map(|(_, s)| s).unwrap_or(output);
+    let last_line_indent: usize = last_line.len();
+    last_line_indent + (last_line_indent % 2)
+}
+
 impl Fmt for RhsValues {
     fn fmt(&self, _indent: usize, output: &mut String) {
-        let indent = output.split('\n').last().unwrap_or_default().len();
+        let indent = calculate_indent(output);
         let indent_str = " ".repeat(indent);
         let len;
 
@@ -461,7 +467,7 @@ impl<'s> Fmt for SimpleExpr<'s> {
 
 impl<T: Fmt> Fmt for Cases<T> {
     fn fmt(&self, _indent: usize, output: &mut String) {
-        let indent = output.split('\n').last().unwrap_or_default().len();
+        let indent = calculate_indent(output);
 
         match self.variant {
             0 => output.push_str(" cases {"),
@@ -1145,16 +1151,16 @@ mod tests {
         test_fmt!(
             r#"http.host in ["example.com", "example.org"]"#,
             r#"http.host in [
-               "example.com",
-               "example.org",
-             ]"#
+                "example.com",
+                "example.org",
+              ]"#
         );
         test_fmt!(
             r#"http.host IN ["example.com", "example.org"]"#,
             r#"http.host IN [
-               "example.com",
-               "example.org",
-             ]"#
+                "example.com",
+                "example.org",
+              ]"#
         );
         test_fmt!(
             r#"tcp.port in [80, 443]"#,
@@ -1245,6 +1251,20 @@ mod tests {
           _ => http.host == "example.net",
         }"#
         );
+
+        test_fmt!(
+            r#"http.host cases {
+                    "example.com" => tcp.port == 80,
+                    "example.org" | "example.net" => tcp.port == 443,
+                    _ => tcp.port == 8000
+                }"#,
+            r#"http.host cases {
+            "example.com" => tcp.port == 80,
+            "example.org"
+            | "example.net" => tcp.port == 443,
+            _ => tcp.port == 8000,
+          }"#
+        );
     }
 
     #[test]
@@ -1253,16 +1273,16 @@ mod tests {
         test_fmt!(
             r#"ip.addr in [127.0.0.1, 127.0.0.2]"#,
             r#"ip.addr in [
-             127.0.0.1,
-             127.0.0.2,
-           ]"#
+              127.0.0.1,
+              127.0.0.2,
+            ]"#
         );
         test_fmt!(
             r#"ip.addr in [127.0.0.1..127.0.0.2, 127.0.0.0/24]"#,
             r#"ip.addr in [
-             127.0.0.1..127.0.0.2,
-             127.0.0.0/24,
-           ]"#
+              127.0.0.1..127.0.0.2,
+              127.0.0.0/24,
+            ]"#
         );
     }
 
@@ -1510,9 +1530,9 @@ XOR http.request.headers["content-type"][0] == "application/json""#
             r#"( (
   ( http.host == "example.com" )
   && ( http.host has_all [
-                           "exam",
-                           "ple",
-                         ] )
+                            "exam",
+                            "ple",
+                          ] )
   && ( echo(http.request.headers["content-type"][0], 100, 200, 74:65:65:65:65:65:65:65:73:74) == "application/json" )
 ) )"#
         );
