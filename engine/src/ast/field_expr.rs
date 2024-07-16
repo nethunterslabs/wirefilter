@@ -449,7 +449,7 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
         let mut input = skip_space(input);
         let mut all_patterns = Vec::new();
         let mut uses_catch_all_pattern = false;
-        let mut pattern_type;
+        let mut first_cases_arm_type = None;
         loop {
             let mut patterns = IndexSet::new();
             let mut index = 0;
@@ -475,8 +475,6 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
                         span(input, rest),
                     ));
                 }
-
-                pattern_type = pattern.get_type().unwrap_or(Type::Bool);
 
                 input = skip_space(rest);
 
@@ -521,14 +519,18 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
                         input,
                     ));
                 }
-            } else if pattern_type != ty {
-                return Err((
-                    LexErrorKind::TypeMismatch(TypeMismatchError {
-                        expected: pattern_type.into(),
-                        actual: ty,
-                    }),
-                    span(input, rest),
-                ));
+            } else if first_cases_arm_type.is_none() {
+                first_cases_arm_type = Some(ty);
+            } else if let Some(first_cases_arm_type) = &first_cases_arm_type {
+                if first_cases_arm_type != &ty {
+                    return Err((
+                        LexErrorKind::TypeMismatch(TypeMismatchError {
+                            expected: first_cases_arm_type.clone().into(),
+                            actual: ty,
+                        }),
+                        input,
+                    ));
+                }
             }
             all_patterns.push((patterns.into_iter().collect::<Vec<_>>(), expr));
 
