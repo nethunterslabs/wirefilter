@@ -432,7 +432,8 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
         expected_type: Option<Type>,
         variables: &'v Variables,
     ) -> LexResult<'i, Self> {
-        let initial_input = skip_space(input);
+        let input = skip_space(input);
+        let initial_input = input;
 
         let (variant, input) = if let Some(variant) = variant {
             (variant, input)
@@ -443,6 +444,7 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
             }
         };
 
+        let input = skip_space(input);
         let input = expect(input, "{")?;
         let mut input = skip_space(input);
         let mut all_patterns = Vec::new();
