@@ -247,6 +247,11 @@ mod tests {
             args.next()?.ok()
         }
 
+        fn bytes<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+            let arg = args.next()?.ok()?;
+            Some(arg)
+        }
+
         scheme
             .add_function(
                 "echo".into(),
@@ -290,6 +295,21 @@ mod tests {
             )
             .unwrap();
 
+        scheme
+            .add_function(
+                "bytes".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Any,
+                        val_type: Type::Bytes,
+                    }],
+                    opt_params: Some(Vec::new()),
+                    return_type: Type::Bytes,
+                    implementation: SimpleFunctionImpl::new(bytes),
+                },
+            )
+            .unwrap();
+
         let mut variables = Variables::new();
         variables.add("func_test_var".to_string(), 10.into());
 
@@ -306,6 +326,9 @@ mod tests {
                 scheme.get_field("http.host").unwrap(),
                 LhsValue::Bytes(b"example.com".into()),
             )
+            .unwrap();
+        execution_context
+            .set_field_value(scheme.get_field("tcp.port").unwrap(), LhsValue::Int(80))
             .unwrap();
 
         assert_eq!(
@@ -367,6 +390,26 @@ mod tests {
                 .execute(&execution_context, &variables, &state)
                 .unwrap(),
             LhsValue::Int(10)
+        );
+
+        let compiled = SingleValueExprAst::lex_with_2(
+            r#"tcp.port cases {
+                    80 => http.host,
+                    443 | 8000..8080 => bytes("example.org"),
+                    _ => bytes("example.net")
+                }"#,
+            &scheme,
+            &variables,
+        )
+        .unwrap()
+        .0
+        .compile(&variables);
+
+        assert_eq!(
+            compiled
+                .execute(&execution_context, &variables, &state)
+                .unwrap(),
+            LhsValue::Bytes(b"example.com".into())
         );
     }
 }
