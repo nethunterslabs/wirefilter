@@ -18,7 +18,7 @@ use sliceslice::Needle;
 use std::{
     borrow::Cow,
     cmp::Ordering,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     convert::TryFrom,
     fmt::{self, Debug, Formatter},
     iter::once,
@@ -109,6 +109,18 @@ pub struct TypeMismatchError {
     pub expected: ExpectedTypeList,
     /// Provided value type.
     pub actual: Type,
+}
+
+/// An error that occurs when the inner value cannot be extracted
+/// as the expected type from an LhsValue.
+#[derive(Error, Debug)]
+pub enum LhsValueAsError {
+    #[error("{0}")]
+    TypeMismatch(#[source] TypeMismatchError),
+    #[error("Error parsing UTF-8: {0}")]
+    Utf8Error(#[from] std::str::Utf8Error),
+    #[error("Error parsing UTF-8: {0}")]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
 }
 
 /// An error that occurs on a type mismatch.
@@ -905,6 +917,527 @@ impl<'a> LhsValue<'a> {
             LhsValue::Array(array) => Some(Iter::IterArray(array.as_slice().iter())),
             LhsValue::Map(map) => Some(Iter::IterMap(map.iter())),
             _ => None,
+        }
+    }
+
+    /// Return the inner bytes of the LhsValue if it is Bytes.
+    pub fn as_bytes(self) -> Result<Vec<u8>, LhsValueAsError> {
+        match self {
+            LhsValue::Bytes(bytes) => Ok(bytes.to_vec()),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bytes.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a string slice if it is Bytes.
+    pub fn as_str(&'a self) -> Result<&'a str, LhsValueAsError> {
+        match self {
+            LhsValue::Bytes(bytes) => {
+                Ok(std::str::from_utf8(bytes).map_err(LhsValueAsError::Utf8Error)?)
+            }
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bytes.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a string if it is Bytes.
+    pub fn as_string(self) -> Result<String, LhsValueAsError> {
+        match self {
+            LhsValue::Bytes(bytes) => {
+                Ok(String::from_utf8(bytes.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?)
+            }
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bytes.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an i32 if it is Int.
+    pub fn as_i32(&self) -> Result<i32, LhsValueAsError> {
+        match self {
+            LhsValue::Int(i) => Ok(*i),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Int.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an f64 if it is Float.
+    pub fn as_f64(&self) -> Result<OrderedFloat<f64>, LhsValueAsError> {
+        match self {
+            LhsValue::Float(f) => Ok(*f),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Float.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a bool if it is Bool.
+    pub fn as_bool(&self) -> Result<bool, LhsValueAsError> {
+        match self {
+            LhsValue::Bool(b) => Ok(*b),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bool.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an IpAddr if it is Ip.
+    pub fn as_ip(&self) -> Result<IpAddr, LhsValueAsError> {
+        match self {
+            LhsValue::Ip(ip) => Ok(*ip),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Ip.into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of bytes if it is an Array of Bytes.
+    pub fn as_array_bytes(self) -> Result<Vec<Vec<u8>>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .into_iter()
+                .map(|value| match value {
+                    LhsValue::Bytes(bytes) => Ok(bytes.to_vec()),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bytes.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Bytes)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of strings if it is an Array of Bytes.
+    pub fn as_array_string(self) -> Result<Vec<String>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .into_iter()
+                .map(|value| match value {
+                    LhsValue::Bytes(bytes) => Ok(String::from_utf8(bytes.to_vec())
+                        .map_err(LhsValueAsError::FromUtf8Error)?),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bytes.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Bytes)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of i32 if it is an Array of Int.
+    pub fn as_array_i32(&self) -> Result<Vec<i32>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .as_slice()
+                .iter()
+                .map(|value| match value {
+                    LhsValue::Int(i) => Ok(*i),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Int.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Int)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of f64 if it is an Array of Float.
+    pub fn as_array_f64(&self) -> Result<Vec<OrderedFloat<f64>>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .as_slice()
+                .iter()
+                .map(|value| match value {
+                    LhsValue::Float(f) => Ok(*f),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Float.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Float)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of bool if it is an Array of Bool.
+    pub fn as_array_bool(&self) -> Result<Vec<bool>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .as_slice()
+                .iter()
+                .map(|value| match value {
+                    LhsValue::Bool(b) => Ok(*b),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bool.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Bool)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as an array of IpAddr if it is an Array of Ip.
+    pub fn as_array_ip(&self) -> Result<Vec<IpAddr>, LhsValueAsError> {
+        match self {
+            LhsValue::Array(array) => array
+                .as_slice()
+                .iter()
+                .map(|value| match value {
+                    LhsValue::Ip(ip) => Ok(*ip),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Ip.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Array(Box::new(Type::Ip)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of bytes if it is a Map of Bytes.
+    pub fn as_map_bytes(self) -> Result<HashMap<String, Vec<u8>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .into_iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Bytes(bytes) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        bytes.to_vec(),
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bytes.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Bytes)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of strings if it is a Map of Bytes.
+    pub fn as_map_string(self) -> Result<HashMap<String, String>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .into_iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Bytes(bytes) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        String::from_utf8(bytes.to_vec())
+                            .map_err(LhsValueAsError::FromUtf8Error)?,
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bytes.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Bytes)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of i32 if it is a Map of Int.
+    pub fn as_map_i32(&self) -> Result<HashMap<String, i32>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Int(i) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        *i,
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Int.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Int)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of f64 if it is a Map of Float.
+    pub fn as_map_f64(&self) -> Result<HashMap<String, OrderedFloat<f64>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Float(f) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        *f,
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Float.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Float)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of bool if it is a Map of Bool.
+    pub fn as_map_bool(&self) -> Result<HashMap<String, bool>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Bool(b) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        *b,
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Bool.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Bool)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of IpAddr if it is a Map of Ip.
+    pub fn as_map_ip(&self) -> Result<HashMap<String, IpAddr>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| match value {
+                    LhsValue::Ip(ip) => Ok((
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?,
+                        *ip,
+                    )),
+                    _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                        expected: Type::Ip.into(),
+                        actual: value.get_type(),
+                    })),
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Ip)).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of arrays of bytes if it is a Map of Arrays of Bytes.
+    pub fn as_map_array_bytes(self) -> Result<HashMap<String, Vec<Vec<u8>>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .into_iter()
+                .map(|(key, value)| {
+                    let key =
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?;
+                    match value {
+                        LhsValue::Array(array) => array
+                            .into_iter()
+                            .map(|value| match value {
+                                LhsValue::Bytes(bytes) => Ok(bytes.to_vec()),
+                                _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Bytes.into(),
+                                    actual: value.get_type(),
+                                })),
+                            })
+                            .collect::<Result<Vec<Vec<u8>>, LhsValueAsError>>()
+                            .map(|array| (key, array)),
+                        _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                            expected: Type::Array(Box::new(Type::Bytes)).into(),
+                            actual: value.get_type(),
+                        })),
+                    }
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Array(Box::new(Type::Bytes)))).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of arrays of strings if it is a Map of Arrays of Bytes.
+    pub fn as_map_array_string(self) -> Result<HashMap<String, Vec<String>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .into_iter()
+                .map(|(key, value)| {
+                    let key =
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?;
+                    match value {
+                        LhsValue::Array(array) => array
+                            .into_iter()
+                            .map(|value| match value {
+                                LhsValue::Bytes(bytes) => Ok(String::from_utf8(bytes.to_vec())
+                                    .map_err(LhsValueAsError::FromUtf8Error)?),
+                                _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Bytes.into(),
+                                    actual: value.get_type(),
+                                })),
+                            })
+                            .collect::<Result<Vec<String>, LhsValueAsError>>()
+                            .map(|array| (key, array)),
+                        _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                            expected: Type::Array(Box::new(Type::Bytes)).into(),
+                            actual: value.get_type(),
+                        })),
+                    }
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Array(Box::new(Type::Bytes)))).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of arrays of i32 if it is a Map of Arrays of Int.
+    pub fn as_map_array_i32(&self) -> Result<HashMap<String, Vec<i32>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| {
+                    let key =
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?;
+                    match value {
+                        LhsValue::Array(array) => array
+                            .as_slice()
+                            .iter()
+                            .map(|value| match value {
+                                LhsValue::Int(i) => Ok(*i),
+                                _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Int.into(),
+                                    actual: value.get_type(),
+                                })),
+                            })
+                            .collect::<Result<Vec<i32>, LhsValueAsError>>()
+                            .map(|array| (key, array)),
+                        _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                            expected: Type::Array(Box::new(Type::Int)).into(),
+                            actual: value.get_type(),
+                        })),
+                    }
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Array(Box::new(Type::Int)))).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of arrays of f64 if it is a Map of Arrays of Float.
+    pub fn as_map_array_f64(
+        &self,
+    ) -> Result<HashMap<String, Vec<OrderedFloat<f64>>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| {
+                    let key =
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?;
+                    match value {
+                        LhsValue::Array(array) => array
+                            .as_slice()
+                            .iter()
+                            .map(|value| match value {
+                                LhsValue::Float(f) => Ok(*f),
+                                _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Float.into(),
+                                    actual: value.get_type(),
+                                })),
+                            })
+                            .collect::<Result<Vec<OrderedFloat<f64>>, LhsValueAsError>>()
+                            .map(|array| (key, array)),
+                        _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                            expected: Type::Array(Box::new(Type::Float)).into(),
+                            actual: value.get_type(),
+                        })),
+                    }
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Array(Box::new(Type::Float)))).into(),
+                actual: self.get_type(),
+            })),
+        }
+    }
+
+    /// Return as a map of arrays of bool if it is a Map of Arrays of Bool.
+    pub fn as_map_array_bool(&self) -> Result<HashMap<String, Vec<bool>>, LhsValueAsError> {
+        match self {
+            LhsValue::Map(map) => map
+                .iter()
+                .map(|(key, value)| {
+                    let key =
+                        String::from_utf8(key.to_vec()).map_err(LhsValueAsError::FromUtf8Error)?;
+                    match value {
+                        LhsValue::Array(array) => array
+                            .as_slice()
+                            .iter()
+                            .map(|value| match value {
+                                LhsValue::Bool(b) => Ok(*b),
+                                _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                                    expected: Type::Bool.into(),
+                                    actual: value.get_type(),
+                                })),
+                            })
+                            .collect::<Result<Vec<bool>, LhsValueAsError>>()
+                            .map(|array| (key, array)),
+                        _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                            expected: Type::Array(Box::new(Type::Bool)).into(),
+                            actual: value.get_type(),
+                        })),
+                    }
+                })
+                .collect(),
+            _ => Err(LhsValueAsError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Array(Box::new(Type::Bool)))).into(),
+                actual: self.get_type(),
+            })),
         }
     }
 }
