@@ -242,7 +242,7 @@ impl<'e, U> ExecutionContext<'e, U> {
         // For now we return the default value
         self.values[field.index()]
             .as_ref()
-            .unwrap_or_else(|| self.scheme.get_default_value(&field))
+            .unwrap_or_else(|| self.scheme.get_default_value_unchecked(&field))
     }
 
     /// Get the value of a field.

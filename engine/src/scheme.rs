@@ -505,8 +505,15 @@ impl<'s> Scheme {
             })
     }
 
-    pub(crate) fn get_default_value(&self, field: &Field<'_>) -> &LhsValue<'_> {
+    pub(crate) fn get_default_value_unchecked(&self, field: &Field<'_>) -> &LhsValue<'_> {
         debug_assert!(self == field.scheme());
+
+        &self.default_values[field.index]
+    }
+
+    /// Returns the default value for a field.
+    pub fn get_default_value(&self, field: &Field<'_>) -> &LhsValue<'_> {
+        assert!(self == field.scheme());
 
         &self.default_values[field.index]
     }
