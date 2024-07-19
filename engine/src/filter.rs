@@ -276,6 +276,31 @@ mod tests {
     }
 
     #[test]
+    fn test_unset_field() {
+        let scheme = Scheme! { foo: Int, bar: Array(Int) };
+        let variables = Default::default();
+        let ctx = ExecutionContext::new(&scheme);
+
+        let filter = scheme
+            .parse("foo == 42", &Default::default())
+            .unwrap()
+            .compile(&variables);
+        assert_eq!(
+            filter.execute(&ctx, &Default::default(), &Default::default()),
+            Ok(false)
+        );
+
+        let filter = scheme
+            .parse("bar[0] == 42", &Default::default())
+            .unwrap()
+            .compile(&variables);
+        assert_eq!(
+            filter.execute(&ctx, &Default::default(), &Default::default()),
+            Ok(false)
+        );
+    }
+
+    #[test]
     fn ensure_send_and_sync() {
         fn is_send<T: Send>() {}
         fn is_sync<T: Sync>() {}

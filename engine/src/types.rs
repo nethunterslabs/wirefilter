@@ -22,7 +22,7 @@ use std::{
     convert::TryFrom,
     fmt::{self, Debug, Formatter},
     iter::once,
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr},
 };
 use thiserror::Error;
 
@@ -917,6 +917,20 @@ impl<'a> LhsValue<'a> {
             LhsValue::Array(array) => Some(Iter::IterArray(array.as_slice().iter())),
             LhsValue::Map(map) => Some(Iter::IterMap(map.iter())),
             _ => None,
+        }
+    }
+
+    /// Returns a default value for the type.
+    pub fn default_value(ty: Type) -> LhsValue<'static> {
+        match ty {
+            Type::Bool => LhsValue::Bool(false),
+            Type::Int => LhsValue::Int(0),
+            Type::Float => LhsValue::Float(OrderedFloat(0.0)),
+            Type::Bytes => LhsValue::Bytes(Cow::Owned(Vec::new())),
+            Type::Ip => LhsValue::Ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+            Type::Array(inner_type) => LhsValue::Array(Array::new(*inner_type)),
+            Type::Map(inner_type) => LhsValue::Map(Map::new(*inner_type)),
+            Type::Regex => unreachable!(),
         }
     }
 

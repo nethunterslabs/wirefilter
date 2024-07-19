@@ -239,15 +239,10 @@ impl<'e, U> ExecutionContext<'e, U> {
         // invariant holds in the future at least in the debug mode.
         debug_assert!(self.scheme() == field.scheme());
 
-        // For now we panic in this, but later we are going to align behaviour
-        // with wireshark: resolve all subexpressions that don't have RHS value
-        // to `false`.
-        self.values[field.index()].as_ref().unwrap_or_else(|| {
-            panic!(
-                "Field {} was registered but not given a value",
-                field.name()
-            );
-        })
+        // For now we return the default value
+        self.values[field.index()]
+            .as_ref()
+            .unwrap_or_else(|| self.scheme.get_default_value(&field))
     }
 
     /// Get the value of a field.
@@ -352,192 +347,195 @@ impl<'e> Serialize for ExecutionContext<'e> {
     }
 }
 
-#[test]
-fn test_field_value_type_mismatch() {
-    use crate::types::Type;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let scheme = Scheme! { foo: Int };
-
-    let mut ctx = ExecutionContext::<()>::new(&scheme);
-
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("foo").unwrap(), LhsValue::Bool(false)),
-        Err(SetFieldValueError::TypeMismatchError(TypeMismatchError {
-            expected: Type::Int.into(),
-            actual: Type::Bool,
-        }))
-    );
-}
-
-#[test]
-fn test_scheme_mismatch() {
-    let mut scheme = Scheme! { foo: Bool };
-
-    let mut ctx = ExecutionContext::<()>::new(&scheme);
-
-    let mut scheme2 = Scheme! { foo: Bool };
-
-    assert_eq!(
-        ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
-        Err(SetFieldValueError::SchemeMismatchError(
-            SchemeMismatchError {}
-        ))
-    );
-
-    scheme.set_relaxed_equality();
-    scheme2.set_relaxed_equality();
-
-    let mut ctx = ExecutionContext::<()>::new(&scheme);
-
-    assert_eq!(
-        ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
-        Ok(())
-    );
-}
-
-#[test]
-fn test_serde() {
     use crate::{
         lhs_types::{Array, Map},
         types::Type,
     };
     use std::{net::IpAddr, str::FromStr};
 
-    let mut scheme = Scheme::new();
-    scheme.add_field("bool".to_string(), Type::Bool).unwrap();
-    scheme.add_field("ip".to_string(), Type::Ip).unwrap();
-    scheme.add_field("str".to_string(), Type::Bytes).unwrap();
-    scheme.add_field("bytes".to_string(), Type::Bytes).unwrap();
-    scheme.add_field("num".to_string(), Type::Int).unwrap();
-    scheme
-        .add_field("arr".to_string(), Type::Array(Box::new(Type::Bool)))
-        .unwrap();
-    scheme
-        .add_field("map".to_string(), Type::Map(Box::new(Type::Int)))
-        .unwrap();
+    #[test]
+    fn test_field_value_type_mismatch() {
+        let scheme = Scheme! { foo: Int };
 
-    let mut ctx = ExecutionContext::new(&scheme);
+        let mut ctx = ExecutionContext::<()>::new(&scheme);
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("bool").unwrap(), LhsValue::Bool(false)),
-        Ok(()),
-    );
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("foo").unwrap(), LhsValue::Bool(false)),
+            Err(SetFieldValueError::TypeMismatchError(TypeMismatchError {
+                expected: Type::Int.into(),
+                actual: Type::Bool,
+            }))
+        );
+    }
 
-    assert_eq!(
-        ctx.set_field_value(
-            scheme.get_field("ip").unwrap(),
-            LhsValue::Ip(IpAddr::from_str("127.0.0.1").unwrap())
-        ),
-        Ok(()),
-    );
+    #[test]
+    fn test_scheme_mismatch() {
+        let mut scheme = Scheme! { foo: Bool };
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("str").unwrap(), "a string"),
-        Ok(()),
-    );
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("bytes").unwrap(), &b"a\xFF\xFFb"[..]),
-        Ok(()),
-    );
+        let mut ctx = ExecutionContext::<()>::new(&scheme);
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("num").unwrap(), 42),
-        Ok(()),
-    );
+        let mut scheme2 = Scheme! { foo: Bool };
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("arr").unwrap(), {
-            let mut arr = Array::new(Type::Bool);
-            arr.push(false.into()).unwrap();
-            arr.push(true.into()).unwrap();
-            arr
-        }),
-        Ok(()),
-    );
+        assert_eq!(
+            ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
+            Err(SetFieldValueError::SchemeMismatchError(
+                SchemeMismatchError {}
+            ))
+        );
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("map").unwrap(), {
-            let mut map = Map::new(Type::Int);
-            map.insert(b"leet", 1337.into()).unwrap();
-            map.insert(b"tabs", 25.into()).unwrap();
-            map
-        }),
-        Ok(()),
-    );
+        scheme.set_relaxed_equality();
+        scheme2.set_relaxed_equality();
 
-    let json = assert_json!(
-        ctx,
-        {
-            "bool": false,
-            "ip": "127.0.0.1",
-            "str": "a string",
-            "bytes": [97, 255, 255, 98],
-            "num": 42,
-            "arr": [false, true],
-            "map": {
-                "leet": 1337,
-                "tabs": 25,
+        let mut ctx = ExecutionContext::<()>::new(&scheme);
+
+        assert_eq!(
+            ctx.set_field_value(scheme2.get_field("foo").unwrap(), LhsValue::Bool(false)),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_serde() {
+        let mut scheme = Scheme::new();
+        scheme.add_field("bool".to_string(), Type::Bool).unwrap();
+        scheme.add_field("ip".to_string(), Type::Ip).unwrap();
+        scheme.add_field("str".to_string(), Type::Bytes).unwrap();
+        scheme.add_field("bytes".to_string(), Type::Bytes).unwrap();
+        scheme.add_field("num".to_string(), Type::Int).unwrap();
+        scheme
+            .add_field("arr".to_string(), Type::Array(Box::new(Type::Bool)))
+            .unwrap();
+        scheme
+            .add_field("map".to_string(), Type::Map(Box::new(Type::Int)))
+            .unwrap();
+
+        let mut ctx = ExecutionContext::new(&scheme);
+
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("bool").unwrap(), LhsValue::Bool(false)),
+            Ok(()),
+        );
+
+        assert_eq!(
+            ctx.set_field_value(
+                scheme.get_field("ip").unwrap(),
+                LhsValue::Ip(IpAddr::from_str("127.0.0.1").unwrap())
+            ),
+            Ok(()),
+        );
+
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("str").unwrap(), "a string"),
+            Ok(()),
+        );
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("bytes").unwrap(), &b"a\xFF\xFFb"[..]),
+            Ok(()),
+        );
+
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("num").unwrap(), 42),
+            Ok(()),
+        );
+
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("arr").unwrap(), {
+                let mut arr = Array::new(Type::Bool);
+                arr.push(false.into()).unwrap();
+                arr.push(true.into()).unwrap();
+                arr
+            }),
+            Ok(()),
+        );
+
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("map").unwrap(), {
+                let mut map = Map::new(Type::Int);
+                map.insert(b"leet", 1337.into()).unwrap();
+                map.insert(b"tabs", 25.into()).unwrap();
+                map
+            }),
+            Ok(()),
+        );
+
+        let json = assert_json!(
+            ctx,
+            {
+                "bool": false,
+                "ip": "127.0.0.1",
+                "str": "a string",
+                "bytes": [97, 255, 255, 98],
+                "num": 42,
+                "arr": [false, true],
+                "map": {
+                    "leet": 1337,
+                    "tabs": 25,
+                }
             }
-        }
-    )
-    .to_string();
+        )
+        .to_string();
 
-    let mut ctx2 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_str(&json);
-    ctx2.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx2);
+        let mut ctx2 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        ctx2.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx2);
 
-    let mut ctx2 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_slice(json.as_bytes());
-    ctx2.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx2);
+        let mut ctx2 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_slice(json.as_bytes());
+        ctx2.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx2);
 
-    let mut ctx3 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_reader(json.as_bytes());
-    ctx3.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx3);
+        let mut ctx3 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_reader(json.as_bytes());
+        ctx3.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx3);
 
-    assert_eq!(
-        ctx.set_field_value(scheme.get_field("map").unwrap(), {
-            let mut map = Map::new(Type::Int);
-            map.insert(b"leet", 1337.into()).unwrap();
-            map.insert(b"tabs", 25.into()).unwrap();
-            map.insert(b"a\xFF\xFFb", 17.into()).unwrap();
-            map
-        }),
-        Ok(()),
-    );
+        assert_eq!(
+            ctx.set_field_value(scheme.get_field("map").unwrap(), {
+                let mut map = Map::new(Type::Int);
+                map.insert(b"leet", 1337.into()).unwrap();
+                map.insert(b"tabs", 25.into()).unwrap();
+                map.insert(b"a\xFF\xFFb", 17.into()).unwrap();
+                map
+            }),
+            Ok(()),
+        );
 
-    let json = assert_json!(
-        ctx,
-        {
-            "bool": false,
-            "ip": "127.0.0.1",
-            "str": "a string",
-            "bytes": [97, 255, 255, 98],
-            "num": 42,
-            "arr": [false, true],
-            "map": [
-                [[97, 255, 255, 98], 17],
-                ["leet", 1337],
-                ["tabs", 25]
-            ]
-        }
-    )
-    .to_string();
+        let json = assert_json!(
+            ctx,
+            {
+                "bool": false,
+                "ip": "127.0.0.1",
+                "str": "a string",
+                "bytes": [97, 255, 255, 98],
+                "num": 42,
+                "arr": [false, true],
+                "map": [
+                    [[97, 255, 255, 98], 17],
+                    ["leet", 1337],
+                    ["tabs", 25]
+                ]
+            }
+        )
+        .to_string();
 
-    let mut ctx2 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_str(&json);
-    ctx2.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx2);
+        let mut ctx2 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        ctx2.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx2);
 
-    let mut ctx2 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_slice(json.as_bytes());
-    ctx2.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx2);
+        let mut ctx2 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_slice(json.as_bytes());
+        ctx2.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx2);
 
-    let mut ctx3 = ExecutionContext::new(&scheme);
-    let mut deserializer = serde_json::Deserializer::from_reader(json.as_bytes());
-    ctx3.deserialize(&mut deserializer).unwrap();
-    assert_eq!(ctx, ctx3);
+        let mut ctx3 = ExecutionContext::new(&scheme);
+        let mut deserializer = serde_json::Deserializer::from_reader(json.as_bytes());
+        ctx3.deserialize(&mut deserializer).unwrap();
+        assert_eq!(ctx, ctx3);
+    }
 }

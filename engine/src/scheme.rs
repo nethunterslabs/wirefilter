@@ -3,7 +3,7 @@ use crate::{
     execution_context::Variables,
     functions::FunctionDefinition,
     lex::{complete, expect, span, take_while, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
-    types::{GetType, RhsValue, Type},
+    types::{GetType, LhsValue, RhsValue, Type},
 };
 use fnv::FnvBuildHasher;
 use indexmap::map::{Entry, IndexMap};
@@ -413,6 +413,7 @@ impl<T: FunctionDefinition + 'static> From<T> for Box<dyn FunctionDefinition> {
 #[derive(Default, Debug, Clone)]
 pub struct Scheme {
     items: IndexMap<String, SchemeItem, FnvBuildHasher>,
+    default_values: Vec<LhsValue<'static>>,
     relaxed_equality: bool,
 }
 
@@ -504,6 +505,12 @@ impl<'s> Scheme {
             })
     }
 
+    pub(crate) fn get_default_value(&self, field: &Field<'_>) -> &LhsValue<'_> {
+        debug_assert!(self == field.scheme());
+
+        &self.default_values[field.index]
+    }
+
     /// Registers a field and its corresponding type.
     pub fn add_field(&mut self, name: String, ty: Type) -> Result<(), IdentifierRedefinitionError> {
         match self.items.entry(name) {
@@ -516,7 +523,8 @@ impl<'s> Scheme {
                 )),
             },
             Entry::Vacant(entry) => {
-                entry.insert(SchemeItem::Field(ty));
+                entry.insert(SchemeItem::Field(ty.clone()));
+                self.default_values.push(LhsValue::default_value(ty));
                 Ok(())
             }
         }
