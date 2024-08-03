@@ -296,28 +296,36 @@ class ComparisonOpExprBuilder:
             var: VariableBuilder,
         },
 
-        /// "has_any [...]" / "HAS_ANY [...]" comparison
+        /// "has_any [...]" / "HAS_ANY [...]" / "has_any_ci [...]" / "HAS_ANY_CI [...]" comparison
         HasAny {
             /// Right-hand side values
             rhs: RhsValuesBuilder,
+            /// Case-insensitive comparison
+            case_insensitive: bool,
         },
 
-        /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+        /// "has_any $..." / "HAS_ANY $..." / "has_any_ci $..." / "HAS_ANY_CI $..." comparison with a variable
         HasAnyVariable {
             /// `Variable` from the `Scheme`
             var: VariableBuilder,
+            /// Case-insensitive comparison
+            case_insensitive: bool,
         },
 
-        /// "has_all [...]" / "HAS_ALL [...]" comparison
+        /// "has_all [...]" / "HAS_ALL [...]" / "has_all_ci [...]" / "HAS_ALL_CI [...]" comparison
         HasAll {
             /// Right-hand side values
             rhs: RhsValuesBuilder,
+            /// Case-insensitive comparison
+            case_insensitive: bool,
         },
 
-        /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+        /// "has_all $..." / "HAS_ALL $..." / "has_all_ci $..." / "HAS_ALL_CI $..." comparison with a variable
         HasAllVariable {
             /// `Variable` from the `Scheme`
             var: VariableBuilder,
+            /// Case-insensitive comparison
+            case_insensitive: bool,
         },
     }
     """
@@ -336,10 +344,10 @@ class ComparisonOpExprBuilder:
         MatchesVariable: "None | VariableBuilder" = None,
         OneOf: "None | RhsValuesBuilder" = None,
         OneOfVariable: "None | VariableBuilder" = None,
-        HasAny: "None | RhsValuesBuilder" = None,
-        HasAnyVariable: "None | VariableBuilder" = None,
-        HasAll: "None | RhsValuesBuilder" = None,
-        HasAllVariable: "None | VariableBuilder" = None,
+        HasAny: "None | Tuple[RhsValuesBuilder, bool]" = None,
+        HasAnyVariable: "None | Tuple[VariableBuilder, bool]" = None,
+        HasAll: "None | Tuple[RhsValuesBuilder, bool]" = None,
+        HasAllVariable: "None | Tuple[VariableBuilder, bool]" = None,
     ):
         self.IsTrue = IsTrue
         self.Ordering = Ordering
@@ -417,13 +425,33 @@ class ComparisonOpExprBuilder:
         elif self.OneOfVariable is not None:
             return {"OneOfVariable": {"var": self.OneOfVariable.to_json()}}
         elif self.HasAny is not None:
-            return {"HasAny": {"rhs": self.HasAny.to_json()}}
+            return {
+                "HasAny": {
+                    "rhs": self.HasAny[0].to_json(),
+                    "case_insensitive": self.HasAny[1],
+                }
+            }
         elif self.HasAnyVariable is not None:
-            return {"HasAnyVariable": {"var": self.HasAnyVariable.to_json()}}
+            return {
+                "HasAnyVariable": {
+                    "var": self.HasAnyVariable[0].to_json(),
+                    "case_insensitive": self.HasAnyVariable[1],
+                }
+            }
         elif self.HasAll is not None:
-            return {"HasAll": {"rhs": self.HasAll.to_json()}}
+            return {
+                "HasAll": {
+                    "rhs": self.HasAll[0].to_json(),
+                    "case_insensitive": self.HasAll[1],
+                }
+            }
         elif self.HasAllVariable is not None:
-            return {"HasAllVariable": {"var": self.HasAllVariable.to_json()}}
+            return {
+                "HasAllVariable": {
+                    "var": self.HasAllVariable[0].to_json(),
+                    "case_insensitive": self.HasAllVariable[1],
+                }
+            }
         else:
             raise ValueError("No valid field set")
 

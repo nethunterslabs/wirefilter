@@ -615,20 +615,36 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
                 var: var.build(scheme, variables)?,
                 variant: 0,
             },
-            ComparisonOpExprBuilder::HasAny { rhs } => ComparisonOpExpr::HasAny {
+            ComparisonOpExprBuilder::HasAny {
+                rhs,
+                case_insensitive,
+            } => ComparisonOpExpr::HasAny {
                 rhs: rhs.build(scheme, variables)?,
+                case_insensitive,
                 variant: 0,
             },
-            ComparisonOpExprBuilder::HasAnyVariable { var } => ComparisonOpExpr::HasAnyVariable {
+            ComparisonOpExprBuilder::HasAnyVariable {
+                var,
+                case_insensitive,
+            } => ComparisonOpExpr::HasAnyVariable {
                 var: var.build(scheme, variables)?,
+                case_insensitive,
                 variant: 0,
             },
-            ComparisonOpExprBuilder::HasAll { rhs } => ComparisonOpExpr::HasAll {
+            ComparisonOpExprBuilder::HasAll {
+                rhs,
+                case_insensitive,
+            } => ComparisonOpExpr::HasAll {
                 rhs: rhs.build(scheme, variables)?,
+                case_insensitive,
                 variant: 0,
             },
-            ComparisonOpExprBuilder::HasAllVariable { var } => ComparisonOpExpr::HasAllVariable {
+            ComparisonOpExprBuilder::HasAllVariable {
+                var,
+                case_insensitive,
+            } => ComparisonOpExpr::HasAllVariable {
                 var: var.build(scheme, variables)?,
+                case_insensitive,
                 variant: 0,
             },
         })
@@ -680,22 +696,38 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
             ComparisonOpExpr::OneOfVariable { var, .. } => ComparisonOpExprBuilder::OneOfVariable {
                 var: VariableBuilder::parse_ast(var)?,
             },
-            ComparisonOpExpr::HasAny { rhs, .. } => ComparisonOpExprBuilder::HasAny {
+            ComparisonOpExpr::HasAny {
+                rhs,
+                case_insensitive,
+                ..
+            } => ComparisonOpExprBuilder::HasAny {
                 rhs: RhsValuesBuilder::parse_ast(rhs)?,
+                case_insensitive,
             },
-            ComparisonOpExpr::HasAnyVariable { var, .. } => {
-                ComparisonOpExprBuilder::HasAnyVariable {
-                    var: VariableBuilder::parse_ast(var)?,
-                }
-            }
-            ComparisonOpExpr::HasAll { rhs, .. } => ComparisonOpExprBuilder::HasAll {
+            ComparisonOpExpr::HasAnyVariable {
+                var,
+                case_insensitive,
+                ..
+            } => ComparisonOpExprBuilder::HasAnyVariable {
+                var: VariableBuilder::parse_ast(var)?,
+                case_insensitive,
+            },
+            ComparisonOpExpr::HasAll {
+                rhs,
+                case_insensitive,
+                ..
+            } => ComparisonOpExprBuilder::HasAll {
                 rhs: RhsValuesBuilder::parse_ast(rhs)?,
+                case_insensitive,
             },
-            ComparisonOpExpr::HasAllVariable { var, .. } => {
-                ComparisonOpExprBuilder::HasAllVariable {
-                    var: VariableBuilder::parse_ast(var)?,
-                }
-            }
+            ComparisonOpExpr::HasAllVariable {
+                var,
+                case_insensitive,
+                ..
+            } => ComparisonOpExprBuilder::HasAllVariable {
+                var: VariableBuilder::parse_ast(var)?,
+                case_insensitive,
+            },
         })
     }
 }

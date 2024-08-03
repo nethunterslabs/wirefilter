@@ -184,10 +184,14 @@ if __name__ == "__main__":
     comparison_op_expr_builder6 = ComparisonOpExprBuilder(OneOf=(rhs_values_builder1))
     write_to_file(comparison_op_expr_builder6, "comparison_op_expr_builder6")
 
-    comparison_op_expr_builder7 = ComparisonOpExprBuilder(HasAny=(rhs_values_builder4))
+    comparison_op_expr_builder7 = ComparisonOpExprBuilder(
+        HasAny=(rhs_values_builder4, False)
+    )
     write_to_file(comparison_op_expr_builder7, "comparison_op_expr_builder7")
 
-    comparison_op_expr_builder8 = ComparisonOpExprBuilder(HasAll=(rhs_values_builder4))
+    comparison_op_expr_builder8 = ComparisonOpExprBuilder(
+        HasAll=(rhs_values_builder4, False)
+    )
     write_to_file(comparison_op_expr_builder8, "comparison_op_expr_builder8")
 
     comparison_op_expr_builder9 = ComparisonOpExprBuilder(
@@ -216,12 +220,12 @@ if __name__ == "__main__":
     write_to_file(comparison_op_expr_builder13, "comparison_op_expr_builder13")
 
     comparison_op_expr_builder14 = ComparisonOpExprBuilder(
-        HasAnyVariable=(VariableBuilder("has_any_var"))
+        HasAnyVariable=(VariableBuilder("has_any_var"), False)
     )
     write_to_file(comparison_op_expr_builder14, "comparison_op_expr_builder14")
 
     comparison_op_expr_builder15 = ComparisonOpExprBuilder(
-        HasAllVariable=(VariableBuilder("has_all_var"))
+        HasAllVariable=(VariableBuilder("has_all_var"), False)
     )
     write_to_file(comparison_op_expr_builder15, "comparison_op_expr_builder15")
 

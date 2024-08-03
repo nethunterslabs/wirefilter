@@ -179,28 +179,36 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
-    /// "has_any [...]" / "HAS_ANY [...]" comparison
+    /// "has_any [...]" / "HAS_ANY [...]" / "has_any_ci [...]" / "HAS_ANY_CI [...]" comparison
     HasAny {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
     },
 
-    /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+    /// "has_any $..." / "HAS_ANY $..." / "has_any_ci $..." / "HAS_ANY_CI $..." comparison with a variable
     HasAnyVariable {
         /// `Variable` from the `Scheme`
         var: VariableBuilder,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
     },
 
-    /// "has_all [...]" / "HAS_ALL [...]" comparison
+    /// "has_all [...]" / "HAS_ALL [...]" / "has_all_ci [...]" / "HAS_ALL_CI [...]" comparison
     HasAll {
         /// Right-hand side values
         rhs: RhsValuesBuilder,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
     },
 
-    /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+    /// "has_all $..." / "HAS_ALL $..." / "has_all_ci $..." / "HAS_ALL_CI $..." comparison with a variable
     HasAllVariable {
         /// `Variable` from the `Scheme`
         var: VariableBuilder,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
     },
 }
 

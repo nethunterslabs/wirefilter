@@ -357,36 +357,82 @@ impl<'s> Fmt for ComparisonExpr<'s> {
 
             ComparisonOpExpr::HasAny {
                 rhs: values,
+                case_insensitive,
                 variant,
             } => {
-                match *variant {
-                    0 => output.push_str(" has_any "),
-                    _ => output.push_str(" HAS_ANY "),
+                if *case_insensitive {
+                    match *variant {
+                        0 => output.push_str(" has_any_case_insensitive "),
+                        1 => output.push_str(" has_any_ci "),
+                        2 => output.push_str(" HAS_ANY_CASE_INSENSITIVE "),
+                        _ => output.push_str(" HAS_ANY_CI "),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" has_any "),
+                        _ => output.push_str(" HAS_ANY "),
+                    }
                 }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::HasAnyVariable { var, variant } => {
-                match *variant {
-                    0 => output.push_str(" has_any $"),
-                    _ => output.push_str(" HAS_ANY $"),
+            ComparisonOpExpr::HasAnyVariable {
+                var,
+                case_insensitive,
+                variant,
+            } => {
+                if *case_insensitive {
+                    match *variant {
+                        0 => output.push_str(" has_any_case_insensitive $"),
+                        1 => output.push_str(" has_any_ci $"),
+                        2 => output.push_str(" HAS_ANY_CASE_INSENSITIVE $"),
+                        _ => output.push_str(" HAS_ANY_CI $"),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" has_any $"),
+                        _ => output.push_str(" HAS_ANY $"),
+                    }
                 }
                 output.push_str(var.name_as_str());
             }
 
             ComparisonOpExpr::HasAll {
                 rhs: values,
+                case_insensitive,
                 variant,
             } => {
-                match *variant {
-                    0 => output.push_str(" has_all "),
-                    _ => output.push_str(" HAS_ALL "),
+                if *case_insensitive {
+                    match *variant {
+                        0 => output.push_str(" has_all_case_insensitive "),
+                        1 => output.push_str(" has_all_ci "),
+                        2 => output.push_str(" HAS_ALL_CASE_INSENSITIVE "),
+                        _ => output.push_str(" HAS_ALL_CI "),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" has_all "),
+                        _ => output.push_str(" HAS_ALL "),
+                    }
                 }
                 values.fmt(0, output);
             }
-            ComparisonOpExpr::HasAllVariable { var, variant } => {
-                match *variant {
-                    0 => output.push_str(" has_all $"),
-                    _ => output.push_str(" HAS_ALL $"),
+            ComparisonOpExpr::HasAllVariable {
+                var,
+                case_insensitive,
+                variant,
+            } => {
+                if *case_insensitive {
+                    match *variant {
+                        0 => output.push_str(" has_all_case_insensitive $"),
+                        1 => output.push_str(" has_all_ci $"),
+                        2 => output.push_str(" HAS_ALL_CASE_INSENSITIVE $"),
+                        _ => output.push_str(" HAS_ALL_CI $"),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" has_all $"),
+                        _ => output.push_str(" HAS_ALL $"),
+                    }
                 }
                 output.push_str(var.name_as_str());
             }

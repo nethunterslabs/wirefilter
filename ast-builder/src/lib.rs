@@ -465,6 +465,7 @@ mod tests {
                     value: "value".into(),
                     ty: wirefilter::StrType::Escaped,
                 }]),
+                case_insensitive: false,
                 variant: 0,
             }
         );
@@ -477,6 +478,7 @@ mod tests {
                     value: "value".into(),
                     ty: wirefilter::StrType::Escaped,
                 }]),
+                case_insensitive: false,
                 variant: 0,
             }
         );
@@ -549,6 +551,7 @@ mod tests {
                     "has_any_var".to_owned(),
                     wirefilter::VariableType::BytesList
                 ),
+                case_insensitive: false,
                 variant: 0,
             }
         );
@@ -561,6 +564,7 @@ mod tests {
                     "has_all_var".to_owned(),
                     wirefilter::VariableType::BytesList
                 ),
+                case_insensitive: false,
                 variant: 0,
             }
         );

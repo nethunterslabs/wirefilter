@@ -106,7 +106,9 @@ lex_enum!(BytesOp {
 
 lex_enum!(ComparisonOp {
     "in" | "IN" => In,
+    "has_any_case_insensitive" | "has_any_ci" | "HAS_ANY_CASE_INSENSITIVE" | "HAS_ANY_CI" => HasAnyCaseInsensitive,
     "has_any" | "HAS_ANY" => HasAny,
+    "has_all_case_insensitive" | "has_all_ci" | "HAS_ALL_CASE_INSENSITIVE" | "HAS_ALL_CI" => HasAllCaseInsensitive,
     "has_all" | "HAS_ALL" => HasAll,
     "cases" | "CASES" | "=>" => Cases,
     OrderingOp => Ordering,
@@ -228,36 +230,44 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
-    /// "has_any [...]" / "HAS_ANY [...]" comparison
+    /// "has_any [...]" / "HAS_ANY [...]" / "has_any_ci [...]" / "HAS_ANY_CI [...]" comparison
     #[serde(serialize_with = "serialize_has_any")]
     HasAny {
         /// Right-hand side values
         rhs: RhsValues,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
         /// Variant, used for formatting
         variant: u8,
     },
 
-    /// "has_any $..." / "HAS_ANY $..." comparison with a variable
+    /// "has_any $..." / "HAS_ANY $..." / "has_any_ci $..." / "HAS_ANY_CI $..." comparison with a variable
     HasAnyVariable {
         /// `Variable` from the `Scheme`
         var: Variable,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
         /// Variant, used for formatting
         variant: u8,
     },
 
-    /// "has_all [...]" / "HAS_ALL [...]" comparison
+    /// "has_all [...]" / "HAS_ALL [...]" / "has_all_ci [...]" / "HAS_ALL_CI [...]" comparison
     #[serde(serialize_with = "serialize_has_all")]
     HasAll {
         /// Right-hand side values
         rhs: RhsValues,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
         /// Variant, used for formatting
         variant: u8,
     },
 
-    /// "has_all $..." / "HAS_ALL $..." comparison with a variable
+    /// "has_all $..." / "HAS_ALL $..." / "has_all_ci $..." / "HAS_ALL_CI $..." comparison with a variable
     HasAllVariable {
         /// `Variable` from the `Scheme`
         var: Variable,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
         /// Variant, used for formatting
         variant: u8,
     },
@@ -308,12 +318,30 @@ fn serialize_one_of<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S:
     serialize_op_rhs("OneOf", rhs, ser)
 }
 
-fn serialize_has_any<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("HasAny", rhs, ser)
+fn serialize_has_any<S: Serializer>(
+    rhs: &RhsValues,
+    case_insensitive: &bool,
+    _: &u8,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    if *case_insensitive {
+        serialize_op_rhs("HasAnyCaseInsensitive", rhs, ser)
+    } else {
+        serialize_op_rhs("HasAny", rhs, ser)
+    }
 }
 
-fn serialize_has_all<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
-    serialize_op_rhs("HasAll", rhs, ser)
+fn serialize_has_all<S: Serializer>(
+    rhs: &RhsValues,
+    case_insensitive: &bool,
+    _: &u8,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    if *case_insensitive {
+        serialize_op_rhs("HasAllCaseInsensitive", rhs, ser)
+    } else {
+        serialize_op_rhs("HasAll", rhs, ser)
+    }
 }
 
 /// "cases {...}" / "CASES {...}" / "=>"
@@ -1064,7 +1092,10 @@ impl<'s> ComparisonExpr<'s> {
                         (ComparisonOpExpr::OneOf { rhs, variant }, input)
                     }
                 }
-                (Type::Bytes, ComparisonOp::HasAny(_)) | (Type::Bytes, ComparisonOp::HasAll(_)) => {
+                (Type::Bytes, ComparisonOp::HasAny(_))
+                | (Type::Bytes, ComparisonOp::HasAll(_))
+                | (Type::Bytes, ComparisonOp::HasAnyCaseInsensitive(_))
+                | (Type::Bytes, ComparisonOp::HasAllCaseInsensitive(_)) => {
                     if expect(input, "$").is_ok() {
                         let (mut variable, input) = Variable::lex(input)?;
                         let variable_value = variables.get(variable.name_as_str()).ok_or((
@@ -1089,12 +1120,28 @@ impl<'s> ComparisonExpr<'s> {
                             match op {
                                 ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAnyVariable {
                                     var: variable,
+                                    case_insensitive: false,
                                     variant,
                                 },
+                                ComparisonOp::HasAnyCaseInsensitive(variant) => {
+                                    ComparisonOpExpr::HasAnyVariable {
+                                        var: variable,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
+                                }
                                 ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAllVariable {
                                     var: variable,
+                                    case_insensitive: false,
                                     variant,
                                 },
+                                ComparisonOp::HasAllCaseInsensitive(variant) => {
+                                    ComparisonOpExpr::HasAllVariable {
+                                        var: variable,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
+                                }
                                 _ => unreachable!(),
                             },
                             input,
@@ -1103,11 +1150,29 @@ impl<'s> ComparisonExpr<'s> {
                         let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
                         (
                             match op {
-                                ComparisonOp::HasAny(variant) => {
-                                    ComparisonOpExpr::HasAny { rhs, variant }
+                                ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAny {
+                                    rhs,
+                                    case_insensitive: false,
+                                    variant,
+                                },
+                                ComparisonOp::HasAnyCaseInsensitive(variant) => {
+                                    ComparisonOpExpr::HasAny {
+                                        rhs,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
                                 }
-                                ComparisonOp::HasAll(variant) => {
-                                    ComparisonOpExpr::HasAll { rhs, variant }
+                                ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAll {
+                                    rhs,
+                                    case_insensitive: false,
+                                    variant,
+                                },
+                                ComparisonOp::HasAllCaseInsensitive(variant) => {
+                                    ComparisonOpExpr::HasAll {
+                                        rhs,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
                                 }
                                 _ => unreachable!(),
                             },
@@ -1602,10 +1667,14 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
 
             ComparisonOpExpr::HasAny {
                 rhs: values,
+                case_insensitive,
                 variant: _,
             } => {
                 let values = cast_rhs_values!(values, Bytes);
-                if let Ok(searcher) = AhoCorasickBuilder::new().build(values) {
+                if let Ok(searcher) = AhoCorasickBuilder::new()
+                    .ascii_case_insensitive(case_insensitive)
+                    .build(values)
+                {
                     lhs.compile_with(
                         compiler,
                         false,
@@ -1616,10 +1685,17 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
-            ComparisonOpExpr::HasAnyVariable { var, variant: _ } => {
+            ComparisonOpExpr::HasAnyVariable {
+                var,
+                case_insensitive,
+                variant: _,
+            } => {
                 if let Some(var) = variables.get(var.name_as_str()) {
                     let variable_values = cast_variable_value!(var, BytesList);
-                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                    if let Ok(searcher) = AhoCorasickBuilder::new()
+                        .ascii_case_insensitive(case_insensitive)
+                        .build(variable_values)
+                    {
                         lhs.compile_with(
                             compiler,
                             false,
@@ -1635,10 +1711,14 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
             }
             ComparisonOpExpr::HasAll {
                 rhs: values,
+                case_insensitive,
                 variant: _,
             } => {
                 let values = cast_rhs_values!(values, Bytes);
-                if let Ok(searcher) = AhoCorasickBuilder::new().build(&values) {
+                if let Ok(searcher) = AhoCorasickBuilder::new()
+                    .ascii_case_insensitive(case_insensitive)
+                    .build(&values)
+                {
                     lhs.compile_with(
                         compiler,
                         false,
@@ -1660,11 +1740,18 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
-            ComparisonOpExpr::HasAllVariable { var, variant: _ } => {
+            ComparisonOpExpr::HasAllVariable {
+                var,
+                case_insensitive,
+                variant: _,
+            } => {
                 if let Some(var) = variables.get(var.name_as_str()) {
                     let variable_values = cast_variable_value!(var, BytesList);
                     let variable_values_len = variable_values.len();
-                    if let Ok(searcher) = AhoCorasickBuilder::new().build(variable_values) {
+                    if let Ok(searcher) = AhoCorasickBuilder::new()
+                        .ascii_case_insensitive(case_insensitive)
+                        .build(variable_values)
+                    {
                         lhs.compile_with(
                             compiler,
                             false,
@@ -2421,6 +2508,7 @@ mod tests {
                             .map(|s| (*s).to_string().into())
                             .collect()
                     ),
+                    case_insensitive: false,
                     variant: 0,
                 },
             }
@@ -2473,6 +2561,7 @@ mod tests {
                             .map(|s| (*s).to_string().into())
                             .collect()
                     ),
+                    case_insensitive: false,
                     variant: 0,
                 },
             }
@@ -2498,6 +2587,60 @@ mod tests {
         assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("http.host"), "example.net")
+            .unwrap();
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
+    }
+
+    #[test]
+    fn test_bytes_has_any_case_insensitive() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with_2(
+                r#"http.host has_any_ci [ "CoM", "oRg", ]"#,
+                &SCHEME,
+                &VARIABLES
+            ),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("http.host")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::HasAny {
+                    rhs: RhsValues::Bytes(
+                        ["CoM", "oRg",]
+                            .iter()
+                            .map(|s| (*s).to_string().into())
+                            .collect()
+                    ),
+                    case_insensitive: true,
+                    variant: 1,
+                },
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "http.host",
+                "op": "HasAnyCaseInsensitive",
+                "rhs": [
+                    "CoM",
+                    "oRg",
+                ]
+            }
+        );
+
+        let expr = expr.compile(&VARIABLES);
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.coM")
+            .unwrap();
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("http.host"), "example.Org")
             .unwrap();
         assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
