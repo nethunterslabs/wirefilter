@@ -6,10 +6,10 @@ use cidr::IpCidr;
 use wirefilter::{
     ByteSeparator, Bytes, CasePatternValue, Cases, ComparisonExpr, ComparisonOpExpr,
     ExplicitIpRange, Field, FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr,
-    FunctionCallExpr, GetType, IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, LogicalExpr,
-    LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme, SimpleExpr,
-    SingleIndexExpr, SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError, Variable,
-    Variables,
+    FunctionCallExpr, GetType, IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, Like,
+    LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme,
+    SimpleExpr, SingleIndexExpr, SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError,
+    Variable, Variables,
 };
 
 use crate::ast::*;
@@ -270,6 +270,38 @@ impl ComparisonExprBuilder {
     /// Creates a new `ComparisonExprBuilder` with the given `lhs` and `op`.
     pub fn new(lhs: IndexExprBuilder, op: ComparisonOpExprBuilder) -> Self {
         Self { lhs, op }
+    }
+}
+
+impl<'s, 'v> AstBuilder<'s, 'v, Like> for LikeBuilder {
+    fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<Like> {
+        Ok(if self.case_insensitive {
+            Like::parse_str_with_str_type_case_insensitive(
+                &self.value,
+                self.ty.build(scheme, variables)?,
+            )
+        } else {
+            Like::parse_str_with_str_type(&self.value, self.ty.build(scheme, variables)?)
+        })
+    }
+
+    fn parse_ast(like: Like) -> Result<Self> {
+        Ok(Self {
+            value: like.pattern().as_str().to_string(),
+            case_insensitive: like.is_case_insensitive(),
+            ty: StrTypeBuilder::parse_ast(like.ty())?,
+        })
+    }
+}
+
+impl LikeBuilder {
+    /// Creates a new `LikeBuilder` with the given `value` and `ty`.
+    pub fn new(value: String, case_insensitive: bool, ty: StrTypeBuilder) -> Self {
+        Self {
+            value,
+            case_insensitive,
+            ty,
+        }
     }
 }
 
@@ -607,6 +639,18 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
                 var: var.build(scheme, variables)?,
                 variant: 0,
             },
+            ComparisonOpExprBuilder::Like { rhs } => ComparisonOpExpr::Like {
+                rhs: rhs.build(scheme, variables)?,
+                variant: 0,
+            },
+            ComparisonOpExprBuilder::LikeVariable {
+                var,
+                case_insensitive,
+            } => ComparisonOpExpr::LikeVariable {
+                var: var.build(scheme, variables)?,
+                case_insensitive,
+                variant: 0,
+            },
             ComparisonOpExprBuilder::OneOf { rhs } => ComparisonOpExpr::OneOf {
                 rhs: rhs.build(scheme, variables)?,
                 variant: 0,
@@ -690,6 +734,17 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
                     var: VariableBuilder::parse_ast(var)?,
                 }
             }
+            ComparisonOpExpr::Like { rhs, .. } => ComparisonOpExprBuilder::Like {
+                rhs: LikeBuilder::parse_ast(rhs)?,
+            },
+            ComparisonOpExpr::LikeVariable {
+                var,
+                case_insensitive,
+                ..
+            } => ComparisonOpExprBuilder::LikeVariable {
+                var: VariableBuilder::parse_ast(var)?,
+                case_insensitive,
+            },
             ComparisonOpExpr::OneOf { rhs, .. } => ComparisonOpExprBuilder::OneOf {
                 rhs: RhsValuesBuilder::parse_ast(rhs)?,
             },

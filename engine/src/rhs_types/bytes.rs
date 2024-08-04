@@ -1,5 +1,5 @@
 use crate::{
-    lex::{expect, take, Lex, LexErrorKind, LexResult},
+    lex::{expect, take, Lex, LexErrorKind, LexResult, LexWith},
     strict_partial_ord::StrictPartialOrd,
 };
 use serde::Serialize;
@@ -210,7 +210,13 @@ impl ByteSeparator {
 }
 
 impl<'i> Lex<'i> for Bytes {
-    fn lex(mut input: &str) -> LexResult<'_, Self> {
+    fn lex(input: &str) -> LexResult<'_, Self> {
+        Self::lex_with(input, true)
+    }
+}
+
+impl<'i> LexWith<'i, bool> for Bytes {
+    fn lex_with(mut input: &str, raw_bytes: bool) -> LexResult<'_, Self> {
         if let Ok(input) = expect(input, "\"") {
             let full_input = input;
             let mut res = String::new();
@@ -328,7 +334,7 @@ impl<'i> Lex<'i> for Bytes {
             } else {
                 return Err((LexErrorKind::MissingStartingQuote, input));
             }
-        } else {
+        } else if raw_bytes {
             let mut res = Vec::new();
             let mut separator = ByteSeparator::Colon(0);
             loop {
@@ -348,6 +354,8 @@ impl<'i> Lex<'i> for Bytes {
                     ));
                 }
             }
+        } else {
+            Err((LexErrorKind::MissingStartingQuote, input))
         }
     }
 }

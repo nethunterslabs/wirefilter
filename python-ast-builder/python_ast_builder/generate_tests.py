@@ -21,6 +21,7 @@ from python_ast_builder import (
     IpCidrBuilder,
     IpRangeBuilder,
     LhsFieldExprBuilder,
+    LikeBuilder,
     LogicalExprBuilder,
     LogicalOpBuilder,
     OrderingOpBuilder,
@@ -82,6 +83,12 @@ if __name__ == "__main__":
 
     regex_builder2 = RegexBuilder("^\\d{3}$", StrTypeBuilder(Raw=3))
     write_to_file(regex_builder2, "regex_builder2")
+
+    like_builder1 = LikeBuilder("abc.*", False, StrTypeBuilder(Escaped=True))
+    write_to_file(like_builder1, "like_builder1")
+
+    like_builder2 = LikeBuilder("abc.*", False, StrTypeBuilder(Raw=3))
+    write_to_file(like_builder2, "like_builder2")
 
     unary_op_builder = UnaryOpBuilder.Not
     write_to_file(unary_op_builder, "unary_op_builder")

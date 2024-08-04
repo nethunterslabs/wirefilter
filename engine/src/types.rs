@@ -1,6 +1,7 @@
 use crate::{
     lex::{expect, skip_space, Lex, LexResult, LexWith},
     lhs_types::{Array, ArrayIterator, Map, MapIter, MapValuesIntoIter},
+    like::{Like, UninhabitedLike},
     rhs_types::{
         Bytes, FloatRange, IntRange, IpRange, Regex, UninhabitedArray, UninhabitedBool,
         UninhabitedMap, UninhabitedRegex,
@@ -695,9 +696,10 @@ impl CasePatternValue {
             CasePatternValue::Bytes(_) => Some(Type::Bytes),
             CasePatternValue::Ip(_) => Some(Type::Ip),
             CasePatternValue::IpRange(_) => Some(Type::Ip),
-            CasePatternValue::Array(_) | CasePatternValue::Map(_) | CasePatternValue::Regex(_) => {
-                None
-            }
+            CasePatternValue::Array(_)
+            | CasePatternValue::Map(_)
+            | CasePatternValue::Regex(_)
+            | CasePatternValue::Like(_) => None,
         }
     }
 
@@ -775,6 +777,7 @@ impl<'a> From<&'a RhsValue> for LhsValue<'a> {
             RhsValue::Array(a) => match *a {},
             RhsValue::Map(m) => match *m {},
             RhsValue::Regex(r) => match *r {},
+            RhsValue::Like(l) => match *l {},
         }
     }
 }
@@ -790,6 +793,7 @@ impl<'a> From<RhsValue> for LhsValue<'a> {
             RhsValue::Array(a) => match a {},
             RhsValue::Map(m) => match m {},
             RhsValue::Regex(r) => match r {},
+            RhsValue::Like(l) => match l {},
         }
     }
 }
@@ -807,6 +811,7 @@ impl<'a> LhsValue<'a> {
             LhsValue::Array(a) => LhsValue::Array(a.as_ref()),
             LhsValue::Map(m) => LhsValue::Map(m.as_ref()),
             LhsValue::Regex(r) => LhsValue::Regex(*r),
+            LhsValue::Like(l) => LhsValue::Like(*l),
         }
     }
 
@@ -821,6 +826,7 @@ impl<'a> LhsValue<'a> {
             LhsValue::Array(arr) => LhsValue::Array(arr.into_owned()),
             LhsValue::Map(map) => LhsValue::Map(map.into_owned()),
             LhsValue::Regex(r) => LhsValue::Regex(r),
+            LhsValue::Like(l) => LhsValue::Like(l),
         }
     }
 
@@ -931,6 +937,7 @@ impl<'a> LhsValue<'a> {
             Type::Array(inner_type) => LhsValue::Array(Array::new(*inner_type)),
             Type::Map(inner_type) => LhsValue::Map(Map::new(*inner_type)),
             Type::Regex => unreachable!(),
+            Type::Like => unreachable!(),
         }
     }
 
@@ -1476,6 +1483,7 @@ impl<'a> Serialize for LhsValue<'a> {
             LhsValue::Array(arr) => arr.serialize(serializer),
             LhsValue::Map(map) => map.serialize(serializer),
             LhsValue::Regex(regex) => regex.serialize(serializer),
+            LhsValue::Like(like) => like.serialize(serializer),
         }
     }
 }
@@ -1510,6 +1518,7 @@ impl<'de, 'a> DeserializeSeed<'de> for LhsValueSeed<'a> {
             Type::Regex => Ok(LhsValue::Regex(UninhabitedRegex::deserialize(
                 deserializer,
             )?)),
+            Type::Like => Ok(LhsValue::Like(UninhabitedLike::deserialize(deserializer)?)),
         }
     }
 }
@@ -1646,6 +1655,13 @@ declare_types!(
         Regex(Regex),
     ) | (
         Regex(UninhabitedRegex),
+    )),
+
+    /// A like pattern.
+    Like(UninhabitedLike | UninhabitedLike | UninhabitedLike | (
+        Like(Like),
+    ) | (
+        Like(UninhabitedLike),
     )),
 );
 

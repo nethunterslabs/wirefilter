@@ -900,6 +900,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wildmatch"
+version = "2.3.4"
+source = "git+https://github.com/nethunterslabs/wildmatch?branch=optional-ascii-case-insensitive#2c9d8718fe3c8fbdffceebea6698a2053a731274"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1037,6 +1045,7 @@ dependencies = [
  "serde_json",
  "sliceslice",
  "thiserror",
+ "wildmatch",
 ]
 
 [[package]]

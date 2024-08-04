@@ -15,8 +15,8 @@ pub use ast::{
     ComparisonExprBuilder, ComparisonOpExprBuilder, ExplicitIpRangeBuilder, FieldBuilder,
     FieldIndexBuilder, FilterAstBuilder, FunctionBuilder, FunctionCallArgExprBuilder,
     FunctionCallExprBuilder, IndexExprBuilder, IntOpBuilder, IpCidrBuilder, IpRangeBuilder,
-    LhsFieldExprBuilder, LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder, RegexBuilder,
-    RhsValueBuilder, RhsValuesBuilder, SimpleExprBuilder, SingleIndexExprBuilder,
+    LhsFieldExprBuilder, LikeBuilder, LogicalExprBuilder, LogicalOpBuilder, OrderingOpBuilder,
+    RegexBuilder, RhsValueBuilder, RhsValuesBuilder, SimpleExprBuilder, SingleIndexExprBuilder,
     SingleValueExprAstBuilder, StrTypeBuilder, TypeBuilder, UnaryExprBuilder, UnaryOpBuilder,
     VariableBuilder,
 };
@@ -382,6 +382,24 @@ mod tests {
                 wirefilter::StrType::Raw { hash_count: 3 }
             )
             .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_like_builder() {
+        test_builder!(
+            LikeBuilder,
+            "like_builder1",
+            wirefilter::Like::parse_str_with_str_type(r"abc.*", wirefilter::StrType::Escaped)
+        );
+
+        test_builder!(
+            LikeBuilder,
+            "like_builder2",
+            wirefilter::Like::parse_str_with_str_type(
+                r"abc.*",
+                wirefilter::StrType::Raw { hash_count: 3 }
+            )
         );
     }
 

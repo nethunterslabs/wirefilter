@@ -50,7 +50,10 @@ impl Fmt for CasePatternValue {
             CasePatternValue::Bytes(bytes) => bytes.fmt(0, output),
             CasePatternValue::Ip(ip) => output.push_str(&ip.to_string()),
             CasePatternValue::IpRange(ip_range) => ip_range.fmt(0, output),
-            CasePatternValue::Regex(_) | CasePatternValue::Array(_) | CasePatternValue::Map(_) => {
+            CasePatternValue::Regex(_)
+            | CasePatternValue::Like(_)
+            | CasePatternValue::Array(_)
+            | CasePatternValue::Map(_) => {
                 unreachable!()
             }
         }
@@ -64,10 +67,13 @@ impl Fmt for RhsValue {
             RhsValue::Bytes(bytes) => bytes.fmt(0, output),
             RhsValue::Int(num) => output.push_str(&num.to_string()),
             RhsValue::Float(float_num) => output.push_str(&format!("{:?}", float_num.into_inner())),
-            RhsValue::Bool(_) => unreachable!(),
-            RhsValue::Array(_) => unreachable!(),
-            RhsValue::Map(_) => unreachable!(),
-            RhsValue::Regex(_) => unreachable!(),
+            RhsValue::Bool(_)
+            | RhsValue::Array(_)
+            | RhsValue::Map(_)
+            | RhsValue::Regex(_)
+            | RhsValue::Like(_) => {
+                unreachable!()
+            }
         }
     }
 }
@@ -158,10 +164,13 @@ impl Fmt for RhsValues {
                     }
                 }
             }
-            RhsValues::Bool(_) => unreachable!(),
-            RhsValues::Array(_) => unreachable!(),
-            RhsValues::Map(_) => unreachable!(),
-            RhsValues::Regex(_) => unreachable!(),
+            RhsValues::Bool(_)
+            | RhsValues::Array(_)
+            | RhsValues::Map(_)
+            | RhsValues::Regex(_)
+            | RhsValues::Like(_) => {
+                unreachable!()
+            }
         }
 
         if len > 1 {
@@ -333,6 +342,58 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     0 => output.push_str(" ~ $"),
                     1 => output.push_str(" matches $"),
                     _ => output.push_str(" MATCHES $"),
+                }
+                output.push_str(var.name_as_str());
+            }
+
+            ComparisonOpExpr::Like { rhs: like, variant } => {
+                if like.is_case_insensitive() {
+                    match *variant {
+                        0 => output.push_str(" like_case_insensitive "),
+                        1 => output.push_str(" like_ci "),
+                        2 => output.push_str(" LIKE_CASE_INSENSITIVE "),
+                        _ => output.push_str(" LIKE_CI "),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" like "),
+                        _ => output.push_str(" LIKE "),
+                    }
+                }
+                match like.ty() {
+                    StrType::Raw { hash_count } => {
+                        let hashes = "#".repeat(hash_count);
+                        output.push('r');
+                        output.push_str(&hashes);
+                        output.push('"');
+                        output.push_str(like.pattern().as_str());
+                        output.push('"');
+                        output.push_str(&hashes);
+                    }
+                    StrType::Escaped => {
+                        output.push('"');
+                        output.push_str(&escape(like.pattern().as_str(), true));
+                        output.push('"');
+                    }
+                }
+            }
+            ComparisonOpExpr::LikeVariable {
+                var,
+                case_insensitive,
+                variant,
+            } => {
+                if *case_insensitive {
+                    match *variant {
+                        0 => output.push_str(" like_case_insensitive $"),
+                        1 => output.push_str(" like_ci $"),
+                        2 => output.push_str(" LIKE_CASE_INSENSITIVE $"),
+                        _ => output.push_str(" LIKE_CI $"),
+                    }
+                } else {
+                    match *variant {
+                        0 => output.push_str(" like $"),
+                        _ => output.push_str(" LIKE $"),
+                    }
                 }
                 output.push_str(var.name_as_str());
             }

@@ -284,6 +284,20 @@ class ComparisonOpExprBuilder:
             var: VariableBuilder,
         },
 
+        /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison
+        Like {
+            /// Right-hand side pattern value
+            rhs: LikeBuilder,
+        },
+
+        /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison with a variable
+        LikeVariable {
+            /// `Variable` from the `Scheme`
+            var: VariableBuilder,
+            /// Case-insensitive comparison
+            case_insensitive: bool,
+        },
+
         /// "in [...]" / "IN [...]" comparison
         OneOf {
             /// Right-hand side values
@@ -342,6 +356,8 @@ class ComparisonOpExprBuilder:
         ContainsVariable: "None | VariableBuilder" = None,
         Matches: "None | RegexBuilder" = None,
         MatchesVariable: "None | VariableBuilder" = None,
+        Like: "None | LikeBuilder" = None,
+        LikeVariable: "None | Tuple[VariableBuilder, bool]" = None,
         OneOf: "None | RhsValuesBuilder" = None,
         OneOfVariable: "None | VariableBuilder" = None,
         HasAny: "None | Tuple[RhsValuesBuilder, bool]" = None,
@@ -359,6 +375,8 @@ class ComparisonOpExprBuilder:
         self.ContainsVariable = ContainsVariable
         self.Matches = Matches
         self.MatchesVariable = MatchesVariable
+        self.Like = Like
+        self.LikeVariable = LikeVariable
         self.OneOf = OneOf
         self.OneOfVariable = OneOfVariable
         self.HasAny = HasAny
@@ -418,6 +436,15 @@ class ComparisonOpExprBuilder:
             return {
                 "MatchesVariable": {
                     "var": self.MatchesVariable.to_json(),
+                }
+            }
+        elif self.Like is not None:
+            return {"Like": {"rhs": self.Like.to_json()}}
+        elif self.LikeVariable is not None:
+            return {
+                "LikeVariable": {
+                    "var": self.LikeVariable[0].to_json(),
+                    "case_insensitive": self.LikeVariable[1],
                 }
             }
         elif self.OneOf is not None:
@@ -482,6 +509,32 @@ class CasesBuilder:
                 ([pattern.to_json() for pattern in patterns], expr.to_json())
                 for patterns, expr in self.patterns
             ]
+        }
+
+
+class LikeBuilder:
+    """
+    Builder for `Like`.
+    pub struct LikeBuilder {
+        /// Like value.
+        pub(crate) value: String,
+        /// Case-insensitive comparison
+        pub(crate) case_insensitive: bool,
+        /// Type of string literal.
+        pub(crate) ty: StrTypeBuilder,
+    }
+    """
+
+    def __init__(self, value: str, case_insensitive: bool, ty: "StrTypeBuilder"):
+        self.value = value
+        self.case_insensitive = case_insensitive
+        self.ty = ty
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            "value": self.value,
+            "case_insensitive": self.case_insensitive,
+            "ty": self.ty.to_json(),
         }
 
 

@@ -9,6 +9,7 @@ use crate::{
     execution_context::{ExecutionContext, State, Variables},
     filter::{CompiledExpr, CompiledValueExpr, CompiledValueResult},
     lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
+    like::Like,
     range_set::{RangeSet, RangeSetWithId},
     rhs_types::{Bytes, ExplicitIpRange, Regex, Variable},
     scheme::{Field, Identifier, Scheme},
@@ -102,6 +103,8 @@ lex_enum!(IntOp {
 lex_enum!(BytesOp {
     "contains" | "CONTAINS" => Contains,
     "~" | "matches" | "MATCHES" => Matches,
+    "like" | "LIKE" => Like,
+    "like_case_insensitive" | "like_ci" | "LIKE_CASE_INSENSITIVE" | "LIKE_CI" => LikeCaseInsensitive,
 });
 
 lex_enum!(ComparisonOp {
@@ -213,6 +216,25 @@ pub enum ComparisonOpExpr<'s> {
         variant: u8,
     },
 
+    /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison
+    #[serde(serialize_with = "serialize_like")]
+    Like {
+        /// Right-hand side pattern value
+        rhs: Like,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
+    /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison with a variable
+    LikeVariable {
+        /// `Variable` from the `Scheme`
+        var: Variable,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
     /// "in [...]" / "IN [...]" comparison
     #[serde(serialize_with = "serialize_one_of")]
     OneOf {
@@ -312,6 +334,14 @@ fn serialize_contains<S: Serializer>(rhs: &Bytes, _: &u8, ser: S) -> Result<S::O
 
 fn serialize_matches<S: Serializer>(rhs: &Regex, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
     serialize_op_rhs("Matches", &rhs, ser)
+}
+
+fn serialize_like<S: Serializer>(rhs: &Like, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
+    if rhs.is_case_insensitive() {
+        serialize_op_rhs("LikeCaseInsensitive", rhs, ser)
+    } else {
+        serialize_op_rhs("Like", rhs, ser)
+    }
 }
 
 fn serialize_one_of<S: Serializer>(rhs: &RhsValues, _: &u8, ser: S) -> Result<S::Ok, S::Error> {
@@ -1277,6 +1307,22 @@ impl<'s> ComparisonExpr<'s> {
                                 },
                                 input,
                             ),
+                            BytesOp::Like(variant) => (
+                                ComparisonOpExpr::LikeVariable {
+                                    var: variable,
+                                    case_insensitive: false,
+                                    variant,
+                                },
+                                input,
+                            ),
+                            BytesOp::LikeCaseInsensitive(variant) => (
+                                ComparisonOpExpr::LikeVariable {
+                                    var: variable,
+                                    case_insensitive: true,
+                                    variant,
+                                },
+                                input,
+                            ),
                         }
                     } else {
                         {
@@ -1300,6 +1346,14 @@ impl<'s> ComparisonExpr<'s> {
                                         },
                                         input,
                                     )
+                                }
+                                BytesOp::Like(variant) => {
+                                    let (like, input) = Like::lex_with(input, false)?;
+                                    (ComparisonOpExpr::Like { rhs: like, variant }, input)
+                                }
+                                BytesOp::LikeCaseInsensitive(variant) => {
+                                    let (like, input) = Like::lex_with(input, true)?;
+                                    (ComparisonOpExpr::Like { rhs: like, variant }, input)
                                 }
                             }
                         }
@@ -1590,6 +1644,30 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 variables,
             ),
 
+            ComparisonOpExpr::Like {
+                rhs: like,
+                variant: _,
+            } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, _, _| like.is_match(cast_lhs_rhs_value!(x, Bytes)),
+                variables,
+            ),
+            ComparisonOpExpr::LikeVariable {
+                var,
+                case_insensitive: _,
+                variant: _,
+            } => lhs.compile_with(
+                compiler,
+                false,
+                move |x, _ctx, variables, _| {
+                    variables.get(var.name_as_str()).map_or(false, |variable| {
+                        cast_variable_value!(variable, Like).is_match(cast_lhs_rhs_value!(x, Bytes))
+                    })
+                },
+                variables,
+            ),
+
             ComparisonOpExpr::OneOf {
                 rhs: values,
                 variant: _,
@@ -1649,10 +1727,11 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                         variables,
                     )
                 }
-                RhsValues::Bool(_) => unreachable!(),
-                RhsValues::Map(_) => unreachable!(),
-                RhsValues::Array(_) => unreachable!(),
-                RhsValues::Regex(_) => unreachable!(),
+                RhsValues::Bool(_)
+                | RhsValues::Map(_)
+                | RhsValues::Array(_)
+                | RhsValues::Regex(_)
+                | RhsValues::Like(_) => unreachable!(),
             },
             ComparisonOpExpr::OneOfVariable { var, variant: _ } => lhs.compile_with(
                 compiler,
@@ -2713,7 +2792,7 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_bytes() {
+    fn test_contains_str() {
         let expr = assert_ok!(
             ComparisonExpr::lex_with_2(r#"http.host contains "abc""#, &SCHEME, &VARIABLES),
             ComparisonExpr {
@@ -2750,7 +2829,7 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_str() {
+    fn test_contains_bytes() {
         let expr = assert_ok!(
             ComparisonExpr::lex_with_2(r#"http.host contains 6F:72:67"#, &SCHEME, &VARIABLES),
             ComparisonExpr {
@@ -2782,6 +2861,48 @@ mod tests {
         assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+    }
+
+    #[test]
+    fn like_str() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with_2(r#"http.host like "abc.*""#, &SCHEME, &VARIABLES),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("http.host")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::Like {
+                    rhs: Like::parse_str("abc.*"),
+                    variant: 0,
+                }
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "http.host",
+                "op": "Like",
+                "rhs": {
+                    "matcher": {
+                        "case_insensitive": false,
+                        "pattern": ["a", "b", "c", ".", "*"]
+                    }
+                },
+            }
+        );
+
+        let expr = expr.compile(&VARIABLES);
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("http.host"), "abc.net.au")
             .unwrap();
         assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
     }

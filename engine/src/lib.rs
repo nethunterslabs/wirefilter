@@ -75,6 +75,7 @@ mod execution_context;
 mod filter;
 mod functions;
 mod lhs_types;
+mod like;
 mod range_set;
 mod rhs_types;
 mod searcher;
@@ -103,6 +104,7 @@ pub use self::{
     },
     lex::LexErrorKind,
     lhs_types::{Array, Map},
+    like::Like,
     rhs_types::{
         ByteSeparator, Bytes, ExplicitIpRange, FloatRange, IntRange, IpCidr, IpRange, Ipv4Cidr,
         Ipv6Cidr, OrderedFloat, Regex, RegexError, StrType, Variable,

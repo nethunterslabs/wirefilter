@@ -18,6 +18,7 @@ from python_ast_builder.ast_builder import (
     IpCidrBuilder,
     IpRangeBuilder,
     LhsFieldExprBuilder,
+    LikeBuilder,
     LogicalExprBuilder,
     LogicalOpBuilder,
     OrderingOpBuilder,

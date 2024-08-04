@@ -167,6 +167,20 @@ pub enum ComparisonOpExprBuilder {
         var: VariableBuilder,
     },
 
+    /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison
+    Like {
+        /// Right-hand side pattern value
+        rhs: LikeBuilder,
+    },
+
+    /// "like" / "LIKE" / "like_ci" / "LIKE_CI" comparison with a variable
+    LikeVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+        /// Case-insensitive comparison
+        case_insensitive: bool,
+    },
+
     /// "in [...]" / "IN [...]" comparison
     OneOf {
         /// Right-hand side values
@@ -210,6 +224,17 @@ pub enum ComparisonOpExprBuilder {
         /// Case-insensitive comparison
         case_insensitive: bool,
     },
+}
+
+/// Builder for `Like`.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct LikeBuilder {
+    /// Like value.
+    pub(crate) value: String,
+    /// Case-insensitive comparison
+    pub(crate) case_insensitive: bool,
+    /// Type of string literal.
+    pub(crate) ty: StrTypeBuilder,
 }
 
 /// Builder for `Cases`.
