@@ -103,8 +103,8 @@ lex_enum!(IntOp {
 lex_enum!(BytesOp {
     "contains" | "CONTAINS" => Contains,
     "~" | "matches" | "MATCHES" => Matches,
-    "like" | "LIKE" => Like,
     "like_case_insensitive" | "like_ci" | "LIKE_CASE_INSENSITIVE" | "LIKE_CI" => LikeCaseInsensitive,
+    "like" | "LIKE" => Like,
 });
 
 lex_enum!(ComparisonOp {
