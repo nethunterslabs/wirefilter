@@ -103,16 +103,16 @@ lex_enum!(IntOp {
 lex_enum!(BytesOp {
     "contains" | "CONTAINS" => Contains,
     "~" | "matches" | "MATCHES" => Matches,
+    "has_any_case_insensitive" | "has_any_ci" | "HAS_ANY_CASE_INSENSITIVE" | "HAS_ANY_CI" => HasAnyCaseInsensitive,
+    "has_any" | "HAS_ANY" => HasAny,
+    "has_all_case_insensitive" | "has_all_ci" | "HAS_ALL_CASE_INSENSITIVE" | "HAS_ALL_CI" => HasAllCaseInsensitive,
+    "has_all" | "HAS_ALL" => HasAll,
     "like_case_insensitive" | "like_ci" | "LIKE_CASE_INSENSITIVE" | "LIKE_CI" => LikeCaseInsensitive,
     "like" | "LIKE" => Like,
 });
 
 lex_enum!(ComparisonOp {
     "in" | "IN" => In,
-    "has_any_case_insensitive" | "has_any_ci" | "HAS_ANY_CASE_INSENSITIVE" | "HAS_ANY_CI" => HasAnyCaseInsensitive,
-    "has_any" | "HAS_ANY" => HasAny,
-    "has_all_case_insensitive" | "has_all_ci" | "HAS_ALL_CASE_INSENSITIVE" | "HAS_ALL_CI" => HasAllCaseInsensitive,
-    "has_all" | "HAS_ALL" => HasAll,
     "cases" | "CASES" | "=>" => Cases,
     OrderingOp => Ordering,
     IntOp => Int,
@@ -1122,94 +1122,6 @@ impl<'s> ComparisonExpr<'s> {
                         (ComparisonOpExpr::OneOf { rhs, variant }, input)
                     }
                 }
-                (Type::Bytes, ComparisonOp::HasAny(_))
-                | (Type::Bytes, ComparisonOp::HasAll(_))
-                | (Type::Bytes, ComparisonOp::HasAnyCaseInsensitive(_))
-                | (Type::Bytes, ComparisonOp::HasAllCaseInsensitive(_)) => {
-                    if expect(input, "$").is_ok() {
-                        let (mut variable, input) = Variable::lex(input)?;
-                        let variable_value = variables.get(variable.name_as_str()).ok_or((
-                            LexErrorKind::UnknownVariable {
-                                name: variable.name_as_str().into(),
-                            },
-                            span(rhs, input),
-                        ))?;
-                        variable.set_type(variable_value.get_variable_type());
-
-                        if !variable_value.is_supported_lhs_value_match(&lhs_type) {
-                            return Err((
-                                LexErrorKind::VariableTypeMismatch {
-                                    name: variable.take_name(),
-                                    expected: lhs_type,
-                                    actual: variable_value.get_variable_type(),
-                                },
-                                span(rhs, input),
-                            ));
-                        }
-                        (
-                            match op {
-                                ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAnyVariable {
-                                    var: variable,
-                                    case_insensitive: false,
-                                    variant,
-                                },
-                                ComparisonOp::HasAnyCaseInsensitive(variant) => {
-                                    ComparisonOpExpr::HasAnyVariable {
-                                        var: variable,
-                                        case_insensitive: true,
-                                        variant,
-                                    }
-                                }
-                                ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAllVariable {
-                                    var: variable,
-                                    case_insensitive: false,
-                                    variant,
-                                },
-                                ComparisonOp::HasAllCaseInsensitive(variant) => {
-                                    ComparisonOpExpr::HasAllVariable {
-                                        var: variable,
-                                        case_insensitive: true,
-                                        variant,
-                                    }
-                                }
-                                _ => unreachable!(),
-                            },
-                            input,
-                        )
-                    } else {
-                        let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
-                        (
-                            match op {
-                                ComparisonOp::HasAny(variant) => ComparisonOpExpr::HasAny {
-                                    rhs,
-                                    case_insensitive: false,
-                                    variant,
-                                },
-                                ComparisonOp::HasAnyCaseInsensitive(variant) => {
-                                    ComparisonOpExpr::HasAny {
-                                        rhs,
-                                        case_insensitive: true,
-                                        variant,
-                                    }
-                                }
-                                ComparisonOp::HasAll(variant) => ComparisonOpExpr::HasAll {
-                                    rhs,
-                                    case_insensitive: false,
-                                    variant,
-                                },
-                                ComparisonOp::HasAllCaseInsensitive(variant) => {
-                                    ComparisonOpExpr::HasAll {
-                                        rhs,
-                                        case_insensitive: true,
-                                        variant,
-                                    }
-                                }
-                                _ => unreachable!(),
-                            },
-                            input,
-                        )
-                    }
-                }
                 (Type::Ip, ComparisonOp::Ordering(op))
                 | (Type::Bytes, ComparisonOp::Ordering(op))
                 | (Type::Int, ComparisonOp::Ordering(op))
@@ -1307,6 +1219,42 @@ impl<'s> ComparisonExpr<'s> {
                                 },
                                 input,
                             ),
+                            BytesOp::HasAny(variant) => (
+                                ComparisonOpExpr::HasAnyVariable {
+                                    var: variable,
+                                    case_insensitive: false,
+                                    variant,
+                                },
+                                input,
+                            ),
+                            BytesOp::HasAnyCaseInsensitive(variant) => (
+                                {
+                                    ComparisonOpExpr::HasAnyVariable {
+                                        var: variable,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
+                                },
+                                input,
+                            ),
+                            BytesOp::HasAll(variant) => (
+                                ComparisonOpExpr::HasAllVariable {
+                                    var: variable,
+                                    case_insensitive: false,
+                                    variant,
+                                },
+                                input,
+                            ),
+                            BytesOp::HasAllCaseInsensitive(variant) => (
+                                {
+                                    ComparisonOpExpr::HasAllVariable {
+                                        var: variable,
+                                        case_insensitive: true,
+                                        variant,
+                                    }
+                                },
+                                input,
+                            ),
                             BytesOp::Like(variant) => (
                                 ComparisonOpExpr::LikeVariable {
                                     var: variable,
@@ -1343,6 +1291,54 @@ impl<'s> ComparisonExpr<'s> {
                                         ComparisonOpExpr::Matches {
                                             rhs: regex,
                                             variant,
+                                        },
+                                        input,
+                                    )
+                                }
+                                BytesOp::HasAny(variant) => {
+                                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                                    (
+                                        ComparisonOpExpr::HasAny {
+                                            rhs,
+                                            case_insensitive: false,
+                                            variant,
+                                        },
+                                        input,
+                                    )
+                                }
+                                BytesOp::HasAnyCaseInsensitive(variant) => {
+                                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                                    (
+                                        {
+                                            ComparisonOpExpr::HasAny {
+                                                rhs,
+                                                case_insensitive: true,
+                                                variant,
+                                            }
+                                        },
+                                        input,
+                                    )
+                                }
+                                BytesOp::HasAll(variant) => {
+                                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                                    (
+                                        ComparisonOpExpr::HasAll {
+                                            rhs,
+                                            case_insensitive: false,
+                                            variant,
+                                        },
+                                        input,
+                                    )
+                                }
+                                BytesOp::HasAllCaseInsensitive(variant) => {
+                                    let (rhs, input) = RhsValues::lex_with(input, lhs_type)?;
+                                    (
+                                        {
+                                            ComparisonOpExpr::HasAll {
+                                                rhs,
+                                                case_insensitive: true,
+                                                variant,
+                                            }
                                         },
                                         input,
                                     )
