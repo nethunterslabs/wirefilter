@@ -667,7 +667,7 @@ impl Fmt for Bytes {
             Bytes::Raw { value, separator } => {
                 for (i, b) in value.iter().cloned().enumerate() {
                     if i != 0 {
-                        output.push_str(&separator.as_char().to_string());
+                        output.push(separator.as_char());
                     }
                     output.push_str(&format!("{:02X}", b));
                 }
