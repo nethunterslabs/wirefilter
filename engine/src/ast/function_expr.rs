@@ -16,8 +16,8 @@ use crate::{
         FunctionParamError,
     },
     lex::{
-        expect, skip_space, span, Lex, LexError, LexErrorKind, LexResult, LexWith, LexWith2,
-        LexWith3,
+        expect, skip_space, span, Lex, LexError, LexErrorKind, LexResult, LexWith, LexWith3,
+        LexWith4,
     },
     lhs_types::Array,
     rhs_types::Variable,
@@ -142,12 +142,15 @@ impl<'s> FunctionCallArgExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCallArgExpr<'s> {
-    fn lex_with_3(
+impl<'i, 's> LexWith4<'i, &'s Scheme, &Variables, Option<Type>, Option<String>>
+    for FunctionCallArgExpr<'s>
+{
+    fn lex_with_4(
         input: &'i str,
         scheme: &'s Scheme,
         variables: &Variables,
         ty: Option<Type>,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         let initial_input = input;
 
@@ -185,7 +188,7 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
                 return RhsValue::lex_with(input, Type::Bytes)
                     .map(|(literal, input)| (FunctionCallArgExpr::Literal(literal), input));
             } else if c == '(' || UnaryOp::lex(input).is_ok() {
-                return SimpleExpr::lex_with_2(input, scheme, variables)
+                return SimpleExpr::lex_with_3(input, scheme, variables, scope)
                     .map(|(lhs, input)| (FunctionCallArgExpr::SimpleExpr(lhs), input));
             } else if c == '$' {
                 let (mut variable, input) = Variable::lex(input)?;
@@ -222,10 +225,10 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
                     && c3.is_some()
                     && c_is_field!(c3.unwrap()))
             {
-                let (lhs, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
+                let (lhs, input) = IndexExpr::lex_with_3(input, scheme, variables, scope.clone())?;
                 let lookahead = skip_space(input);
                 if ComparisonOp::lex(lookahead).is_ok() {
-                    return ComparisonExpr::lex_with_lhs(input, scheme, lhs, variables).map(
+                    return ComparisonExpr::lex_with_lhs(input, scheme, lhs, variables, scope).map(
                         |(op, input)| {
                             (
                                 FunctionCallArgExpr::SimpleExpr(SimpleExpr::Comparison(op)),
@@ -240,10 +243,10 @@ impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<Type>> for FunctionCall
         }
 
         // Fallback to blind parsing next argument
-        if let Ok((lhs, input)) = IndexExpr::lex_with_2(input, scheme, variables) {
+        if let Ok((lhs, input)) = IndexExpr::lex_with_3(input, scheme, variables, scope.clone()) {
             let lookahead = skip_space(input);
             if ComparisonOp::lex(lookahead).is_ok() {
-                return ComparisonExpr::lex_with_lhs(input, scheme, lhs, variables).map(
+                return ComparisonExpr::lex_with_lhs(input, scheme, lhs, variables, scope).map(
                     |(op, input)| {
                         (
                             FunctionCallArgExpr::SimpleExpr(SimpleExpr::Comparison(op)),
@@ -416,6 +419,7 @@ impl<'s> FunctionCallExpr<'s> {
         input: &'i str,
         function: Function<'s>,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         let scheme = function.scheme();
         let definition = function.as_definition();
@@ -446,11 +450,12 @@ impl<'s> FunctionCallExpr<'s> {
 
             input = skip_space(input);
 
-            let (arg, rest) = FunctionCallArgExpr::lex_with_3(
+            let (arg, rest) = FunctionCallArgExpr::lex_with_4(
                 input,
                 scheme,
                 variables,
                 definition.arg_type(index),
+                scope.clone(),
             )?;
 
             // Mapping is only accepted for the first argument
@@ -567,15 +572,16 @@ impl<'s> GetType for FunctionCallExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for FunctionCallExpr<'s> {
-    fn lex_with_2(
+impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<String>> for FunctionCallExpr<'s> {
+    fn lex_with_3(
         input: &'i str,
         scheme: &'s Scheme,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         let (function, rest) = Function::lex_with(input, scheme)?;
 
-        Self::lex_with_function(rest, function, variables)
+        Self::lex_with_function(rest, function, variables, scope)
     }
 }
 
@@ -598,7 +604,7 @@ mod tests {
     use lazy_static::lazy_static;
     use std::{collections::HashSet, convert::TryFrom};
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -611,7 +617,7 @@ mod tests {
         }
     }
 
-    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -625,7 +631,7 @@ mod tests {
         }
     }
 
-    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -639,11 +645,11 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,
@@ -759,10 +765,11 @@ mod tests {
     fn test_lex_function_call_expr() {
         // test that adjacent single digit int literals are parsed properly
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, 1, 2, "test" );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -807,10 +814,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, 1, 2, "test", );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -855,10 +863,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, 1, 2, "test" , );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -903,10 +912,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, $func_test_var, 2, "test" );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -957,10 +967,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, 1, 2, r"test" );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -1005,10 +1016,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r##"echo ( http.host, 1, 2, r#"test"# );"##,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -1053,10 +1065,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"echo ( http.host, 1, 2, 74:65:73:74 );"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -1101,7 +1114,7 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2("echo ( http.host );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( http.host );", &SCHEME, &VARIABLES, None),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
@@ -1130,7 +1143,12 @@ mod tests {
         // test that adjacent single digit int literals are parsed properly (without
         // spaces)
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(r#"echo (http.host,1,2,"test");"#, &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3(
+                r#"echo (http.host,1,2,"test");"#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![
@@ -1174,7 +1192,7 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( );", &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidArgumentsCount {
                 expected_min: 1,
                 expected_max: Some(4),
@@ -1183,7 +1201,12 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( http.host , http.host );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3(
+                "echo ( http.host , http.host );",
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             LexErrorKind::InvalidArgumentType {
                 index: 1,
                 mismatch: TypeMismatchError {
@@ -1199,7 +1222,7 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2("echo ( echo ( http.host ) );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( echo ( http.host ) );", &SCHEME, &VARIABLES, None),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: [FunctionCallArgExpr::IndexExpr(IndexExpr {
@@ -1243,10 +1266,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 r#"any ( ( http.request.headers.is_empty or http.request.headers.is_empty ) )"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
@@ -1307,10 +1331,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.request.headers.names[*] );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
@@ -1340,7 +1365,7 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2("echo ( http.headers[*] );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( http.headers[*] );", &SCHEME, &VARIABLES, None),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
@@ -1369,11 +1394,12 @@ mod tests {
         );
 
         assert_ok!(
-            FunctionCallArgExpr::lex_with_3(
+            FunctionCallArgExpr::lex_with_4(
                 "http.request.headers.names[*] == \"test\"",
                 &SCHEME,
                 &VARIABLES,
-                Some(Type::Bool)
+                Some(Type::Bool),
+                None,
             ),
             FunctionCallArgExpr::SimpleExpr(SimpleExpr::Comparison(ComparisonExpr {
                 lhs: IndexExpr {
@@ -1391,10 +1417,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "any(lower(http.request.headers.names[*])[*] contains \"c\")",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
@@ -1455,11 +1482,16 @@ mod tests {
             }
         );
 
-        let expr = FunctionCallArgExpr::lex_with_3("lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(http.host)))))))))))))))))))))))))))))))) contains \"c\"", &SCHEME, &VARIABLES, Some(Type::Bool));
+        let expr = FunctionCallArgExpr::lex_with_4("lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(lower(http.host)))))))))))))))))))))))))))))))) contains \"c\"",&SCHEME, &VARIABLES, Some(Type::Bool), None);
         assert!(expr.is_ok());
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2("len(http.request.headers.names[*])", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3(
+                "len(http.request.headers.names[*])",
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             FunctionCallExpr {
                 function: SCHEME.get_function("len").unwrap(),
                 args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
@@ -1481,10 +1513,11 @@ mod tests {
     #[test]
     fn test_lex_function_with_unary_expression_as_argument() {
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "any(not(http.request.headers.names[*] in [\"Cookie\", \"Cookies\"]))",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
@@ -1543,10 +1576,11 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "any(!(http.request.headers.names[*] in [\"Cookie\", \"Cookies\"]))",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
@@ -1608,10 +1642,11 @@ mod tests {
     #[test]
     fn test_lex_function_with_any_arg_kind() {
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "any(upper(http.request.headers.names[*])[*] CONTAINS \"C\")",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             FunctionCallExpr {
                 function: SCHEME.get_function("any").unwrap(),
@@ -1673,7 +1708,7 @@ mod tests {
         );
 
         let expr = assert_ok!(
-            FunctionCallExpr::lex_with_2("echo(upper(\"abc\"))", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo(upper(\"abc\"))", &SCHEME, &VARIABLES, None),
             FunctionCallExpr {
                 function: SCHEME.get_function("echo").unwrap(),
                 args: [FunctionCallArgExpr::IndexExpr(IndexExpr {
@@ -1719,7 +1754,7 @@ mod tests {
     #[test]
     fn test_lex_function_call_expr_failure() {
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( \"test\" );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( \"test\" );", &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidArgumentKind {
                 index: 0,
                 mismatch: FunctionArgKindMismatchError {
@@ -1731,7 +1766,7 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( 10 );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( 10 );", &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidArgumentKind {
                 index: 0,
                 mismatch: FunctionArgKindMismatchError {
@@ -1743,7 +1778,7 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( ip.addr );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( ip.addr );", &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidArgumentType {
                 index: 0,
                 mismatch: TypeMismatchError {
@@ -1755,10 +1790,11 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.host, 10, 2, \"test\", 4.0 );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             LexErrorKind::InvalidArgumentsCount {
                 expected_min: 1,
@@ -1768,19 +1804,19 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( http.test );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( http.test );", &SCHEME, &VARIABLES, None),
             LexErrorKind::UnknownIdentifier,
             "http.test"
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( echo ( http.test ) );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( echo ( http.test ) );", &SCHEME, &VARIABLES, None),
             LexErrorKind::UnknownIdentifier,
             "http.test"
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2("echo ( http.host[*] );", &SCHEME, &VARIABLES),
+            FunctionCallExpr::lex_with_3("echo ( http.host[*] );", &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes,
@@ -1789,10 +1825,11 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.request.headers.names[0][*] );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
@@ -1802,10 +1839,11 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.request.headers.names[*][0] );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::ArrayIndex(0),
@@ -1815,10 +1853,11 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.headers[*][\"host\"] );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapKey("host".to_string()),
@@ -1828,10 +1867,11 @@ mod tests {
         );
 
         assert_err!(
-            FunctionCallExpr::lex_with_2(
+            FunctionCallExpr::lex_with_3(
                 "echo ( http.host, http.headers[*] );",
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             LexErrorKind::InvalidMapEachAccess,
             "http.headers[*]"

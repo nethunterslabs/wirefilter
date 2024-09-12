@@ -224,6 +224,22 @@ pub enum ComparisonOpExprBuilder {
         /// Case-insensitive comparison
         case_insensitive: bool,
     },
+
+    /// 'extract "pattern" {...}' / 'EXTRACT "pattern" {...}' comparison
+    Extract {
+        /// Regex pattern
+        regex: RegexBuilder,
+        /// Extract scoped subexpression
+        expr: Box<LogicalExprBuilder>,
+    },
+
+    /// 'extract $... {...}' / 'EXTRACT $... {...}' comparison with a variable
+    ExtractVariable {
+        /// `Variable` from the `Scheme`
+        var: VariableBuilder,
+        /// Extract scoped subexpression
+        expr: Box<LogicalExprBuilder>,
+    },
 }
 
 /// Builder for `Like`.
@@ -427,6 +443,20 @@ pub enum LhsFieldExprBuilder {
     Field(FieldBuilder),
     /// Function call expression
     FunctionCallExpr(FunctionCallExprBuilder),
+    /// Scoped Variable
+    ScopedExtractedVariable(ScopedExtractedVariableBuilder),
+}
+
+/// Scoped Extracted Variable
+///
+/// This can be either an Array Index or a Map Key.
+/// The value type will always be `Type::Bytes`.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ScopedExtractedVariableBuilder {
+    /// Scoped Variable
+    pub scoped_var: String,
+    /// Index
+    pub index: FieldIndexBuilder,
 }
 
 /// Builder for `FunctionCallExpr`.

@@ -11,9 +11,8 @@ use crate::{
     types::{LhsValue, Type},
 };
 
-type BoxedClosureToOneBool<'s, U> = Box<
-    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State<'e>) -> bool + Sync + Send + 's,
->;
+type BoxedClosureToOneBool<'s, U> =
+    Box<dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> bool + Sync + Send + 's>;
 
 /// Boxed closure for [`Expr`] AST node that evaluates to a simple [`bool`].
 pub struct CompiledOneExpr<'s, U = ()>(BoxedClosureToOneBool<'s, U>);
@@ -21,7 +20,7 @@ pub struct CompiledOneExpr<'s, U = ()>(BoxedClosureToOneBool<'s, U>);
 impl<'s, U> CompiledOneExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State<'e>) -> bool
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> bool
             + Sync
             + Send
             + 's,
@@ -34,7 +33,7 @@ impl<'s, U> CompiledOneExpr<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> bool {
         self.0(ctx, variables, state)
     }
@@ -48,7 +47,7 @@ impl<'s, U> CompiledOneExpr<'s, U> {
 pub(crate) type CompiledVecExprResult = Box<[bool]>;
 
 type BoxedClosureToVecBool<'s, U> = Box<
-    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State<'e>) -> CompiledVecExprResult
+    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> CompiledVecExprResult
         + Sync
         + Send
         + 's,
@@ -60,7 +59,7 @@ pub struct CompiledVecExpr<'s, U = ()>(BoxedClosureToVecBool<'s, U>);
 impl<'s, U> CompiledVecExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State<'e>) -> CompiledVecExprResult
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> CompiledVecExprResult
             + Sync
             + Send
             + 's,
@@ -73,7 +72,7 @@ impl<'s, U> CompiledVecExpr<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> CompiledVecExprResult {
         self.0(ctx, variables, state)
     }
@@ -97,7 +96,7 @@ impl<'s, U> CompiledExpr<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> bool {
         match self {
             CompiledExpr::One(one) => one.execute(ctx, variables, state),
@@ -110,7 +109,7 @@ impl<'s, U> CompiledExpr<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> CompiledVecExprResult {
         match self {
             CompiledExpr::One(_) => unreachable!(),
@@ -134,7 +133,7 @@ impl<'a> From<Type> for CompiledValueResult<'a> {
 }
 
 type BoxedClosureToValue<'s, U> = Box<
-    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State<'e>) -> CompiledValueResult<'e>
+    dyn for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> CompiledValueResult<'e>
         + Sync
         + Send
         + 's,
@@ -146,11 +145,7 @@ pub struct CompiledValueExpr<'s, U = ()>(BoxedClosureToValue<'s, U>);
 impl<'s, U> CompiledValueExpr<'s, U> {
     /// Creates a compiled expression IR from a generic closure.
     pub fn new(
-        closure: impl for<'e> Fn(
-                &'e ExecutionContext<'e, U>,
-                &Variables,
-                &State<'e>,
-            ) -> CompiledValueResult<'e>
+        closure: impl for<'e> Fn(&'e ExecutionContext<'e, U>, &Variables, &State) -> CompiledValueResult<'e>
             + Sync
             + Send
             + 's,
@@ -163,7 +158,7 @@ impl<'s, U> CompiledValueExpr<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> CompiledValueResult<'e> {
         self.0(ctx, variables, state)
     }
@@ -205,7 +200,7 @@ impl<'s, U> Filter<'s, U> {
         &self,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> Result<bool, SchemeMismatchError> {
         if ctx.scheme() == self.scheme {
             Ok(self.root_expr.execute(ctx, variables, state))
@@ -217,6 +212,8 @@ impl<'s, U> Filter<'s, U> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use super::{Filter, LhsValue, SchemeMismatchError};
     use crate::{
         execution_context::{ExecutionContext, State},
@@ -325,7 +322,7 @@ mod tests {
                     implementation: SimpleFunctionImpl::new(|args, state| {
                         if let LhsValue::Int(arg) = args.next().unwrap().unwrap() {
                             if let LhsValue::Int(secret_number) =
-                                state.get("secret-number").unwrap()
+                                *state.get("secret-number").unwrap()
                             {
                                 return Some(LhsValue::Int(arg * secret_number));
                             }
@@ -335,21 +332,65 @@ mod tests {
                 },
             )
             .unwrap();
+        scheme
+            .add_function(
+                "update_secret_number".into(),
+                SimpleFunctionDefinition {
+                    params: vec![SimpleFunctionParam {
+                        arg_kind: FunctionArgKind::Complex,
+                        val_type: Type::Int,
+                    }],
+                    opt_params: Some(vec![]),
+                    return_type: Type::Int,
+                    implementation: SimpleFunctionImpl::new(|args, state| {
+                        if let LhsValue::Int(arg) = args.next().unwrap().unwrap() {
+                            let secret_number = if let LhsValue::Int(secret_number) =
+                                *state.get("secret-number").unwrap()
+                            {
+                                secret_number
+                            } else {
+                                return None;
+                            };
+
+                            state.insert(
+                                "secret-number".to_string(),
+                                LhsValue::Int(arg * secret_number),
+                            );
+                            return Some(LhsValue::Int(arg * secret_number));
+                        }
+                        None
+                    }),
+                },
+            )
+            .unwrap();
         let variables = Default::default();
-        let single_value_expr = scheme
-            .parse_single_value_expr("multiply_by_secret_number(foo)", &Default::default())
-            .unwrap()
-            .compile(&variables);
         let mut ctx = ExecutionContext::new(&scheme);
         ctx.set_field_value(scheme.get_field("foo").unwrap(), LhsValue::Int(42))
             .unwrap();
 
-        let mut state = State::new();
+        let state = State::new();
         state.insert("secret-number".to_string(), LhsValue::Int(42));
 
+        let single_value_expr = scheme
+            .parse_single_value_expr("multiply_by_secret_number(foo)", &Default::default())
+            .unwrap()
+            .compile(&variables);
         assert_eq!(
             single_value_expr.execute(&ctx, &Default::default(), &state),
             Ok(LhsValue::Int(42 * 42))
+        );
+
+        let single_value_expr = scheme
+            .parse_single_value_expr("update_secret_number(foo)", &Default::default())
+            .unwrap()
+            .compile(&variables);
+        assert_eq!(
+            single_value_expr.execute(&ctx, &Default::default(), &state),
+            Ok(LhsValue::Int(42 * 42))
+        );
+        assert_eq!(
+            state.get("secret-number").unwrap().as_ref(),
+            LhsValue::Int(42 * 42)
         );
     }
 }

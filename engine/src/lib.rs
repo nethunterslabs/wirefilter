@@ -85,7 +85,10 @@ mod types;
 
 pub use self::{
     ast::{
-        field_expr::{Cases, ComparisonExpr, ComparisonOpExpr, IntOp, LhsFieldExpr, OrderingOp},
+        field_expr::{
+            Cases, ComparisonExpr, ComparisonOpExpr, IntOp, LhsFieldExpr, OrderingOp, Scope,
+            ScopedExtractedVariable,
+        },
         function_expr::{FunctionCallArgExpr, FunctionCallExpr},
         index_expr::{IndexExpr, SingleIndexExpr},
         logical_expr::{LogicalExpr, LogicalOp},

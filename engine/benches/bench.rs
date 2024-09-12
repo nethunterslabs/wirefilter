@@ -10,11 +10,11 @@ use criterion::{
 };
 use std::{borrow::Cow, clone::Clone, fmt::Debug, net::IpAddr};
 use wirefilter::{
-    ExecutionContext, FilterAst, FunctionArgKind, FunctionArgs, GetType, LhsValue, Scheme,
+    ExecutionContext, FunctionArgKind, FunctionArgs, GetType, LhsValue, Scheme,
     SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam, State, Type,
 };
 
-fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {
@@ -31,7 +31,7 @@ fn lowercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'
     }
 }
 
-fn uppercase<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+fn uppercase<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
     let input = args.next()?.ok()?;
     match input {
         LhsValue::Bytes(mut bytes) => {

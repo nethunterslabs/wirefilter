@@ -8,11 +8,11 @@ use crate::{
     compiler::Compiler,
     execution_context::{ExecutionContext, State, Variables},
     filter::{CompiledExpr, CompiledValueExpr, CompiledValueResult},
-    lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
+    lex::{expect, skip_space, span, Lex, LexErrorKind, LexResult, LexWith, LexWith3},
     like::Like,
     range_set::{RangeSet, RangeSetWithId},
     rhs_types::{Bytes, ExplicitIpRange, Regex, Variable},
-    scheme::{Field, Identifier, Scheme},
+    scheme::{Field, FieldIndex, Identifier, Scheme},
     searcher::{EmptySearcher, TwoWaySearcher},
     strict_partial_ord::StrictPartialOrd,
     types::{
@@ -29,8 +29,17 @@ use serde::{Serialize, Serializer};
 use sliceslice::MemchrSearcher;
 use std::{
     cmp::Ordering,
+    fmt::{Debug, Display, Formatter},
+    hash::Hash,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
+
+static SCOPE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn get_new_scope() -> u64 {
+    SCOPE_COUNTER.fetch_add(1, AtomicOrdering::Relaxed)
+}
 
 const LESS: u8 = 0b001;
 const GREATER: u8 = 0b010;
@@ -109,6 +118,7 @@ lex_enum!(BytesOp {
     "has_all" | "HAS_ALL" => HasAll,
     "like_case_insensitive" | "like_ci" | "LIKE_CASE_INSENSITIVE" | "LIKE_CI" => LikeCaseInsensitive,
     "like" | "LIKE" => Like,
+    "extract" | "EXTRACT" => Extract,
 });
 
 lex_enum!(ComparisonOp {
@@ -293,6 +303,91 @@ pub enum ComparisonOpExpr<'s> {
         /// Variant, used for formatting
         variant: u8,
     },
+
+    /// 'extract "pattern" {...}' / 'EXTRACT "pattern" {...}' comparison
+    Extract {
+        /// Regex pattern
+        regex: Regex,
+        /// Scope ID
+        scope: Scope,
+        /// Extract scoped subexpression
+        expr: Box<LogicalExpr<'s>>,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+
+    /// 'extract $... {...}' / 'EXTRACT $... {...}' comparison with a variable
+    ExtractVariable {
+        /// `Variable` from the `Scheme`
+        var: Variable,
+        /// Scope ID
+        scope: Scope,
+        /// Extract scoped subexpression
+        expr: Box<LogicalExpr<'s>>,
+        /// Variant, used for formatting
+        variant: u8,
+    },
+}
+
+/// Scope ID
+#[derive(Copy, Clone)]
+pub struct Scope(u64);
+
+impl Debug for Scope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for Scope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl PartialEq for Scope {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Scope {}
+
+impl Hash for Scope {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl Serialize for Scope {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_u64(self.0)
+    }
+}
+
+impl From<u64> for Scope {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<Scope> for u64 {
+    fn from(scope: Scope) -> Self {
+        scope.0
+    }
+}
+
+impl Scope {
+    /// Create a new scope ID
+    pub fn new() -> Self {
+        Self(get_new_scope())
+    }
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn serialize_op_rhs<T, S>(op: &'static str, rhs: &T, ser: S) -> Result<S::Ok, S::Error>
@@ -395,13 +490,13 @@ impl<E> CompiledCases<E> {
 }
 
 impl<'s, U> CompiledCases<CompiledExpr<'s, U>> {
-    pub fn execute(
+    pub fn execute<'e>(
         &self,
         value: &LhsValue<'_>,
         default: bool,
-        ctx: &ExecutionContext<'_, U>,
+        ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'_>,
+        state: &State,
     ) -> bool {
         for (patterns, compiled_expr) in &self.patterns {
             for pattern in patterns {
@@ -421,7 +516,7 @@ impl<'s, U> CompiledCases<CompiledValueExpr<'s, U>> {
         value: &LhsValue<'_>,
         ctx: &'e ExecutionContext<'e, U>,
         variables: &Variables,
-        state: &State<'e>,
+        state: &State,
     ) -> CompiledValueResult<'e> {
         for (patterns, compiled_expr) in &self.patterns {
             for pattern in patterns {
@@ -481,7 +576,7 @@ impl<E: GetType> GetType for Cases<E> {
     }
 }
 
-impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> {
+impl<'i, 's, 'v, E: LexWith3<'i, &'s Scheme, &'v Variables, Option<String>> + GetType> Cases<E> {
     pub(crate) fn lex_with_lhs_type(
         input: &'i str,
         scheme: &'s Scheme,
@@ -489,6 +584,7 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
         lhs_type: Type,
         expected_type: Option<Type>,
         variables: &'v Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         let input = skip_space(input);
         let initial_input = input;
@@ -565,7 +661,7 @@ impl<'i, 's, 'v, E: LexWith2<'i, &'s Scheme, &'v Variables> + GetType> Cases<E> 
             input = expect(input, "=>")?;
             input = skip_space(input);
 
-            let (expr, rest) = E::lex_with_2(input, scheme, variables)?;
+            let (expr, rest) = E::lex_with_3(input, scheme, variables, scope.clone())?;
             let ty = expr.get_type();
             if let Some(expected_type) = &expected_type {
                 if &ty != expected_type {
@@ -968,6 +1064,47 @@ pub enum LhsFieldExpr<'s> {
     Field(Field<'s>),
     /// Function call expression
     FunctionCallExpr(FunctionCallExpr<'s>),
+    /// Scoped Variable
+    ScopedExtractedVariable(ScopedExtractedVariable),
+}
+
+/// Scoped Extracted Variable
+///
+/// This can be either an Array Index or a Map Key.
+/// The value type will always be `Type::Bytes`.
+#[derive(Debug, Eq, Clone, Serialize)]
+pub struct ScopedExtractedVariable {
+    /// Scoped Variable
+    pub scoped_var: String,
+    /// Index
+    pub index: FieldIndex,
+}
+
+impl PartialEq for ScopedExtractedVariable {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl Hash for ScopedExtractedVariable {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+    }
+}
+
+impl ScopedExtractedVariable {
+    /// Creates a new `ScopedExtractedVariable`.
+    pub fn new(scope: &str, index: FieldIndex) -> Self {
+        Self {
+            scoped_var: format!("{}:{:?}", scope, index),
+            index,
+        }
+    }
+
+    /// Creates a new `ScopedExtractedVariable` with a specific `scoped_var`.
+    pub fn with_scoped_var(scoped_var: String, index: FieldIndex) -> Self {
+        Self { scoped_var, index }
+    }
 }
 
 impl<'s> LhsFieldExpr<'s> {
@@ -985,21 +1122,45 @@ impl<'s> LhsFieldExpr<'s> {
             LhsFieldExpr::FunctionCallExpr(call) => {
                 compiler.compile_function_call_expr(call, variables)
             }
+            LhsFieldExpr::ScopedExtractedVariable(ScopedExtractedVariable {
+                scoped_var, ..
+            }) => CompiledValueExpr::new(move |_, _, state| {
+                if let Some(value) = state.get(&scoped_var) {
+                    Ok(value.clone().into_owned())
+                } else {
+                    Ok(LhsValue::default_value(Type::Bytes))
+                }
+            }),
         }
     }
 }
 
-impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for LhsFieldExpr<'s> {
-    fn lex_with_2(
+impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<String>> for LhsFieldExpr<'s> {
+    fn lex_with_3(
         input: &'i str,
         scheme: &'s Scheme,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
+        let input = skip_space(input);
+
+        if let Some(scope) = scope.as_ref() {
+            if let Ok(input) = expect(input, "@") {
+                let (index, input) = FieldIndex::lex_with(input, false)?;
+                return Ok((
+                    LhsFieldExpr::ScopedExtractedVariable(ScopedExtractedVariable::new(
+                        scope, index,
+                    )),
+                    input,
+                ));
+            }
+        }
+
         let (item, input) = Identifier::lex_with(input, scheme)?;
         match item {
             Identifier::Field(field) => Ok((LhsFieldExpr::Field(field), input)),
             Identifier::Function(function) => {
-                FunctionCallExpr::lex_with_function(input, function, variables)
+                FunctionCallExpr::lex_with_function(input, function, variables, scope)
                     .map(|(call, input)| (LhsFieldExpr::FunctionCallExpr(call), input))
             }
         }
@@ -1011,6 +1172,7 @@ impl<'s> GetType for LhsFieldExpr<'s> {
         match self {
             LhsFieldExpr::Field(field) => field.get_type(),
             LhsFieldExpr::FunctionCallExpr(call) => call.get_type(),
+            LhsFieldExpr::ScopedExtractedVariable(ScopedExtractedVariable { .. }) => Type::Bytes,
         }
     }
 }
@@ -1039,15 +1201,16 @@ impl<'s> GetType for ComparisonExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for ComparisonExpr<'s> {
-    fn lex_with_2(
+impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<String>> for ComparisonExpr<'s> {
+    fn lex_with_3(
         input: &'i str,
         scheme: &'s Scheme,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
-        let (lhs, input) = IndexExpr::lex_with_2(input, scheme, variables)?;
+        let (lhs, input) = IndexExpr::lex_with_3(input, scheme, variables, scope.clone())?;
 
-        Self::lex_with_lhs(input, scheme, lhs, variables)
+        Self::lex_with_lhs(input, scheme, lhs, variables, scope)
     }
 }
 
@@ -1057,6 +1220,7 @@ impl<'s> ComparisonExpr<'s> {
         scheme: &'s Scheme,
         lhs: IndexExpr<'s>,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         let lhs_type = lhs.get_type();
 
@@ -1271,6 +1435,35 @@ impl<'s> ComparisonExpr<'s> {
                                 },
                                 input,
                             ),
+                            BytesOp::Extract(variant) => {
+                                let input = skip_space(input);
+                                if let Ok(input) = expect(input, "{") {
+                                    let scope = Scope::new();
+
+                                    let (expr, input) = LogicalExpr::lex_with_3(
+                                        input,
+                                        scheme,
+                                        variables,
+                                        Some(scope.to_string()),
+                                    )?;
+                                    let input = skip_space(input);
+                                    let input = expect(input, "}")?;
+                                    (
+                                        ComparisonOpExpr::ExtractVariable {
+                                            var: variable,
+                                            scope,
+                                            variant,
+                                            expr: Box::new(expr),
+                                        },
+                                        input,
+                                    )
+                                } else {
+                                    return Err((
+                                        LexErrorKind::ExpectedExtractScopedExpression,
+                                        span(input, input),
+                                    ));
+                                }
+                            }
                         }
                     } else {
                         {
@@ -1351,6 +1544,36 @@ impl<'s> ComparisonExpr<'s> {
                                     let (like, input) = Like::lex_with(input, true)?;
                                     (ComparisonOpExpr::Like { rhs: like, variant }, input)
                                 }
+                                BytesOp::Extract(variant) => {
+                                    let (regex, input) = Regex::lex(input)?;
+                                    let input = skip_space(input);
+                                    if let Ok(input) = expect(input, "{") {
+                                        let scope = Scope::new();
+
+                                        let (expr, input) = LogicalExpr::lex_with_3(
+                                            input,
+                                            scheme,
+                                            variables,
+                                            Some(scope.to_string()),
+                                        )?;
+                                        let input = skip_space(input);
+                                        let input = expect(input, "}")?;
+                                        (
+                                            ComparisonOpExpr::Extract {
+                                                regex,
+                                                scope,
+                                                variant,
+                                                expr: Box::new(expr),
+                                            },
+                                            input,
+                                        )
+                                    } else {
+                                        return Err((
+                                            LexErrorKind::ExpectedLiteral("{"),
+                                            span(input, input),
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -1376,6 +1599,7 @@ impl<'s> ComparisonExpr<'s> {
                         lhs_type,
                         Some(Type::Bool),
                         variables,
+                        scope,
                     )?;
 
                     (ComparisonOpExpr::Cases(cases), input)
@@ -1507,7 +1731,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                 lhs.compile_with(
                     compiler,
                     false,
-                    move |x, ctx, variables, state| {
+                    move |x, ctx: &ExecutionContext<'_, U>, variables, state: &State| {
                         compiled_patterns.execute(x, false, ctx, variables, state)
                     },
                     variables,
@@ -1851,6 +2075,73 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                     lhs.compile_with(compiler, false, move |_x, _ctx, _, _| false, variables)
                 }
             }
+
+            ComparisonOpExpr::Extract {
+                regex: pattern,
+                scope,
+                expr,
+                variant: _,
+            } => {
+                let expr = expr.compile_with_compiler(compiler, variables);
+                lhs.compile_with(
+                    compiler,
+                    false,
+                    move |x, ctx, variables, state| {
+                        if let Some(captures) = pattern.captures(cast_lhs_rhs_value!(x, Bytes)) {
+                            for (index, capture) in captures.iter().enumerate() {
+                                if let Some(capture) = capture {
+                                    if let Some(name) = pattern.capture_names.get(index) {
+                                        state.insert(
+                                            format!("{}:{:?}", scope, name),
+                                            LhsValue::Bytes(capture.as_bytes().to_vec().into()),
+                                        );
+                                    }
+                                }
+                            }
+                            expr.execute_one(ctx, variables, state)
+                        } else {
+                            false
+                        }
+                    },
+                    variables,
+                )
+            }
+            ComparisonOpExpr::ExtractVariable {
+                var,
+                scope,
+                expr,
+                variant: _,
+            } => {
+                let expr = expr.compile_with_compiler(compiler, variables);
+                lhs.compile_with(
+                    compiler,
+                    false,
+                    move |x, ctx, variables, state| {
+                        variables.get(var.name_as_str()).map_or(false, |variable| {
+                            let pattern = cast_variable_value!(variable, Regex);
+
+                            if let Some(captures) = pattern.captures(cast_lhs_rhs_value!(x, Bytes))
+                            {
+                                for (index, capture) in captures.iter().enumerate() {
+                                    if let Some(capture) = capture {
+                                        if let Some(name) = pattern.capture_names.get(index) {
+                                            state.insert(
+                                                format!("{}:{:?}", scope, name),
+                                                LhsValue::Bytes(capture.as_bytes().to_vec().into()),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                expr.execute_one(ctx, variables, state)
+                            } else {
+                                false
+                            }
+                        })
+                    },
+                    variables,
+                )
+            }
         }
     }
 }
@@ -1873,13 +2164,13 @@ mod tests {
         rhs_types::{IntRange, IpRange},
         scheme::{FieldIndex, IndexAccessError},
         types::{ExpectedType, RhsValues},
-        VariableType,
+        LogicalOp, VariableType,
     };
     use cidr::IpCidr;
     use lazy_static::lazy_static;
     use std::{convert::TryFrom, iter::once, net::IpAddr};
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -1892,11 +2183,11 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn lowercase_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn lowercase_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         let input = args.next()?.ok()?;
         match input {
             LhsValue::Bytes(bytes) => Some(LhsValue::Bytes(bytes.to_ascii_lowercase().into())),
@@ -1904,7 +2195,7 @@ mod tests {
         }
     }
 
-    fn concat_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn concat_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         let mut output = Vec::new();
         for (index, arg) in args.enumerate() {
             match arg.unwrap() {
@@ -1978,10 +2269,7 @@ mod tests {
             _: &mut dyn ExactSizeIterator<Item = FunctionParam<'_>>,
             _: Option<FunctionDefinitionContext>,
         ) -> Box<
-            dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State<'a>) -> Option<LhsValue<'a>>
-                + Sync
-                + Send
-                + 's,
+            dyn for<'a> Fn(FunctionArgs<'_, 'a>, &State) -> Option<LhsValue<'a>> + Sync + Send + 's,
         > {
             Box::new(|args, _| {
                 let value_array = Array::try_from(args.next().unwrap().unwrap()).unwrap();
@@ -1999,7 +2287,7 @@ mod tests {
         }
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,
@@ -2115,7 +2403,7 @@ mod tests {
     #[test]
     fn test_is_true() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2("ssl", &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3("ssl", &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("ssl")),
@@ -2146,7 +2434,12 @@ mod tests {
     #[test]
     fn test_ip_compare() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2("ip.addr <= 10:20:30:40:50:60:70:80", &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                "ip.addr <= 10:20:30:40:50:60:70:80",
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("ip.addr")),
@@ -2201,10 +2494,11 @@ mod tests {
         // just check that parsing doesn't conflict with IPv6
         {
             let expr = assert_ok!(
-                ComparisonExpr::lex_with_2(
+                ComparisonExpr::lex_with_3(
                     "http.host >= 10:20:30:40:50:60:70:80",
                     &SCHEME,
-                    &VARIABLES
+                    &VARIABLES,
+                    None
                 ),
                 ComparisonExpr {
                     lhs: IndexExpr {
@@ -2233,7 +2527,7 @@ mod tests {
         // just check that parsing doesn't conflict with regular numbers
         {
             let expr = assert_ok!(
-                ComparisonExpr::lex_with_2(r#"http.host < 12"#, &SCHEME, &VARIABLES),
+                ComparisonExpr::lex_with_3(r#"http.host < 12"#, &SCHEME, &VARIABLES, None),
                 ComparisonExpr {
                     lhs: IndexExpr {
                         lhs: LhsFieldExpr::Field(field("http.host")),
@@ -2257,7 +2551,7 @@ mod tests {
         }
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.host == "example.org""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.host == "example.org""#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -2294,7 +2588,7 @@ mod tests {
     #[test]
     fn test_bitwise_and() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2("tcp.port & 1", &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3("tcp.port & 1", &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -2329,7 +2623,7 @@ mod tests {
     #[test]
     fn test_int_cases() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"tcp.port cases {
                     80 => http.host == "example.org",
                     443
@@ -2337,7 +2631,8 @@ mod tests {
                     _ => http.host == "example.net",
                 }"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2455,10 +2750,11 @@ mod tests {
     #[test]
     fn test_int_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"tcp.port in [ 80, 443, 2082..2083 ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2513,10 +2809,11 @@ mod tests {
     #[test]
     fn test_bytes_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.host in [ "example.org", "example.com" ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2566,10 +2863,11 @@ mod tests {
     #[test]
     fn test_bytes_has_all() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.host has_all [ "exam", "ple" ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2619,10 +2917,11 @@ mod tests {
     #[test]
     fn test_bytes_has_any() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.host has_any [ "com", "org", ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2673,10 +2972,11 @@ mod tests {
     #[test]
     fn test_bytes_has_any_case_insensitive() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.host has_any_ci [ "CoM", "oRg", ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2725,12 +3025,122 @@ mod tests {
     }
 
     #[test]
+    fn test_bytes_extract() {
+        let expr = assert_ok!(
+            ComparisonExpr::lex_with_3(
+                r#"http.host extract "(.+)\.(?<tld>.+)" {
+                    @1 == "example"
+                    && @"tld" == "com"
+                }"#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
+            ComparisonExpr {
+                lhs: IndexExpr {
+                    lhs: LhsFieldExpr::Field(field("http.host")),
+                    indexes: vec![],
+                },
+                op: ComparisonOpExpr::Extract {
+                    regex: Regex::parse_str(r"(.+)\.(?<tld>.+)").unwrap(),
+                    scope: Scope(0),
+                    expr: Box::new(LogicalExpr::Combining {
+                        op: LogicalOp::And(2),
+                        items: vec![
+                            LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
+                                lhs: IndexExpr {
+                                    lhs: LhsFieldExpr::ScopedExtractedVariable(
+                                        ScopedExtractedVariable {
+                                            scoped_var: "0:ArrayIndex(1)".to_string(),
+                                            index: FieldIndex::ArrayIndex(1),
+                                        }
+                                    ),
+                                    indexes: vec![],
+                                },
+                                op: ComparisonOpExpr::Ordering {
+                                    op: OrderingOp::Equal(2),
+                                    rhs: RhsValue::Bytes("example".to_owned().into())
+                                }
+                            })),
+                            LogicalExpr::Simple(SimpleExpr::Comparison(ComparisonExpr {
+                                lhs: IndexExpr {
+                                    lhs: LhsFieldExpr::ScopedExtractedVariable(
+                                        ScopedExtractedVariable {
+                                            scoped_var: "0:MapKey(\"tld\")".to_string(),
+                                            index: FieldIndex::MapKey("tld".to_string()),
+                                        }
+                                    ),
+                                    indexes: vec![],
+                                },
+                                op: ComparisonOpExpr::Ordering {
+                                    op: OrderingOp::Equal(2),
+                                    rhs: RhsValue::Bytes("com".to_owned().into())
+                                }
+                            }))
+                        ]
+                    }),
+                    variant: 0,
+                },
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "expr": {
+                    "items": [
+                    {
+                        "lhs": {
+                        "index": {
+                            "kind": "ArrayIndex",
+                            "value": 1
+                        },
+                        "scoped_var": "0:ArrayIndex(1)"
+                        },
+                        "op": "Equal",
+                        "rhs": "example"
+                    },
+                    {
+                        "lhs": {
+                        "index": {
+                            "kind": "MapKey",
+                            "value": "tld"
+                        },
+                        "scoped_var": "0:MapKey(\"tld\")"
+                        },
+                        "op": "Equal",
+                        "rhs": "com"
+                    }
+                    ],
+                    "op": "And"
+                },
+                "lhs": "http.host",
+                "regex": "(.+)\\.(?<tld>.+)",
+                "scope": 0,
+                "variant": 0
+            }
+        );
+
+        let expr = expr.compile(&VARIABLES);
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value(field("http.host"), "example.com")
+            .unwrap();
+        assert!(expr.execute_one(ctx, &VARIABLES, &Default::default()));
+
+        ctx.set_field_value(field("http.host"), "example.org")
+            .unwrap();
+        assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
+    }
+
+    #[test]
     fn test_ip_in() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"ip.addr in [ 127.0.0.0/8, ::1, 10.0.0.0..10.0.255.255 ]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -2790,7 +3200,7 @@ mod tests {
     #[test]
     fn test_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.host contains "abc""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.host contains "abc""#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -2827,7 +3237,7 @@ mod tests {
     #[test]
     fn test_contains_bytes() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.host contains 6F:72:67"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.host contains 6F:72:67"#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -2864,7 +3274,7 @@ mod tests {
     #[test]
     fn like_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.host like "abc.*""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.host like "abc.*""#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.host")),
@@ -2906,7 +3316,7 @@ mod tests {
     #[test]
     fn test_int_compare() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"tcp.port < 8000"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"tcp.port < 8000"#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -2941,7 +3351,12 @@ mod tests {
     #[test]
     fn test_array_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.cookies[0] contains "abc""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.cookies[0] contains "abc""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -2979,10 +3394,11 @@ mod tests {
     #[test]
     fn test_map_of_bytes_contains_str() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.headers["host"] contains "abc""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3033,7 +3449,12 @@ mod tests {
     #[test]
     fn test_bytes_compare_with_echo_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"echo(http.host) == "example.org""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"echo(http.host) == "example.org""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -3086,10 +3507,11 @@ mod tests {
     #[test]
     fn test_bytes_compare_with_lowercase_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"lowercase(http.host) == "example.org""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3143,7 +3565,12 @@ mod tests {
     #[test]
     fn test_missing_array_value_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.cookies[0] == "example.org""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.cookies[0] == "example.org""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -3179,7 +3606,12 @@ mod tests {
     #[test]
     fn test_missing_array_value_not_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.cookies[0] != "example.org""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.cookies[0] != "example.org""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -3215,10 +3647,11 @@ mod tests {
     #[test]
     fn test_missing_map_value_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.headers["missing"] == "example.org""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3255,10 +3688,11 @@ mod tests {
     #[test]
     fn test_missing_map_value_not_equal() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"http.headers["missing"] != "example.org""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3295,10 +3729,11 @@ mod tests {
     #[test]
     fn test_bytes_compare_with_concat_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"concat(http.host) == "example.org""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3349,10 +3784,11 @@ mod tests {
         assert!(!expr.execute_one(ctx, &VARIABLES, &Default::default()));
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"concat(http.host, ".org") == "example.org""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3414,10 +3850,11 @@ mod tests {
     #[test]
     fn test_filter_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"filter(http.cookies, array.of.bool)[0] == "three""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3497,10 +3934,11 @@ mod tests {
     #[test]
     fn test_map_each_on_array_with_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"concat(http.cookies[*], "-cf")[2] == "three-cf""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3569,10 +4007,11 @@ mod tests {
     #[test]
     fn test_map_each_on_map_with_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"concat(http.headers[*], "-cf")[2] in ["one-cf", "two-cf", "three-cf"]"#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3645,7 +4084,7 @@ mod tests {
     #[test]
     fn test_map_each_on_array_for_cmp() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.cookies[*] == "three""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.cookies[*] == "three""#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.cookies")),
@@ -3688,7 +4127,7 @@ mod tests {
     #[test]
     fn test_map_each_on_map_for_cmp() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.headers[*] == "three""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.headers[*] == "three""#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.headers")),
@@ -3743,10 +4182,11 @@ mod tests {
     #[test]
     fn test_map_each_on_array_full() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(
+            ComparisonExpr::lex_with_3(
                 r#"concat(http.cookies[*], "-cf")[*] == "three-cf""#,
                 &SCHEME,
-                &VARIABLES
+                &VARIABLES,
+                None
             ),
             ComparisonExpr {
                 lhs: IndexExpr {
@@ -3818,7 +4258,7 @@ mod tests {
     #[test]
     fn test_map_each_on_array_len_function() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"len(http.cookies[*])[*] > 3"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"len(http.cookies[*])[*] > 3"#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::FunctionCallExpr(FunctionCallExpr {
@@ -3880,7 +4320,7 @@ mod tests {
     #[test]
     fn test_map_each_error() {
         assert_err!(
-            ComparisonExpr::lex_with_2(r#"http.host[*] == "three""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"http.host[*] == "three""#, &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bytes,
@@ -3889,7 +4329,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with_2(r#"ip.addr[*] == 127.0.0.1"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"ip.addr[*] == 127.0.0.1"#, &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Ip,
@@ -3898,7 +4338,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with_2(r#"ssl[*]"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"ssl[*]"#, &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Bool,
@@ -3907,7 +4347,7 @@ mod tests {
         );
 
         assert_err!(
-            ComparisonExpr::lex_with_2(r#"tcp.port[*] == 80"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"tcp.port[*] == 80"#, &SCHEME, &VARIABLES, None),
             LexErrorKind::InvalidIndexAccess(IndexAccessError {
                 index: FieldIndex::MapEach,
                 actual: Type::Int,
@@ -3919,7 +4359,7 @@ mod tests {
     #[test]
     fn test_number_in_list() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"tcp.port in $int_list"#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(r#"tcp.port in $int_list"#, &SCHEME, &VARIABLES, None),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("tcp.port")),
@@ -3960,7 +4400,12 @@ mod tests {
     #[test]
     fn test_map_each_nested() {
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.parts[*][*] == "[5][5]""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.parts[*][*] == "[5][5]""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),
@@ -3987,7 +4432,12 @@ mod tests {
         let expr1 = expr.compile(&VARIABLES);
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.parts[5][*] == "[5][5]""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.parts[5][*] == "[5][5]""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),
@@ -4014,7 +4464,12 @@ mod tests {
         let expr2 = expr.compile(&VARIABLES);
 
         let expr = assert_ok!(
-            ComparisonExpr::lex_with_2(r#"http.parts[*][5] == "[5][5]""#, &SCHEME, &VARIABLES),
+            ComparisonExpr::lex_with_3(
+                r#"http.parts[*][5] == "[5][5]""#,
+                &SCHEME,
+                &VARIABLES,
+                None
+            ),
             ComparisonExpr {
                 lhs: IndexExpr {
                     lhs: LhsFieldExpr::Field(field("http.parts")),

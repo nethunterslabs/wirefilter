@@ -2,13 +2,14 @@ use crate::{
     scheme::{Field, Scheme, SchemeMismatchError},
     types::{GetType, LhsValue, LhsValueSeed, TypeMismatchError, VariableValue},
 };
+use dashmap::{mapref::one::Ref, DashMap};
 use indexmap::IndexMap;
 use serde::{
     de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor},
     ser::{SerializeMap, Serializer},
     Serialize,
 };
-use std::{borrow::Cow, collections::HashMap, fmt, fmt::Debug};
+use std::{borrow::Cow, fmt, fmt::Debug};
 use thiserror::Error;
 
 /// An error that occurs when setting the field value in the
@@ -122,48 +123,43 @@ impl IntoIterator for Variables {
 ///
 /// It is a map of keys to [`LhsValue`](::LhsValue) that can be used to pass data
 /// to functions that aren't part of the execution context.
-#[derive(Debug, Default, PartialEq)]
-pub struct State<'e> {
-    map: HashMap<String, LhsValue<'e>>,
+#[derive(Debug, Default)]
+pub struct State {
+    map: DashMap<String, LhsValue<'static>>,
 }
 
-impl<'e> State<'e> {
+impl State {
     /// Creates a new state.
     pub fn new() -> Self {
         State {
-            map: HashMap::new(),
+            map: DashMap::new(),
         }
     }
 
     /// Inserts a value into the state.
-    pub fn insert(&mut self, key: String, value: LhsValue<'e>) {
+    pub fn insert(&self, key: String, value: LhsValue<'static>) {
         self.map.insert(key, value);
     }
 
     /// Gets a value from the state.
-    pub fn get(&self, key: &str) -> Option<&LhsValue<'e>> {
+    pub fn get(&self, key: &str) -> Option<Ref<'_, String, LhsValue<'static>>> {
         self.map.get(key)
+    }
+
+    /// Checks if the state contains a key.
+    pub fn contains(&self, key: &str) -> bool {
+        self.map.contains_key(key)
     }
 
     /// Removes a value from the state.
     /// Returns the value if it was present in the state.
-    pub fn remove(&mut self, key: &str) -> Option<LhsValue<'e>> {
-        self.map.remove(key)
+    pub fn remove(&self, key: &str) -> Option<LhsValue<'static>> {
+        self.map.remove(key).map(|(_, v)| v)
     }
 
     /// Clears the state.
     pub fn clear(&mut self) {
         self.map.clear();
-    }
-
-    /// Get the inner map.
-    pub fn inner(&self) -> &HashMap<String, LhsValue<'e>> {
-        &self.map
-    }
-
-    /// Get the mutable inner map.
-    pub fn inner_mut(&mut self) -> &mut HashMap<String, LhsValue<'e>> {
-        &mut self.map
     }
 }
 

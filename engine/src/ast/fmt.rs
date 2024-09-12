@@ -6,7 +6,7 @@ use crate::{
     },
     rhs_types::{Bytes, ExplicitIpRange, FloatRange, IntRange, IpRange, StrType},
     CasePatternValue, ComparisonExpr, ComparisonOpExpr, FieldIndex, FilterAst, FunctionCallArgExpr,
-    FunctionCallExpr, IndexExpr, LhsFieldExpr, LogicalExpr, LogicalOp, OrderingOp, RhsValue,
+    FunctionCallExpr, IndexExpr, LhsFieldExpr, LogicalExpr, LogicalOp, OrderingOp, Regex, RhsValue,
     RhsValues, SimpleExpr, SingleValueExprAst, Variables,
 };
 use thiserror::Error;
@@ -21,6 +21,46 @@ pub enum FormatError {
     /// Parse error.
     #[error("{0}")]
     ParseError(String),
+}
+
+impl Fmt for Regex {
+    fn fmt(&self, _indent: usize, output: &mut String) {
+        match self.ty {
+            StrType::Raw { hash_count } => {
+                let hashes = "#".repeat(hash_count);
+                output.push('r');
+                output.push_str(&hashes);
+                output.push('"');
+                output.push_str(self.as_str());
+                output.push('"');
+                output.push_str(&hashes);
+            }
+            StrType::Escaped => {
+                output.push('"');
+                let mut escaped_regex = String::new();
+                let mut in_char_class = false;
+                for c in self.as_str().chars() {
+                    match c {
+                        '"' if !in_char_class => {
+                            escaped_regex.push('\\');
+                            escaped_regex.push('"');
+                        }
+                        '[' => {
+                            in_char_class = true;
+                            escaped_regex.push('[');
+                        }
+                        ']' => {
+                            in_char_class = false;
+                            escaped_regex.push(']');
+                        }
+                        _ => escaped_regex.push(c),
+                    }
+                }
+                output.push_str(&escaped_regex);
+                output.push('"');
+            }
+        }
+    }
 }
 
 impl Fmt for FieldIndex {
@@ -186,10 +226,14 @@ trait Fmt {
 }
 
 impl<'s> Fmt for LhsFieldExpr<'s> {
-    fn fmt(&self, _indent: usize, output: &mut String) {
+    fn fmt(&self, indent: usize, output: &mut String) {
         match self {
             LhsFieldExpr::Field(field) => output.push_str(field.name()),
             LhsFieldExpr::FunctionCallExpr(call) => call.fmt(0, output),
+            LhsFieldExpr::ScopedExtractedVariable(index) => {
+                output.push('@');
+                index.index.fmt(indent, output)
+            }
         }
     }
 }
@@ -301,41 +345,7 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     1 => output.push_str(" matches "),
                     _ => output.push_str(" MATCHES "),
                 }
-                match regex.ty {
-                    StrType::Raw { hash_count } => {
-                        let hashes = "#".repeat(hash_count);
-                        output.push('r');
-                        output.push_str(&hashes);
-                        output.push('"');
-                        output.push_str(regex.as_str());
-                        output.push('"');
-                        output.push_str(&hashes);
-                    }
-                    StrType::Escaped => {
-                        output.push('"');
-                        let mut escaped_regex = String::new();
-                        let mut in_char_class = false;
-                        for c in regex.as_str().chars() {
-                            match c {
-                                '"' if !in_char_class => {
-                                    escaped_regex.push('\\');
-                                    escaped_regex.push('"');
-                                }
-                                '[' => {
-                                    in_char_class = true;
-                                    escaped_regex.push('[');
-                                }
-                                ']' => {
-                                    in_char_class = false;
-                                    escaped_regex.push(']');
-                                }
-                                _ => escaped_regex.push(c),
-                            }
-                        }
-                        output.push_str(&escaped_regex);
-                        output.push('"');
-                    }
-                }
+                regex.fmt(0, output);
             }
             ComparisonOpExpr::MatchesVariable { var, variant } => {
                 match *variant {
@@ -496,6 +506,53 @@ impl<'s> Fmt for ComparisonExpr<'s> {
                     }
                 }
                 output.push_str(var.name_as_str());
+            }
+
+            ComparisonOpExpr::Extract {
+                regex: pattern,
+                scope: _,
+                expr,
+                variant,
+            } => {
+                let indent = calculate_indent(output);
+
+                match *variant {
+                    0 => output.push_str(" extract "),
+                    _ => output.push_str(" EXTRACT "),
+                }
+                pattern.fmt(0, output);
+                output.push_str(" {\n");
+
+                let indent_str = " ".repeat(indent + 2);
+
+                output.push_str(&indent_str);
+                expr.fmt(indent + 2, output);
+                output.push('\n');
+                output.push_str(&" ".repeat(indent));
+                output.push('}');
+            }
+            ComparisonOpExpr::ExtractVariable {
+                var,
+                scope: _,
+                expr,
+                variant,
+            } => {
+                let indent = calculate_indent(output);
+
+                match *variant {
+                    0 => output.push_str(" extract $"),
+                    _ => output.push_str(" EXTRACT $"),
+                }
+                output.push_str(var.name_as_str());
+                output.push_str(" {\n");
+
+                let indent_str = " ".repeat(indent + 2);
+
+                output.push_str(&indent_str);
+                expr.fmt(indent + 2, output);
+                output.push('\n');
+                output.push_str(&" ".repeat(indent));
+                output.push('}');
             }
         }
     }
@@ -831,7 +888,7 @@ mod tests {
     use ordered_float::OrderedFloat;
     use std::{convert::TryFrom, net::IpAddr};
 
-    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn any_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(v) => Some(LhsValue::Bool(
                 Array::try_from(v)
@@ -844,7 +901,7 @@ mod tests {
         }
     }
 
-    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn lower_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -858,7 +915,7 @@ mod tests {
         }
     }
 
-    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn upper_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         use std::borrow::Cow;
 
         match args.next()? {
@@ -872,11 +929,11 @@ mod tests {
         }
     }
 
-    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         args.next()?.ok()
     }
 
-    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+    fn len_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
         match args.next()? {
             Ok(LhsValue::Bytes(bytes)) => Some(LhsValue::Int(i32::try_from(bytes.len()).unwrap())),
             Err(Type::Bytes) => None,
@@ -1075,7 +1132,6 @@ mod tests {
             );
             variables
         };
-        static ref STATE: State<'static> = State::new();
     }
 
     macro_rules! test_fmt {
@@ -1091,7 +1147,7 @@ mod tests {
             let filter = ast.compile(&VARIABLES);
             assert!(
                 filter
-                    .execute(&EXECUTION_CONTEXT, &VARIABLES, &STATE)
+                    .execute(&EXECUTION_CONTEXT, &VARIABLES, &Default::default())
                     .unwrap(),
                 "Failed to match filter: {}",
                 $input
@@ -1344,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fmt_case() {
+    fn test_fmt_cases() {
         test_fmt!(
             r#"tcp.port cases {
                     80 => http.host == "example.com",
@@ -1370,6 +1426,20 @@ mod tests {
             "example.org"
             | "example.net" => tcp.port == 443,
             _ => tcp.port == 8000,
+          }"#
+        );
+    }
+
+    #[test]
+    fn test_fmt_extract() {
+        test_fmt!(
+            r#"http.host extract "(.+)\.(?<tld>.+)" {
+                @1 == "example"
+                && @"tld" == "com"
+            }"#,
+            r#"http.host extract "(.+)\.(?<tld>.+)" {
+            @1 == "example"
+            && @"tld" == "com"
           }"#
         );
     }

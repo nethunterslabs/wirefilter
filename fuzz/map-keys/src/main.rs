@@ -37,7 +37,7 @@ fn main() {
 ///
 /// It expects one argument and will panic if given an incorrect number of
 /// arguments or an incorrect LhsValue.
-fn first_impl<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+fn first_impl<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
     let arg = args.next().expect("expected 1 argument, got 0");
     if args.next().is_some() {
         panic!("expected 1 argument, got {}", 2 + args.count());

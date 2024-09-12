@@ -8,7 +8,7 @@ use crate::{
     compiler::Compiler,
     execution_context::Variables,
     filter::{CompiledExpr, CompiledOneExpr, CompiledVecExpr},
-    lex::{expect, skip_space, Lex, LexResult, LexWith2},
+    lex::{expect, skip_space, Lex, LexResult, LexWith3},
     scheme::Scheme,
     types::{GetType, Type},
 };
@@ -48,21 +48,22 @@ impl<'s> GetType for SimpleExpr<'s> {
     }
 }
 
-impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for SimpleExpr<'s> {
-    fn lex_with_2(
+impl<'i, 's> LexWith3<'i, &'s Scheme, &Variables, Option<String>> for SimpleExpr<'s> {
+    fn lex_with_3(
         input: &'i str,
         scheme: &'s Scheme,
         variables: &Variables,
+        scope: Option<String>,
     ) -> LexResult<'i, Self> {
         Ok(if let Ok(input) = expect(input, "(") {
             let input = skip_space(input);
-            let (op, input) = LogicalExpr::lex_with_2(input, scheme, variables)?;
+            let (op, input) = LogicalExpr::lex_with_3(input, scheme, variables, scope)?;
             let input = skip_space(input);
             let input = expect(input, ")")?;
             (SimpleExpr::Parenthesized(Box::new(op)), input)
         } else if let Ok((op, input)) = UnaryOp::lex(input) {
             let input = skip_space(input);
-            let (arg, input) = SimpleExpr::lex_with_2(input, scheme, variables)?;
+            let (arg, input) = SimpleExpr::lex_with_3(input, scheme, variables, scope)?;
             (
                 SimpleExpr::Unary {
                     op,
@@ -71,7 +72,7 @@ impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for SimpleExpr<'s> {
                 input,
             )
         } else {
-            let (op, input) = ComparisonExpr::lex_with_2(input, scheme, variables)?;
+            let (op, input) = ComparisonExpr::lex_with_3(input, scheme, variables, scope)?;
             (SimpleExpr::Comparison(op), input)
         })
     }
@@ -159,15 +160,22 @@ fn test() {
     .unwrap();
 
     let t_expr = SimpleExpr::Comparison(
-        complete(ComparisonExpr::lex_with_2("t", scheme, &Default::default())).unwrap(),
+        complete(ComparisonExpr::lex_with_3(
+            "t",
+            scheme,
+            &Default::default(),
+            None,
+        ))
+        .unwrap(),
     );
     let t_expr = || t_expr.clone();
 
     let at_expr = SimpleExpr::Comparison(
-        complete(ComparisonExpr::lex_with_2(
+        complete(ComparisonExpr::lex_with_3(
             "at",
             scheme,
             &Default::default(),
+            None,
         ))
         .unwrap(),
     );
@@ -175,7 +183,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("t", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("t", scheme, &Default::default(), None),
             t_expr()
         );
 
@@ -196,7 +204,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("at", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("at", scheme, &Default::default(), None),
             at_expr()
         );
 
@@ -219,7 +227,7 @@ fn test() {
     }
 
     {
-        let expr = SimpleExpr::lex_with_2("at[*]", scheme, &Default::default())
+        let expr = SimpleExpr::lex_with_3("at[*]", scheme, &Default::default(), None)
             .unwrap()
             .0;
 
@@ -243,7 +251,7 @@ fn test() {
 
     {
         assert_err!(
-            SimpleExpr::lex_with_2("aat[*]", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("aat[*]", scheme, &Default::default(), None),
             LexErrorKind::UnsupportedOp {
                 lhs_type: Type::Array(Box::new(Type::Array(Box::new(Type::Bool))))
             },
@@ -255,7 +263,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("((t))", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("((t))", scheme, &Default::default(), None),
             parenthesized_expr(parenthesized_expr(t_expr()))
         );
 
@@ -274,7 +282,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("((at))", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("((at))", scheme, &Default::default(), None),
             parenthesized_expr(parenthesized_expr(at_expr()))
         );
 
@@ -301,7 +309,7 @@ fn test() {
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("not t", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("not t", scheme, &Default::default(), None),
             not_expr(t_expr())
         );
 
@@ -322,13 +330,13 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("!t", scheme, &Default::default()),
+        SimpleExpr::lex_with_3("!t", scheme, &Default::default(), None),
         not_expr(t_expr())
     );
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("not at", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("not at", scheme, &Default::default(), None),
             not_expr(at_expr())
         );
 
@@ -352,13 +360,13 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("!at", scheme, &Default::default()),
+        SimpleExpr::lex_with_3("!at", scheme, &Default::default(), None),
         not_expr(at_expr())
     );
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("!!t", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("!!t", scheme, &Default::default(), None),
             not_expr(not_expr(t_expr()))
         );
 
@@ -382,13 +390,13 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("! (not !t)", scheme, &Default::default()),
+        SimpleExpr::lex_with_3("! (not !t)", scheme, &Default::default(), None),
         not_expr(parenthesized_expr(not_expr(not_expr(t_expr()))))
     );
 
     {
         let expr = assert_ok!(
-            SimpleExpr::lex_with_2("!!at", scheme, &Default::default()),
+            SimpleExpr::lex_with_3("!!at", scheme, &Default::default(), None),
             not_expr(not_expr(at_expr()))
         );
 
@@ -415,7 +423,7 @@ fn test() {
     }
 
     assert_ok!(
-        SimpleExpr::lex_with_2("! (not !at)", scheme, &Default::default()),
+        SimpleExpr::lex_with_3("! (not !at)", scheme, &Default::default(), None),
         not_expr(parenthesized_expr(not_expr(not_expr(at_expr()))))
     );
 }

@@ -11,7 +11,7 @@ use crate::{
     compiler::{Compiler, DefaultCompiler},
     execution_context::Variables,
     filter::{CompiledExpr, CompiledValueExpr, Filter},
-    lex::{LexErrorKind, LexResult, LexWith2},
+    lex::{LexErrorKind, LexResult, LexWith2, LexWith3},
     scheme::{Scheme, UnknownFieldError},
     single_value_expr::SingleValueExpr,
     types::{GetType, Type, TypeMismatchError},
@@ -36,6 +36,7 @@ pub trait Expr<'s>: Sized + Eq + Debug + Serialize {
     /// Compiles current node into a [`CompiledExpr`] using [`DefaultCompiler`].
     fn compile(self, variables: &Variables) -> CompiledExpr<'s> {
         let mut compiler = DefaultCompiler::new();
+
         self.compile_with_compiler(&mut compiler, variables)
     }
 }
@@ -56,6 +57,7 @@ pub trait ValueExpr<'s>: Sized + Eq + Debug + Serialize {
     /// [`DefaultCompiler`].
     fn compile(self, variables: &Variables) -> CompiledValueExpr<'s> {
         let mut compiler = DefaultCompiler::new();
+
         self.compile_with_compiler(&mut compiler, variables)
     }
 }
@@ -107,6 +109,7 @@ impl<'s> SingleValueExprAst<'s> {
     /// Compiles a [`SingleValueExprAst`] into a [`SingleValueExpr`] using [`DefaultCompiler`].
     pub fn compile(self, variables: &Variables) -> SingleValueExpr<'s> {
         let mut compiler = DefaultCompiler::new();
+
         self.compile_with_compiler(&mut compiler, variables)
     }
 }
@@ -138,7 +141,7 @@ impl<'i, 's> LexWith2<'i, &'s Scheme, &Variables> for FilterAst<'s> {
         scheme: &'s Scheme,
         variables: &Variables,
     ) -> LexResult<'i, Self> {
-        let (op, input) = LogicalExpr::lex_with_2(input, scheme, variables)?;
+        let (op, input) = LogicalExpr::lex_with_3(input, scheme, variables, None)?;
         // LogicalExpr::lex_with can return an AST where the root is an
         // LogicalExpr::Combining of type [`Array(Bool)`].
         //
@@ -212,6 +215,7 @@ impl<'s> FilterAst<'s> {
     /// Compiles a [`FilterAst`] into a [`Filter`] using [`DefaultCompiler`].
     pub fn compile(self, variables: &Variables) -> Filter<'s> {
         let mut compiler = DefaultCompiler::new();
+
         self.compile_with_compiler(&mut compiler, variables)
     }
 }
@@ -243,11 +247,11 @@ mod tests {
             tcp.port: Int,
         };
 
-        fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        fn echo_function<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
             args.next()?.ok()
         }
 
-        fn bytes<'a>(args: FunctionArgs<'_, 'a>, _: &State<'a>) -> Option<LhsValue<'a>> {
+        fn bytes<'a>(args: FunctionArgs<'_, 'a>, _: &State) -> Option<LhsValue<'a>> {
             let arg = args.next()?.ok()?;
             Some(arg)
         }

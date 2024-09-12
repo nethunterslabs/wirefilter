@@ -2,7 +2,7 @@ use crate::{
     ast::{FilterAst, SingleValueExprAst},
     execution_context::Variables,
     functions::FunctionDefinition,
-    lex::{complete, expect, span, take_while, Lex, LexErrorKind, LexResult, LexWith, LexWith2},
+    lex::{complete, expect, span, take_while, LexErrorKind, LexResult, LexWith, LexWith2},
     types::{GetType, LhsValue, RhsValue, Type},
 };
 use fnv::FnvBuildHasher;
@@ -51,10 +51,12 @@ pub enum FieldIndex {
     MapEach,
 }
 
-impl<'i> Lex<'i> for FieldIndex {
-    fn lex(input: &'i str) -> LexResult<'i, Self> {
-        if let Ok(input) = expect(input, "*") {
-            return Ok((FieldIndex::MapEach, input));
+impl<'i> LexWith<'i, bool> for FieldIndex {
+    fn lex_with(input: &'i str, allow_map_each: bool) -> LexResult<'i, Self> {
+        if allow_map_each {
+            if let Ok(input) = expect(input, "*") {
+                return Ok((FieldIndex::MapEach, input));
+            }
         }
 
         // The token inside an [] can be either an integer index into an Array
@@ -1482,15 +1484,15 @@ fn test_field_type_override() {
 
 #[test]
 fn test_field_lex_indexes() {
-    assert_ok!(FieldIndex::lex("0"), FieldIndex::ArrayIndex(0));
+    assert_ok!(FieldIndex::lex_with("0", true), FieldIndex::ArrayIndex(0));
     assert_err!(
-        FieldIndex::lex("-1"),
+        FieldIndex::lex_with("-1", true),
         LexErrorKind::ExpectedLiteral("expected positive integer as index"),
         "-1"
     );
 
     assert_ok!(
-        FieldIndex::lex("\"cookies\""),
+        FieldIndex::lex_with("\"cookies\"", true),
         FieldIndex::MapKey("cookies".into())
     );
 }

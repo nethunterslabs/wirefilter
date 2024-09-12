@@ -1,9 +1,10 @@
 use super::StrType;
 use crate::{
     lex::{expect, span, Lex, LexErrorKind, LexResult},
+    scheme::FieldIndex,
     strict_partial_ord::StrictPartialOrd,
 };
-pub use regex::Error;
+pub use regex::{bytes::Captures, Error};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cmp::Ordering,
@@ -16,6 +17,8 @@ use std::{
 pub struct Regex {
     /// Regex value.
     value: regex::bytes::Regex,
+    /// Capture Groups
+    pub(crate) capture_names: Vec<FieldIndex>,
     /// Type of string literal.
     pub(crate) ty: StrType,
 }
@@ -26,7 +29,23 @@ impl Regex {
         ::regex::bytes::RegexBuilder::new(s)
             .unicode(false)
             .build()
-            .map(|value| Self { value, ty })
+            .map(|value| {
+                let mut capture_names = Vec::new();
+
+                for name in value.capture_names() {
+                    if let Some(name) = name {
+                        capture_names.push(FieldIndex::MapKey(name.to_string()));
+                    } else {
+                        capture_names.push(FieldIndex::ArrayIndex(capture_names.len() as u32));
+                    }
+                }
+
+                Self {
+                    value,
+                    ty,
+                    capture_names,
+                }
+            })
     }
 
     /// Parses a regex from a string.
@@ -37,6 +56,11 @@ impl Regex {
     /// Returns true if and only if the regex matches the string given.
     pub fn is_match(&self, text: &[u8]) -> bool {
         self.value.is_match(text)
+    }
+
+    /// Returns an iterator of all non-overlapping matches of the regex in the text.
+    pub fn captures<'h>(&self, haystack: &'h [u8]) -> Option<Captures<'h>> {
+        self.value.captures(haystack)
     }
 
     /// Returns the original string of this regex.

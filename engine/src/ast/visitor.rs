@@ -1,5 +1,5 @@
 use super::{
-    field_expr::{ComparisonExpr, ComparisonOpExpr},
+    field_expr::{ComparisonExpr, ComparisonOpExpr, ScopedExtractedVariable},
     function_expr::{FunctionCallArgExpr, FunctionCallExpr},
     index_expr::IndexExpr,
     logical_expr::LogicalExpr,
@@ -79,6 +79,10 @@ pub trait Visitor<'s>: Sized {
     #[inline]
     fn visit_variable(&mut self, _: &Variable) {}
 
+    /// Visit [`ScopedExtractedVariable`] node.
+    #[inline]
+    fn visit_scoped_extracted_variable(&mut self, _: &ScopedExtractedVariable) {}
+
     // TODO: add visitor methods for literals?
 }
 
@@ -153,6 +157,10 @@ pub trait VisitorMut<'s>: Sized {
     /// Visit [`Variable`] node.
     #[inline]
     fn visit_variable(&mut self, _: &Variable) {}
+
+    /// Visit [`ScopedExtractedVariable`] node.
+    #[inline]
+    fn visit_scoped_extracted_variable(&mut self, _: &ScopedExtractedVariable) {}
 
     // TODO: add visitor methods for literals?
 }

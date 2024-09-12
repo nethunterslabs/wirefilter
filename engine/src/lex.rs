@@ -227,6 +227,10 @@ pub enum LexErrorKind {
     /// Non-exhaustive case patterns
     #[error("non-exhaustive case patterns")]
     NonExhaustiveCasePatterns,
+
+    /// Expected extract scoped expression
+    #[error("expected extract scoped expression")]
+    ExpectedExtractScopedExpression,
 }
 
 pub type LexError<'i> = (LexErrorKind, &'i str);
@@ -247,6 +251,16 @@ pub trait LexWith2<'i, E1, E2>: Sized {
 
 pub trait LexWith3<'i, E1, E2, E3>: Sized {
     fn lex_with_3(input: &'i str, extra1: E1, extra2: E2, extra3: E3) -> LexResult<'i, Self>;
+}
+
+pub trait LexWith4<'i, E1, E2, E3, E4>: Sized {
+    fn lex_with_4(
+        input: &'i str,
+        extra1: E1,
+        extra2: E2,
+        extra3: E3,
+        extra4: E4,
+    ) -> LexResult<'i, Self>;
 }
 
 // impl<'i, T: Lex<'i>, E> LexWith<'i, E> for T {

@@ -7,9 +7,9 @@ use wirefilter::{
     ByteSeparator, Bytes, CasePatternValue, Cases, ComparisonExpr, ComparisonOpExpr,
     ExplicitIpRange, Field, FieldIndex, FilterAst, FloatRange, Function, FunctionCallArgExpr,
     FunctionCallExpr, GetType, IndexExpr, IntOp, IntRange, IpRange, LhsFieldExpr, Like,
-    LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme,
-    SimpleExpr, SingleIndexExpr, SingleValueExprAst, StrType, Type, UnaryOp, UnknownVariableError,
-    Variable, Variables,
+    LogicalExpr, LogicalOp, OrderedFloat, OrderingOp, Regex, RhsValue, RhsValues, Scheme, Scope,
+    ScopedExtractedVariable, SimpleExpr, SingleIndexExpr, SingleValueExprAst, StrType, Type,
+    UnaryOp, UnknownVariableError, Variable, Variables,
 };
 
 use crate::ast::*;
@@ -691,6 +691,20 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
                 case_insensitive,
                 variant: 0,
             },
+            ComparisonOpExprBuilder::Extract { regex, expr } => ComparisonOpExpr::Extract {
+                regex: regex.build(scheme, variables)?,
+                scope: Scope::new(),
+                expr: Box::new(expr.build(scheme, variables)?),
+                variant: 0,
+            },
+            ComparisonOpExprBuilder::ExtractVariable { var, expr } => {
+                ComparisonOpExpr::ExtractVariable {
+                    var: var.build(scheme, variables)?,
+                    scope: Scope::new(),
+                    expr: Box::new(expr.build(scheme, variables)?),
+                    variant: 0,
+                }
+            }
         })
     }
 
@@ -783,6 +797,16 @@ impl<'s, 'v> AstBuilder<'s, 'v, ComparisonOpExpr<'s>> for ComparisonOpExprBuilde
                 var: VariableBuilder::parse_ast(var)?,
                 case_insensitive,
             },
+            ComparisonOpExpr::Extract { regex, expr, .. } => ComparisonOpExprBuilder::Extract {
+                regex: RegexBuilder::parse_ast(regex)?,
+                expr: Box::new(LogicalExprBuilder::parse_ast(*expr)?),
+            },
+            ComparisonOpExpr::ExtractVariable { var, expr, .. } => {
+                ComparisonOpExprBuilder::ExtractVariable {
+                    var: VariableBuilder::parse_ast(var)?,
+                    expr: Box::new(LogicalExprBuilder::parse_ast(*expr)?),
+                }
+            }
         })
     }
 }
@@ -947,6 +971,26 @@ impl<'s, 'v> AstBuilder<'s, 'v, FieldIndex> for FieldIndexBuilder {
     }
 }
 
+impl<'s, 'v> AstBuilder<'s, 'v, ScopedExtractedVariable> for ScopedExtractedVariableBuilder {
+    fn build(
+        self,
+        scheme: &'s Scheme,
+        variables: &'v Variables,
+    ) -> Result<ScopedExtractedVariable> {
+        Ok(ScopedExtractedVariable::with_scoped_var(
+            self.scoped_var,
+            self.index.build(scheme, variables)?,
+        ))
+    }
+
+    fn parse_ast(scoped_extracted_variable: ScopedExtractedVariable) -> Result<Self> {
+        Ok(Self {
+            scoped_var: scoped_extracted_variable.scoped_var,
+            index: FieldIndexBuilder::parse_ast(scoped_extracted_variable.index)?,
+        })
+    }
+}
+
 impl<'s, 'v> AstBuilder<'s, 'v, LhsFieldExpr<'s>> for LhsFieldExprBuilder {
     fn build(self, scheme: &'s Scheme, variables: &'v Variables) -> Result<LhsFieldExpr<'s>> {
         match self {
@@ -956,6 +1000,9 @@ impl<'s, 'v> AstBuilder<'s, 'v, LhsFieldExpr<'s>> for LhsFieldExprBuilder {
             LhsFieldExprBuilder::FunctionCallExpr(builder) => Ok(LhsFieldExpr::FunctionCallExpr(
                 builder.build(scheme, variables)?,
             )),
+            LhsFieldExprBuilder::ScopedExtractedVariable(builder) => Ok(
+                LhsFieldExpr::ScopedExtractedVariable(builder.build(scheme, variables)?),
+            ),
         }
     }
 
@@ -966,6 +1013,11 @@ impl<'s, 'v> AstBuilder<'s, 'v, LhsFieldExpr<'s>> for LhsFieldExprBuilder {
             }
             LhsFieldExpr::FunctionCallExpr(expr) => {
                 LhsFieldExprBuilder::FunctionCallExpr(FunctionCallExprBuilder::parse_ast(expr)?)
+            }
+            LhsFieldExpr::ScopedExtractedVariable(var) => {
+                LhsFieldExprBuilder::ScopedExtractedVariable(
+                    ScopedExtractedVariableBuilder::parse_ast(var)?,
+                )
             }
         })
     }
