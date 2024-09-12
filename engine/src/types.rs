@@ -612,6 +612,62 @@ impl VariableValue {
             _ => None,
         }
     }
+
+    /// Return the inner bytes of the VariableValue if it is Bytes.
+    pub fn as_bytes(&self) -> Option<Vec<u8>> {
+        match self {
+            VariableValue::Bytes(bytes) => Some(bytes.to_vec()),
+            _ => None,
+        }
+    }
+
+    /// Return as a string slice if it is Bytes.
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            VariableValue::Bytes(bytes) => std::str::from_utf8(bytes).ok(),
+            _ => None,
+        }
+    }
+
+    /// Return as a string if it is Bytes.
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            VariableValue::Bytes(bytes) => String::from_utf8(bytes.to_vec()).ok(),
+            _ => None,
+        }
+    }
+
+    /// Return as an i32 if it is Int.
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            VariableValue::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Return as an f64 if it is Float.
+    pub fn as_f64(&self) -> Option<OrderedFloat<f64>> {
+        match self {
+            VariableValue::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// Return as a bool if it is Bool.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            VariableValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Return as an IpAddr if it is Ip.
+    pub fn as_ip(&self) -> Option<IpAddr> {
+        match self {
+            VariableValue::Ip(ip) => Some(*ip),
+            _ => None,
+        }
+    }
 }
 
 impl CasePatternValue {
