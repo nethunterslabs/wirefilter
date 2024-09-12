@@ -1126,7 +1126,7 @@ impl<'s> LhsFieldExpr<'s> {
                 scoped_var, ..
             }) => CompiledValueExpr::new(move |_, _, state| {
                 if let Some(value) = state.get(&scoped_var) {
-                    Ok(value.clone().into_owned())
+                    Ok(value.as_lhs_value().unwrap())
                 } else {
                     Ok(LhsValue::default_value(Type::Bytes))
                 }
@@ -2093,7 +2093,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                                     if let Some(name) = pattern.capture_names.get(index) {
                                         state.insert(
                                             format!("{}:{:?}", scope, name),
-                                            LhsValue::Bytes(capture.as_bytes().to_vec().into()),
+                                            VariableValue::Bytes(capture.as_bytes().to_vec()),
                                         );
                                     }
                                 }
@@ -2127,7 +2127,7 @@ impl<'s> Expr<'s> for ComparisonExpr<'s> {
                                         if let Some(name) = pattern.capture_names.get(index) {
                                             state.insert(
                                                 format!("{}:{:?}", scope, name),
-                                                LhsValue::Bytes(capture.as_bytes().to_vec().into()),
+                                                VariableValue::Bytes(capture.as_bytes().to_vec()),
                                             );
                                         }
                                     }

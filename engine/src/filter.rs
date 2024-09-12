@@ -220,7 +220,7 @@ mod tests {
         functions::{
             FunctionArgKind, SimpleFunctionDefinition, SimpleFunctionImpl, SimpleFunctionParam,
         },
-        types::Type,
+        types::{Type, VariableValue},
     };
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
                     return_type: Type::Int,
                     implementation: SimpleFunctionImpl::new(|args, state| {
                         if let LhsValue::Int(arg) = args.next().unwrap().unwrap() {
-                            if let LhsValue::Int(secret_number) =
+                            if let VariableValue::Int(secret_number) =
                                 *state.get("secret-number").unwrap()
                             {
                                 return Some(LhsValue::Int(arg * secret_number));
@@ -344,7 +344,7 @@ mod tests {
                     return_type: Type::Int,
                     implementation: SimpleFunctionImpl::new(|args, state| {
                         if let LhsValue::Int(arg) = args.next().unwrap().unwrap() {
-                            let secret_number = if let LhsValue::Int(secret_number) =
+                            let secret_number = if let VariableValue::Int(secret_number) =
                                 *state.get("secret-number").unwrap()
                             {
                                 secret_number
@@ -354,7 +354,7 @@ mod tests {
 
                             state.insert(
                                 "secret-number".to_string(),
-                                LhsValue::Int(arg * secret_number),
+                                VariableValue::Int(arg * secret_number),
                             );
                             return Some(LhsValue::Int(arg * secret_number));
                         }
@@ -369,7 +369,7 @@ mod tests {
             .unwrap();
 
         let state = State::new();
-        state.insert("secret-number".to_string(), LhsValue::Int(42));
+        state.insert("secret-number".to_string(), VariableValue::Int(42));
 
         let single_value_expr = scheme
             .parse_single_value_expr("multiply_by_secret_number(foo)", &Default::default())
@@ -389,8 +389,8 @@ mod tests {
             Ok(LhsValue::Int(42 * 42))
         );
         assert_eq!(
-            state.get("secret-number").unwrap().as_ref(),
-            LhsValue::Int(42 * 42)
+            *state.get("secret-number").unwrap(),
+            VariableValue::Int(42 * 42)
         );
     }
 }

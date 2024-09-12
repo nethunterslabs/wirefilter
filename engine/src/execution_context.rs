@@ -121,11 +121,11 @@ impl IntoIterator for Variables {
 
 /// A state to be used to pass internal data to filters.
 ///
-/// It is a map of keys to [`LhsValue`](::LhsValue) that can be used to pass data
+/// It is a map of keys to [`VariableValue`](::VariableValue) that can be used to pass data
 /// to functions that aren't part of the execution context.
 #[derive(Debug, Default)]
 pub struct State {
-    map: DashMap<String, LhsValue<'static>>,
+    map: DashMap<String, VariableValue>,
 }
 
 impl State {
@@ -137,12 +137,12 @@ impl State {
     }
 
     /// Inserts a value into the state.
-    pub fn insert(&self, key: String, value: LhsValue<'static>) {
+    pub fn insert(&self, key: String, value: VariableValue) {
         self.map.insert(key, value);
     }
 
     /// Gets a value from the state.
-    pub fn get(&self, key: &str) -> Option<Ref<'_, String, LhsValue<'static>>> {
+    pub fn get(&self, key: &str) -> Option<Ref<'_, String, VariableValue>> {
         self.map.get(key)
     }
 
@@ -153,7 +153,7 @@ impl State {
 
     /// Removes a value from the state.
     /// Returns the value if it was present in the state.
-    pub fn remove(&self, key: &str) -> Option<LhsValue<'static>> {
+    pub fn remove(&self, key: &str) -> Option<VariableValue> {
         self.map.remove(key).map(|(_, v)| v)
     }
 

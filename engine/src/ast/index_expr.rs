@@ -280,7 +280,7 @@ impl<'s> IndexExpr<'s> {
                 if indexes.is_empty() {
                     CompiledOneExpr::new(move |ctx, variables, state| {
                         if let Some(value) = state.get(&var.scoped_var) {
-                            func(&value.as_ref(), ctx, variables, state)
+                            func(&value.as_lhs_value().unwrap(), ctx, variables, state)
                         } else {
                             default
                         }

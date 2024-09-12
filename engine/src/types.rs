@@ -941,6 +941,18 @@ impl<'a> LhsValue<'a> {
         }
     }
 
+    /// Converts the value to a `VariableValue`.
+    pub fn as_variable_value(self) -> Option<VariableValue> {
+        match self {
+            LhsValue::Bool(b) => Some(VariableValue::Bool(b)),
+            LhsValue::Int(i) => Some(VariableValue::Int(i)),
+            LhsValue::Float(f) => Some(VariableValue::Float(f)),
+            LhsValue::Bytes(b) => Some(VariableValue::Bytes(b.into_owned())),
+            LhsValue::Ip(ip) => Some(VariableValue::Ip(ip)),
+            _ => None,
+        }
+    }
+
     /// Return the inner bytes of the LhsValue if it is Bytes.
     pub fn as_bytes(self) -> Result<Vec<u8>, LhsValueAsError> {
         match self {
